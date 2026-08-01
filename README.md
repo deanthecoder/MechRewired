@@ -1,3 +1,5 @@
+[![Twitter URL](https://img.shields.io/twitter/url/https/twitter.com/deanthecoder.svg?style=social&label=Follow%20%40deanthecoder)](https://twitter.com/deanthecoder) [![GitHub Repo stars](https://img.shields.io/github/stars/deanthecoder/Wolfenshine?style=social&label=Star)](https://github.com/deanthecoder/Wolfenshine/stargazers)
+
 # MechRewired
 
 **A modern, cross-platform reimplementation of the classic MechWarrior 2 combat experience.**
@@ -45,14 +47,14 @@ That directory is ignored by Git apart from its README.
 
 Requirements:
 
-- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) (the projects target .NET 8 for Godot compatibility)
+- [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0) (the projects target .NET 8 for Godot compatibility)
 - [Godot 4.7.1 .NET](https://godotengine.org/download/archive/4.7.1-stable/)
 
 Restore, build and test the managed projects:
 
 ```shell
-dotnet restore MechRewired.slnx
-dotnet build MechRewired.slnx --no-restore
+dotnet restore MechRewired.sln
+dotnet build MechRewired.sln --no-restore
 dotnet test MechRewired.Tests/MechRewired.Tests.csproj --no-build
 ```
 

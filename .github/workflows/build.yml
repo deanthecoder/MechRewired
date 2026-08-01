@@ -17,13 +17,13 @@ jobs:
 
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: 10.0.x
+          dotnet-version: 9.0.x
 
       - name: Restore
-        run: dotnet restore MechRewired.slnx
+        run: dotnet restore MechRewired.sln
 
       - name: Build
-        run: dotnet build MechRewired.slnx --configuration Release --no-restore
+        run: dotnet build MechRewired.sln --configuration Release --no-restore
 
       - name: Test
         run: dotnet test MechRewired.Tests/MechRewired.Tests.csproj --configuration Release --no-build

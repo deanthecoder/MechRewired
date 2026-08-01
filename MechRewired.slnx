@@ -1,6 +1,0 @@
-<Solution>
-  <Project Path="MechRewired.Core/MechRewired.Core.csproj" />
-  <Project Path="MechRewired/MechRewired.csproj" />
-  <Project Path="MechRewired.Tests/MechRewired.Tests.csproj" />
-</Solution>
-
