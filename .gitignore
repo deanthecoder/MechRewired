@@ -20,6 +20,7 @@ export_credentials.cfg
 *.userosscache
 *.sln.docstates
 *.DotSettings.user
+*.csproj.old
 .DS_Store
 
 # Local reference material and copyrighted original game data
@@ -34,4 +35,3 @@ export_credentials.cfg
 *.dmg
 *.exe
 *.zip
-
