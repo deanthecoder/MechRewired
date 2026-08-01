@@ -1,0 +1,37 @@
+# .NET build output
+**/bin/
+**/obj/
+artifacts/
+TestResults/
+*.trx
+
+# Godot-generated files
+.godot/
+**/.godot/
+export.cfg
+export_credentials.cfg
+
+# IDE and user state
+.idea/
+.vs/
+.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.DotSettings.user
+.DS_Store
+
+# Local reference material and copyrighted original game data
+/local/*
+!/local/game-data/
+/local/game-data/*
+!/local/game-data/README.md
+
+# Local builds and packages
+/dist/
+/releases/
+*.dmg
+*.exe
+*.zip
+

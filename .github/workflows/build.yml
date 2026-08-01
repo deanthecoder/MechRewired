@@ -1,0 +1,29 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore MechRewired.slnx
+
+      - name: Build
+        run: dotnet build MechRewired.slnx --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test MechRewired.Tests/MechRewired.Tests.csproj --configuration Release --no-build

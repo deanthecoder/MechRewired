@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>MechRewired.Core</AssemblyName>
+    <RootNamespace>MechRewired</RootNamespace>
+  </PropertyGroup>
+</Project>
+

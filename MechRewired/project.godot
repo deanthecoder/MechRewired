@@ -1,0 +1,33 @@
+; Engine configuration file.
+; Edit through Godot where possible: some parameters are not self-explanatory.
+
+config_version=5
+
+[application]
+
+config/name="MechRewired"
+run/main_scene="res://Main.tscn"
+config/features=PackedStringArray("4.7", "C#", "GL Compatibility")
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/size/window_width_override=1280
+window/size/window_height_override=720
+window/stretch/mode="canvas_items"
+
+[dotnet]
+
+project/assembly_name="MechRewired"
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+textures/default_filters/use_nearest_mipmap_filter=false
+
+[xr]
+
+openxr/enabled=false
+
