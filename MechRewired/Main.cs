@@ -22,21 +22,24 @@ namespace MechRewired;
 public partial class Main : Node3D
 {
     private const float ImplicitGroundHeight = -0.25f;
+    private const int SkyTopPaletteIndex = 224;
+    private const int SkyHorizonPaletteIndex = 238;
     private const string PalettePath = "PAL/YELL_DA.COL";
     private const string LevelPath = "BWD/YELLWLD1.BWD";
+    private const string PlanetPath = "BWD/YELLPLT1.BWD";
     private const string LevelAreaPrefix = "YELLARE";
 
     public override void _Ready()
     {
         GD.Print("MechRewired: reactor online.");
-        if (!TryLoadGameData(out var archive, out var palette, out var modelParts, out var level))
+        if (!TryLoadGameData(out var archive, out var palette, out var modelParts, out var level, out var planet))
         {
             return;
         }
 
         try
         {
-            BuildScene(archive, palette, modelParts, level);
+            BuildScene(archive, palette, modelParts, level, planet);
         }
         catch (Exception exception)
         {
@@ -48,12 +51,14 @@ public partial class Main : Node3D
         out MechWarriorProjectArchive archive,
         out MechWarriorPalette palette,
         out IReadOnlyList<(MechWarriorModelPartDefinition Definition, MechWarriorModel Model)> modelParts,
-        out MechWarriorLevel level)
+        out MechWarriorLevel level,
+        out MechWarriorWorldFile planet)
     {
         archive = null;
         palette = null;
         modelParts = null;
         level = null;
+        planet = null;
         try
         {
             var projectDirectory = new DirectoryInfo(ProjectSettings.GlobalizePath("res://"));
@@ -82,6 +87,14 @@ public partial class Main : Node3D
             }
 
             modelParts = loadedParts.AsReadOnly();
+            var planetEntry = archive.GetEntry(PlanetPath);
+            planet = MechWarriorWorldFile.Load(archive.ReadEntry(planetEntry));
+            GD.Print(
+                $"MechRewired: loaded {planetEntry.Path} (time {planet.TimeOfDay}; " +
+                $"ambient {planet.Lighting?.AmbientLevel}; light type {planet.Lighting?.Type}; " +
+                $"light at {planet.Lighting?.Position}; shade distance {planet.Lighting?.ShadeDistance:F2}; " +
+                $"luma {planet.LuminosityTable}).");
+
             level = MechWarriorLevel.Load(
                 archive,
                 LevelPath,
@@ -124,29 +137,54 @@ public partial class Main : Node3D
         MechWarriorProjectArchive archive,
         MechWarriorPalette palette,
         IReadOnlyList<(MechWarriorModelPartDefinition Definition, MechWarriorModel Model)> modelParts,
-        MechWarriorLevel level)
+        MechWarriorLevel level,
+        MechWarriorWorldFile planet)
     {
+        var skyTopColor = ToGodotColor(palette[SkyTopPaletteIndex]);
+        var skyHorizonColor = ToGodotColor(palette[SkyHorizonPaletteIndex]);
+        var groundColor = ToGodotColor(palette[77]);
+        var skyMaterial = new ProceduralSkyMaterial
+        {
+            SkyTopColor = skyTopColor,
+            SkyHorizonColor = skyHorizonColor,
+            SkyCurve = 0.35f,
+            GroundBottomColor = groundColor,
+            GroundHorizonColor = skyHorizonColor,
+            GroundCurve = 0.2f,
+            SunAngleMax = 1.5f,
+            SunCurve = 0.08f,
+            UseDebanding = true
+        };
+        var ambientEnergy = Math.Clamp((planet.Lighting?.AmbientLevel ?? 128) / 256.0f, 0.35f, 1.0f);
         var environment = new WorldEnvironment
         {
             Environment = new Godot.Environment
             {
-                BackgroundMode = Godot.Environment.BGMode.Color,
-                BackgroundColor = new Color("365273"),
+                BackgroundMode = Godot.Environment.BGMode.Sky,
+                Sky = new Sky
+                {
+                    SkyMaterial = skyMaterial
+                },
                 AmbientLightSource = Godot.Environment.AmbientSource.Color,
-                AmbientLightColor = new Color("b8c5d6"),
-                AmbientLightEnergy = 0.8f
+                AmbientLightColor = skyHorizonColor,
+                AmbientLightEnergy = ambientEnergy
             }
         };
         AddChild(environment);
 
+        var sunElevation = GetSunElevation(planet.TimeOfDay);
         var light = new DirectionalLight3D
         {
-            RotationDegrees = new Vector3(-55.0f, -25.0f, 0.0f),
-            LightColor = new Color("fff2d2"),
+            RotationDegrees = new Vector3(-sunElevation, -25.0f, 0.0f),
+            LightColor = ToGodotColor(palette[17]),
             LightEnergy = 1.6f,
             ShadowEnabled = true
         };
         AddChild(light);
+        GD.Print(
+            $"MechRewired: rendered Pyre Light atmosphere (time {planet.TimeOfDay}; " +
+            $"palette sky {SkyTopPaletteIndex}-{SkyHorizonPaletteIndex}; ambient {ambientEnergy:F2}; " +
+            $"sun elevation {sunElevation:F1} degrees).");
 
         var levelRoot = new Node3D
         {
@@ -359,6 +397,23 @@ public partial class Main : Node3D
     }
 
     private static Vector3 ToGodot(System.Numerics.Vector3 vector) => new(vector.X, vector.Y, vector.Z);
+
+    private static Color ToGodotColor(DTC.Core.Rgb color) =>
+        new(color.R / 255.0f, color.G / 255.0f, color.B / 255.0f);
+
+    private static float GetSunElevation(int? militaryTime)
+    {
+        if (!militaryTime.HasValue)
+        {
+            return 45.0f;
+        }
+
+        var hours = militaryTime.Value / 100;
+        var minutes = militaryTime.Value % 100;
+        var solarTime = hours + minutes / 60.0f;
+        var daylightProgress = Math.Clamp((solarTime - 6.0f) / 12.0f, 0.0f, 1.0f);
+        return 10.0f + MathF.Sin(daylightProgress * MathF.PI) * 55.0f;
+    }
 
     private static void AddDebugTriangles(
         ICollection<DebugTriangle> triangles,

@@ -29,11 +29,17 @@ public sealed class MechWarriorWorldFile
     private MechWarriorWorldFile(
         IReadOnlyList<MechWarriorWorldInclude> includes,
         IReadOnlyList<MechWarriorWorldObject> objects,
-        IReadOnlyList<MechWarriorWorldEntity> entities)
+        IReadOnlyList<MechWarriorWorldEntity> entities,
+        int? timeOfDay,
+        MechWarriorWorldLighting lighting,
+        string luminosityTable)
     {
         Includes = includes;
         Objects = objects;
         Entities = entities;
+        TimeOfDay = timeOfDay;
+        Lighting = lighting;
+        LuminosityTable = luminosityTable;
     }
 
     public IReadOnlyList<MechWarriorWorldInclude> Includes { get; }
@@ -41,6 +47,12 @@ public sealed class MechWarriorWorldFile
     public IReadOnlyList<MechWarriorWorldObject> Objects { get; }
 
     public IReadOnlyList<MechWarriorWorldEntity> Entities { get; }
+
+    public int? TimeOfDay { get; }
+
+    public MechWarriorWorldLighting Lighting { get; }
+
+    public string LuminosityTable { get; }
 
     /// <summary>
     /// Decodes one BWD payload, applying an optional transform supplied by its parent include.
@@ -58,6 +70,9 @@ public sealed class MechWarriorWorldFile
         var objects = new List<MechWarriorWorldObject>();
         var entities = new List<MechWarriorWorldEntity>();
         var localTransforms = new Dictionary<int, MechWarriorWorldTransform>();
+        int? timeOfDay = null;
+        MechWarriorWorldLighting lighting = null;
+        string luminosityTable = null;
         var blockTransform = MechWarriorWorldTransform.Identity;
         var offset = TagOffset;
         while (offset < data.Length)
@@ -116,12 +131,40 @@ public sealed class MechWarriorWorldFile
                         ReadUInt16(data, offset + 24),
                         ReadAscii(data, offset + 32, tagSize - 32)));
                     break;
+
+                case "INIT":
+                    EnsureTagSize(tagName, tagSize, 28);
+                    timeOfDay = ReadInt32(data, offset + 16);
+                    break;
+
+                case "LITE":
+                    EnsureTagSize(tagName, tagSize, 40);
+                    lighting = new MechWarriorWorldLighting(
+                        new Vector3(
+                            ReadInt32(data, offset + 16) * TranslationScale,
+                            ReadInt32(data, offset + 20) * TranslationScale,
+                            ReadInt32(data, offset + 24) * TranslationScale),
+                        ReadUInt16(data, offset + 28),
+                        ReadUInt16(data, offset + 30),
+                        ReadInt32(data, offset + 32) * TranslationScale);
+                    break;
+
+                case "LTBL":
+                    EnsureTagSize(tagName, tagSize, 18);
+                    luminosityTable = ReadAscii(data, offset + 10, 8);
+                    break;
             }
 
             offset += tagSize;
         }
 
-        return new MechWarriorWorldFile(includes.AsReadOnly(), objects.AsReadOnly(), entities.AsReadOnly());
+        return new MechWarriorWorldFile(
+            includes.AsReadOnly(),
+            objects.AsReadOnly(),
+            entities.AsReadOnly(),
+            timeOfDay,
+            lighting,
+            luminosityTable);
     }
 
     private static MechWarriorWorldTransform ReadTransform(

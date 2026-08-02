@@ -82,6 +82,26 @@ public sealed class MechWarriorWorldFileTests
     }
 
     [Test]
+    public void LoadReadsPlanetLightingConfiguration()
+    {
+        var data = WriteWorld(writer =>
+        {
+            WriteTimeOfDayTag(writer, 1500);
+            WriteLightingTag(writer, new Vector3(100.0f, 250.0f, -50.0f), 96, 1, 1500.0f);
+            WriteLuminosityTableTag(writer, "FOG");
+        });
+
+        var world = MechWarriorWorldFile.Load(data);
+
+        Assert.That(world.TimeOfDay, Is.EqualTo(1500));
+        Assert.That(world.Lighting.Position, Is.EqualTo(new Vector3(100.0f, 250.0f, -50.0f)));
+        Assert.That(world.Lighting.AmbientLevel, Is.EqualTo(96));
+        Assert.That(world.Lighting.Type, Is.EqualTo(1));
+        Assert.That(world.Lighting.ShadeDistance, Is.EqualTo(1500.0f));
+        Assert.That(world.LuminosityTable, Is.EqualTo("FOG"));
+    }
+
+    [Test]
     public void LoadRejectsATagThatExtendsPastTheResource()
     {
         var data = WriteWorld(writer =>
@@ -170,6 +190,41 @@ public sealed class MechWarriorWorldFileTests
         writer.Write(new byte[6]);
         writer.Write(descriptionBytes);
         writer.Write((byte)0);
+    }
+
+    private static void WriteTimeOfDayTag(BinaryWriter writer, int timeOfDay)
+    {
+        WriteFixedAscii(writer, "INIT", 4);
+        writer.Write(28);
+        writer.Write(new byte[8]);
+        writer.Write(timeOfDay);
+        writer.Write(new byte[8]);
+    }
+
+    private static void WriteLightingTag(
+        BinaryWriter writer,
+        Vector3 position,
+        ushort ambientLevel,
+        ushort type,
+        float shadeDistance)
+    {
+        WriteFixedAscii(writer, "LITE", 4);
+        writer.Write(40);
+        writer.Write(new byte[8]);
+        WriteVector(writer, position, 100.0f);
+        writer.Write(ambientLevel);
+        writer.Write(type);
+        writer.Write((int)(shadeDistance * 100.0f));
+        writer.Write(1);
+    }
+
+    private static void WriteLuminosityTableTag(BinaryWriter writer, string name)
+    {
+        WriteFixedAscii(writer, "LTBL", 4);
+        writer.Write(24);
+        writer.Write((short)1);
+        WriteFixedAscii(writer, name, 8);
+        writer.Write(new byte[6]);
     }
 
     private static void WriteVector(BinaryWriter writer, Vector3 vector, float scale)

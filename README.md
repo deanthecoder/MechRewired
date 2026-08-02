@@ -10,7 +10,7 @@ The immediate goal is intentionally narrow: load original game data, enter a bat
 
 ## Project status
 
-MechRewired reads the original DOS project archive, palettes, WTB model geometry and BWD world placement data. It currently assembles the highest-detail Timber Wolf; renders Pyre Light's terrain, scenery and ground-settled wreckage; and identifies gameplay actors and their alternate destroyed representations. It does not yet implement gameplay.
+MechRewired reads the original DOS project archive, palettes, WTB model geometry and BWD world placement data. It currently assembles the highest-detail Timber Wolf; renders Pyre Light's terrain, palette-derived atmosphere, scenery and ground-settled wreckage; and identifies gameplay actors and their alternate destroyed representations. It does not yet implement gameplay.
 
 The first vertical slice will establish:
 
