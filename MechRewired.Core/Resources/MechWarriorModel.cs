@@ -128,7 +128,10 @@ public sealed class MechWarriorModel
                 indices[vertexIndex] = index;
             }
 
-            polygons[polygonIndex] = new MechWarriorModelPolygon(data[offset], Array.AsReadOnly(indices));
+            polygons[polygonIndex] = new MechWarriorModelPolygon(
+                data[offset],
+                data[offset + 1],
+                Array.AsReadOnly(indices));
             offset += polygonSize;
         }
 

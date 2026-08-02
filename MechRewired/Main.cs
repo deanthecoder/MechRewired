@@ -21,22 +21,31 @@ namespace MechRewired;
 /// </remarks>
 public partial class Main : Node3D
 {
-    private const string DiagnosticModelPath = "POLY/BM1_HIPS.WTB";
-    private const string DiagnosticPalettePath = "PAL/BROWN_DA.COL";
+    private const string ModelPath = "POLY/BM1_HIPS.WTB";
+    private const string PalettePath = "PAL/BROWN_DA.COL";
 
     public override void _Ready()
     {
         GD.Print("MechRewired: reactor online.");
-        if (!CheckGameData())
+        if (!TryLoadGameData(out var palette, out var model))
         {
             return;
         }
 
-        BuildPlaceholderScene();
+        try
+        {
+            BuildModelScene(model, palette);
+        }
+        catch (Exception exception)
+        {
+            GD.PushError($"MechRewired cannot render the model: {exception.Message}");
+        }
     }
 
-    private static bool CheckGameData()
+    private static bool TryLoadGameData(out MechWarriorPalette palette, out MechWarriorModel model)
     {
+        palette = null;
+        model = null;
         try
         {
             var projectDirectory = new DirectoryInfo(ProjectSettings.GlobalizePath("res://"));
@@ -49,12 +58,12 @@ public partial class Main : Node3D
                 $"MechRewired: indexed {archive.Entries.Count:N0} resources from {projectArchive.Name} " +
                 $"({projectArchive.Length:N0} bytes).");
 
-            var paletteEntry = archive.GetEntry(DiagnosticPalettePath);
-            var palette = MechWarriorPalette.Load(archive.ReadEntry(paletteEntry));
+            var paletteEntry = archive.GetEntry(PalettePath);
+            palette = MechWarriorPalette.Load(archive.ReadEntry(paletteEntry));
             GD.Print($"MechRewired: loaded {paletteEntry.Path} ({palette.Colors.Count} colors).");
 
-            var modelEntry = archive.GetEntry(DiagnosticModelPath);
-            var model = MechWarriorModel.Load(archive.ReadEntry(modelEntry));
+            var modelEntry = archive.GetEntry(ModelPath);
+            model = MechWarriorModel.Load(archive.ReadEntry(modelEntry));
             GD.Print(
                 $"MechRewired: loaded {modelEntry.Path} (subtype {model.Subtype}, {model.Vertices.Count} vertices, " +
                 $"{model.Polygons.Count} polygons).");
@@ -67,7 +76,7 @@ public partial class Main : Node3D
         }
     }
 
-    private void BuildPlaceholderScene()
+    private void BuildModelScene(MechWarriorModel model, MechWarriorPalette palette)
     {
         var environment = new WorldEnvironment
         {
@@ -99,34 +108,36 @@ public partial class Main : Node3D
             },
             MaterialOverride = new StandardMaterial3D
             {
-                AlbedoColor = new Color("663d2d"),
+                AlbedoColor = new Color("343940"),
                 Roughness = 0.92f
             }
         };
         AddChild(ground);
 
-        var marker = new MeshInstance3D
+        var renderMesh = MechWarriorModelMeshBuilder.Build(model, palette);
+        var modelInstance = new MeshInstance3D
         {
-            Position = new Vector3(0.0f, 1.5f, -8.0f),
-            Mesh = new BoxMesh
-            {
-                Size = new Vector3(2.0f, 3.0f, 1.5f)
-            },
-            MaterialOverride = new StandardMaterial3D
-            {
-                AlbedoColor = new Color("77856f"),
-                Metallic = 0.55f,
-                Roughness = 0.48f
-            }
+            Mesh = renderMesh
         };
-        AddChild(marker);
+        var bounds = renderMesh.GetAabb();
+        modelInstance.Position = new Vector3(0.0f, -bounds.Position.Y, 0.0f);
+        AddChild(modelInstance);
 
+        var triangleCount = model.Polygons.Sum(polygon => polygon.VertexIndices.Count - 2);
+        GD.Print(
+            $"MechRewired: built render mesh for {ModelPath} ({triangleCount} triangles, " +
+            $"scale {MechWarriorModelMeshBuilder.SourceUnitScale}).");
+
+        var target = modelInstance.Position + bounds.GetCenter();
+        var modelSize = Math.Max(bounds.Size.X, Math.Max(bounds.Size.Y, bounds.Size.Z));
+        var cameraDistance = Math.Max(modelSize * 1.3f, 1.0f);
+        var cameraDirection = new Vector3(1.0f, 0.55f, 1.35f).Normalized();
         var camera = new Camera3D
         {
-            Position = new Vector3(0.0f, 4.0f, 10.0f),
+            Position = target + cameraDirection * cameraDistance,
             Current = true
         };
-        camera.LookAtFromPosition(camera.Position, new Vector3(0.0f, 1.5f, -8.0f));
+        camera.LookAtFromPosition(camera.Position, target);
         AddChild(camera);
     }
 }

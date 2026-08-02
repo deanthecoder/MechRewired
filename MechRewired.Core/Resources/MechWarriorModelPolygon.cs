@@ -11,9 +11,13 @@
 namespace MechRewired.Resources;
 
 /// <summary>
-/// Describes one polygon and its source material index from a MechWarrior 2 WTB model.
+/// Describes one polygon and its source material selectors from a MechWarrior 2 WTB model.
 /// </summary>
 /// <remarks>
+/// The palette index supplies DOS flat shading. The material index selects textured-edition material data.
 /// Vertex indices preserve the source winding; coordinate-system conversion belongs to the rendering host.
 /// </remarks>
-public sealed record MechWarriorModelPolygon(byte MaterialIndex, IReadOnlyList<int> VertexIndices);
+public sealed record MechWarriorModelPolygon(
+    byte MaterialIndex,
+    byte PaletteIndex,
+    IReadOnlyList<int> VertexIndices);

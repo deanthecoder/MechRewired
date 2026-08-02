@@ -38,6 +38,7 @@ public sealed class MechWarriorModelTests
         Assert.That(model.Vertices[1].Position, Is.EqualTo(new Vector3(100, -50, 25)));
         Assert.That(model.Vertices[1].TextureCoordinate, Is.EqualTo(new Vector2(4, -3)));
         Assert.That(model.Polygons[0].MaterialIndex, Is.EqualTo(34));
+        Assert.That(model.Polygons[0].PaletteIndex, Is.EqualTo(120));
         Assert.That(model.Polygons[0].VertexIndices, Is.EqualTo(new[] { 0, 1, 2, 3 }));
     }
 
@@ -91,6 +92,7 @@ public sealed class MechWarriorModelTests
         }
 
         data[polygonOffset] = 34;
+        data[polygonOffset + 1] = 120;
         BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(polygonOffset + polygonVertexCountOffset), vertexCount);
         for (var index = 0; index < vertexCount; index++)
         {
