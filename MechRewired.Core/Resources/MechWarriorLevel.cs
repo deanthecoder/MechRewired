@@ -76,7 +76,7 @@ public sealed class MechWarriorLevel
             foreach (var worldObject in world.Objects)
             {
                 var modelEntry = archive.GetEntry("POLY", worldObject.ModelResourceIndex);
-                objects.Add(new MechWarriorLevelObject(modelEntry, worldObject.Transform));
+                objects.Add(new MechWarriorLevelObject(worldObject.Id, modelEntry, worldObject.Transform));
             }
 
             foreach (var include in world.Includes)

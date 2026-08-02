@@ -66,6 +66,15 @@ dotnet test MechRewired.Tests/MechRewired.Tests.csproj --no-build
 
 Open `MechRewired/project.godot` with the .NET edition of Godot to run the application.
 
+The current battlefield inspection controls are:
+
+- Click the viewport to capture the mouse and enable mouse-look.
+- Use <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> to fly and <kbd>Q</kbd>/<kbd>E</kbd> to descend/ascend.
+- Hold <kbd>Shift</kbd> for a speed boost and press <kbd>Escape</kbd> to release the mouse.
+- Press <kbd>F1</kbd> to toggle wireframe rendering or <kbd>F2</kbd> to toggle unshaded rendering.
+- Press <kbd>F3</kbd> to log the debug camera's transform and its nearest rendered-triangle ray hit.
+- The on-screen **Debug** menu provides the same rendering diagnostics when function keys are unavailable.
+
 ## VR
 
 Godot supports OpenXR and Meta Quest devices. VR is not part of the first playable milestone, but the cockpit camera and input layers will be designed so a Quest mode can be added without changing the simulation. Desktop OpenXR streaming and a native Quest build are both potential targets.

@@ -21,6 +21,7 @@ namespace MechRewired;
 /// </remarks>
 public partial class Main : Node3D
 {
+    private const float ImplicitGroundHeight = -0.25f;
     private const string PalettePath = "PAL/YELL_DA.COL";
     private const string LevelPath = "BWD/YELLWLD1.BWD";
     private const string LevelAreaPrefix = "YELLARE";
@@ -113,7 +114,7 @@ public partial class Main : Node3D
             Environment = new Godot.Environment
             {
                 BackgroundMode = Godot.Environment.BGMode.Color,
-                BackgroundColor = new Color("10141d"),
+                BackgroundColor = new Color("365273"),
                 AmbientLightSource = Godot.Environment.AmbientSource.Color,
                 AmbientLightColor = new Color("b8c5d6"),
                 AmbientLightEnergy = 0.8f
@@ -137,7 +138,11 @@ public partial class Main : Node3D
         AddChild(levelRoot);
 
         var meshCache = new Dictionary<string, IReadOnlyList<ArrayMesh>>(StringComparer.OrdinalIgnoreCase);
+        var wireframeCache = new Dictionary<string, IReadOnlyList<ArrayMesh>>(StringComparer.OrdinalIgnoreCase);
+        var modelCache = new Dictionary<string, IReadOnlyList<MechWarriorModel>>(StringComparer.OrdinalIgnoreCase);
         var terrainTopPoints = new Dictionary<string, Vector3>(StringComparer.OrdinalIgnoreCase);
+        var terrainPaletteCounts = new Dictionary<byte, int>();
+        var debugTriangles = new List<DebugTriangle>();
         var worldBounds = new Aabb();
         var hasWorldBounds = false;
         var renderedInstanceCount = 0;
@@ -149,22 +154,44 @@ public partial class Main : Node3D
                 try
                 {
                     var models = MechWarriorModel.LoadAll(archive.ReadEntry(levelObject.ModelEntry));
-                    meshes = models.Select(model => MechWarriorModelMeshBuilder.Build(model, palette)).ToArray();
-                    var highestVertex = models
+                    var highestDetailIndex = Enumerable.Range(0, models.Count)
+                        .MaxBy(index => models[index].Polygons.Count);
+                    var highestDetailModels = new[] { models[highestDetailIndex] };
+                    modelCache.Add(levelObject.ModelEntry.Path, highestDetailModels);
+                    meshes = highestDetailModels
+                        .Select(model => MechWarriorModelMeshBuilder.Build(model, palette))
+                        .ToArray();
+                    wireframeCache.Add(
+                        levelObject.ModelEntry.Path,
+                        highestDetailModels.Select(MechWarriorModelMeshBuilder.BuildWireframe).ToArray());
+                    var highestVertex = highestDetailModels
                         .SelectMany(model => model.Vertices)
                         .MaxBy(vertex => vertex.Position.Y);
                     terrainTopPoints.Add(
                         levelObject.ModelEntry.Path,
                         ToGodot(highestVertex.Position) * MechWarriorModelMeshBuilder.SourceUnitScale);
+                    if (levelObject.ModelEntry.Name.StartsWith("T_", StringComparison.OrdinalIgnoreCase))
+                    {
+                        foreach (var polygon in highestDetailModels.SelectMany(model => model.Polygons))
+                        {
+                            terrainPaletteCounts.TryGetValue(polygon.PaletteIndex, out var usageCount);
+                            terrainPaletteCounts[polygon.PaletteIndex] = usageCount + polygon.VertexIndices.Count - 2;
+                        }
+                    }
                     GD.Print(
-                        $"MechRewired: loaded {levelObject.ModelEntry.Path} ({models.Count} model objects, " +
-                        $"{models.Sum(model => model.Vertices.Count)} vertices, " +
-                        $"{models.Sum(model => model.Polygons.Count)} polygons).");
+                        $"MechRewired: loaded {levelObject.ModelEntry.Path} ({models.Count} LODs; " +
+                        $"rendering LOD {highestDetailIndex}, {highestDetailModels[0].Vertices.Count} vertices, " +
+                        $"{highestDetailModels[0].Polygons.Count} polygons).");
                 }
                 catch (InvalidDataException exception)
                 {
                     meshes = Array.Empty<ArrayMesh>();
-                    GD.PushWarning($"MechRewired: skipped unsupported {levelObject.ModelEntry.Path}: {exception.Message}");
+                    modelCache.Add(levelObject.ModelEntry.Path, Array.Empty<MechWarriorModel>());
+                    wireframeCache.Add(levelObject.ModelEntry.Path, Array.Empty<ArrayMesh>());
+                    var objectPosition = levelObject.Transform.Translation;
+                    GD.PushWarning(
+                        $"MechRewired: skipped unsupported {levelObject.ModelEntry.Path} object {levelObject.Id} at " +
+                        $"({objectPosition.X:F2}, {objectPosition.Y:F2}, {objectPosition.Z:F2}): {exception.Message}");
                 }
 
                 meshCache.Add(levelObject.ModelEntry.Path, meshes);
@@ -184,13 +211,26 @@ public partial class Main : Node3D
                 Scale = ToGodot(levelObject.Transform.Scale)
             };
             levelRoot.AddChild(objectRoot);
-            foreach (var mesh in meshes)
+            var wireframes = wireframeCache[levelObject.ModelEntry.Path];
+            for (var meshIndex = 0; meshIndex < meshes.Count; meshIndex++)
             {
-                objectRoot.AddChild(new MeshInstance3D
+                var solidInstance = new MeshInstance3D
                 {
-                    Mesh = mesh
-                });
+                    Mesh = meshes[meshIndex]
+                };
+                objectRoot.AddChild(solidInstance);
+                solidInstance.AddToGroup(DebugCamera.SolidMeshGroup);
+
+                var wireframeInstance = new MeshInstance3D
+                {
+                    Mesh = wireframes[meshIndex],
+                    Visible = false
+                };
+                objectRoot.AddChild(wireframeInstance);
+                wireframeInstance.AddToGroup(DebugCamera.WireframeMeshGroup);
             }
+
+            AddDebugTriangles(debugTriangles, levelObject, objectRoot.Transform, modelCache[levelObject.ModelEntry.Path]);
 
             if (mechSpawn == null && levelObject.ModelEntry.Name.StartsWith("T_", StringComparison.OrdinalIgnoreCase))
             {
@@ -206,6 +246,8 @@ public partial class Main : Node3D
         GD.Print(
             $"MechRewired: rendered Pyre Light world ({renderedInstanceCount} instances, " +
             $"{meshCache.Count} unique models).");
+
+        AddImplicitGround(levelRoot, worldBounds, terrainPaletteCounts, palette, debugTriangles);
 
         var mech = new Node3D
         {
@@ -228,6 +270,17 @@ public partial class Main : Node3D
                 Position = partPosition
             };
             mech.AddChild(modelInstance);
+            modelInstance.AddToGroup(DebugCamera.SolidMeshGroup);
+
+            var wireframeInstance = new MeshInstance3D
+            {
+                Name = $"{definition.Name}Wireframe",
+                Mesh = MechWarriorModelMeshBuilder.BuildWireframe(model),
+                Position = partPosition,
+                Visible = false
+            };
+            mech.AddChild(wireframeInstance);
+            wireframeInstance.AddToGroup(DebugCamera.WireframeMeshGroup);
 
             var partBounds = renderMesh.GetAabb();
             partBounds.Position += partPosition;
@@ -248,15 +301,95 @@ public partial class Main : Node3D
         var modelSize = Math.Max(bounds.Size.X, Math.Max(bounds.Size.Y, bounds.Size.Z));
         var cameraDistance = Math.Max(modelSize * 3.0f, 1.0f);
         var cameraDirection = new Vector3(0.75f, 0.4f, 1.0f).Normalized();
-        var camera = new Camera3D
+        var camera = new DebugCamera
         {
             Position = target + cameraDirection * cameraDistance,
             Current = true,
-            Far = Math.Max(cameraDistance * 4.0f, 4000.0f)
+            Far = Math.Max(cameraDistance * 4.0f, 4000.0f),
+            SceneTriangles = debugTriangles.AsReadOnly()
         };
         camera.LookAtFromPosition(camera.Position, target);
         AddChild(camera);
     }
 
     private static Vector3 ToGodot(System.Numerics.Vector3 vector) => new(vector.X, vector.Y, vector.Z);
+
+    private static void AddDebugTriangles(
+        ICollection<DebugTriangle> triangles,
+        MechWarriorLevelObject levelObject,
+        Transform3D transform,
+        IReadOnlyList<MechWarriorModel> models)
+    {
+        for (var modelIndex = 0; modelIndex < models.Count; modelIndex++)
+        {
+            var model = models[modelIndex];
+            for (var polygonIndex = 0; polygonIndex < model.Polygons.Count; polygonIndex++)
+            {
+                var polygon = model.Polygons[polygonIndex];
+                for (var triangleIndex = 1; triangleIndex < polygon.VertexIndices.Count - 1; triangleIndex++)
+                {
+                    triangles.Add(new DebugTriangle(
+                        levelObject.ModelEntry.Path,
+                        levelObject.Id,
+                        modelIndex,
+                        polygonIndex,
+                        TransformVertex(transform, model.Vertices[polygon.VertexIndices[0]]),
+                        TransformVertex(transform, model.Vertices[polygon.VertexIndices[triangleIndex]]),
+                        TransformVertex(transform, model.Vertices[polygon.VertexIndices[triangleIndex + 1]])));
+                }
+            }
+        }
+    }
+
+    private static Vector3 TransformVertex(Transform3D transform, MechWarriorModelVertex vertex) =>
+        transform * (ToGodot(vertex.Position) * MechWarriorModelMeshBuilder.SourceUnitScale);
+
+    private static void AddImplicitGround(
+        Node3D levelRoot,
+        Aabb worldBounds,
+        IReadOnlyDictionary<byte, int> terrainPaletteCounts,
+        MechWarriorPalette palette,
+        ICollection<DebugTriangle> debugTriangles)
+    {
+        const float margin = 1000.0f;
+        var paletteIndex = terrainPaletteCounts.MaxBy(entry => entry.Value).Key;
+        var color = palette[paletteIndex];
+        var center = worldBounds.GetCenter();
+        var size = new Vector2(worldBounds.Size.X + margin * 2.0f, worldBounds.Size.Z + margin * 2.0f);
+        var ground = new MeshInstance3D
+        {
+            Name = "ImplicitGround",
+            Position = new Vector3(center.X, ImplicitGroundHeight, center.Z),
+            Mesh = new PlaneMesh
+            {
+                Size = size,
+                Material = new StandardMaterial3D
+                {
+                    AlbedoColor = new Color(color.R / 255.0f, color.G / 255.0f, color.B / 255.0f),
+                    Roughness = 0.95f
+                }
+            }
+        };
+        levelRoot.AddChild(ground);
+        ground.AddToGroup(DebugCamera.SolidMeshGroup);
+
+        var minimum = new Vector3(
+            center.X - size.X / 2.0f,
+            ImplicitGroundHeight,
+            center.Z - size.Y / 2.0f);
+        var maximum = new Vector3(
+            center.X + size.X / 2.0f,
+            ImplicitGroundHeight,
+            center.Z + size.Y / 2.0f);
+        var cornerA = new Vector3(minimum.X, ImplicitGroundHeight, minimum.Z);
+        var cornerB = new Vector3(maximum.X, ImplicitGroundHeight, minimum.Z);
+        var cornerC = new Vector3(maximum.X, ImplicitGroundHeight, maximum.Z);
+        var cornerD = new Vector3(minimum.X, ImplicitGroundHeight, maximum.Z);
+        debugTriangles.Add(new DebugTriangle("IMPLICIT/GROUND", -1, 0, 0, cornerA, cornerB, cornerC));
+        debugTriangles.Add(new DebugTriangle("IMPLICIT/GROUND", -1, 0, 1, cornerA, cornerC, cornerD));
+        GD.Print(
+            $"MechRewired: added implicit ground plane at Y={ImplicitGroundHeight:F2} " +
+            $"({size.X:F0} × {size.Y:F0}, " +
+            $"palette index {paletteIndex}).");
+    }
 }

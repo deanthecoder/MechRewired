@@ -8,15 +8,21 @@
 //
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
-namespace MechRewired.Resources;
+using Godot;
+
+namespace MechRewired;
 
 /// <summary>
-/// Associates a level object transform with its resolved POLY model resource.
+/// Associates one rendered diagnostic triangle with its original level resource.
 /// </summary>
 /// <remarks>
-/// Keeping the archive entry intact makes model loading lazy and cacheable by the renderer.
+/// Vertices use Godot world coordinates so camera rays can be queried without physics collision bodies.
 /// </remarks>
-public sealed record MechWarriorLevelObject(
-    int Id,
-    MechWarriorProjectEntry ModelEntry,
-    MechWarriorWorldTransform Transform);
+public sealed record DebugTriangle(
+    string ResourcePath,
+    int ObjectId,
+    int ModelIndex,
+    int PolygonIndex,
+    Vector3 A,
+    Vector3 B,
+    Vector3 C);

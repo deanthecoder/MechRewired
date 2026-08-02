@@ -58,10 +58,43 @@ public static class MechWarriorModelMeshBuilder
         return mesh;
     }
 
+    /// <summary>
+    /// Builds an unshaded diagnostic mesh containing every source polygon edge.
+    /// </summary>
+    public static ArrayMesh BuildWireframe(MechWarriorModel model)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+
+        using var surfaceTool = new SurfaceTool();
+        surfaceTool.Begin(Mesh.PrimitiveType.Lines);
+        foreach (var polygon in model.Polygons)
+        {
+            for (var vertexIndex = 0; vertexIndex < polygon.VertexIndices.Count; vertexIndex++)
+            {
+                var nextVertexIndex = (vertexIndex + 1) % polygon.VertexIndices.Count;
+                AddPosition(surfaceTool, model.Vertices[polygon.VertexIndices[vertexIndex]]);
+                AddPosition(surfaceTool, model.Vertices[polygon.VertexIndices[nextVertexIndex]]);
+            }
+        }
+
+        var mesh = surfaceTool.Commit() ?? throw new InvalidOperationException("Godot did not create a wireframe mesh.");
+        mesh.SurfaceSetMaterial(0, new StandardMaterial3D
+        {
+            AlbedoColor = new Color("55ffff"),
+            ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded
+        });
+        return mesh;
+    }
+
     private static void AddVertex(SurfaceTool surfaceTool, MechWarriorModelVertex vertex, Rgb color)
     {
         surfaceTool.SetColor(new Color(color.R / 255.0f, color.G / 255.0f, color.B / 255.0f));
         surfaceTool.SetUV(new Vector2(vertex.TextureCoordinate.X, vertex.TextureCoordinate.Y));
+        AddPosition(surfaceTool, vertex);
+    }
+
+    private static void AddPosition(SurfaceTool surfaceTool, MechWarriorModelVertex vertex)
+    {
         surfaceTool.AddVertex(new Vector3(
             vertex.Position.X * SourceUnitScale,
             vertex.Position.Y * SourceUnitScale,
