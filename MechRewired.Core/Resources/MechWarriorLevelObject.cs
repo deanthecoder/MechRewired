@@ -11,12 +11,11 @@
 namespace MechRewired.Resources;
 
 /// <summary>
-/// Describes one named resource inside an original MechWarrior 2 project archive.
+/// Associates a level object transform with its resolved POLY model resource.
 /// </summary>
 /// <remarks>
-/// Offsets and sizes refer only to the resource payload; the archive's local file header is excluded.
+/// Keeping the archive entry intact makes model loading lazy and cacheable by the renderer.
 /// </remarks>
-public sealed record MechWarriorProjectEntry(string DirectoryName, int Index, string Name, long Offset, int Size)
-{
-    public string Path => $"{DirectoryName}/{Name}";
-}
+public sealed record MechWarriorLevelObject(
+    MechWarriorProjectEntry ModelEntry,
+    MechWarriorWorldTransform Transform);

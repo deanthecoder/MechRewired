@@ -55,15 +55,17 @@ public sealed class MechWarriorModelTests
     }
 
     [Test]
-    public void LoadRejectsTrailingOrCompoundModelDataExplicitly()
+    public void LoadRejectsCompoundModelDataAndDirectsTheCallerToLoadAll()
     {
         var model = BuildModel(2);
-        var data = new byte[model.Length + 4];
+        var data = new byte[model.Length * 2];
         model.CopyTo(data, 0);
+        model.CopyTo(data, model.Length);
 
         var exception = Assert.Throws<InvalidDataException>(() => MechWarriorModel.Load(data));
 
-        Assert.That(exception.Message, Does.Contain("Compound or trailing"));
+        Assert.That(exception.Message, Does.Contain("LoadAll"));
+        Assert.That(MechWarriorModel.LoadAll(data), Has.Count.EqualTo(2));
     }
 
     private static byte[] BuildModel(byte subtype)

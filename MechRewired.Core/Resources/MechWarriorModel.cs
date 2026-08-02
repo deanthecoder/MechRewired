@@ -17,7 +17,7 @@ namespace MechRewired.Resources;
 /// Represents one decoded MechWarrior 2 WTB model.
 /// </summary>
 /// <remarks>
-/// Both known vertex and polygon layouts are supported. Compound resources containing multiple WTB objects are intentionally deferred.
+/// Both known vertex and polygon layouts are supported, including resources containing consecutive WTB objects.
 /// </remarks>
 public sealed class MechWarriorModel
 {
@@ -44,6 +44,36 @@ public sealed class MechWarriorModel
     /// </summary>
     public static MechWarriorModel Load(ReadOnlySpan<byte> data)
     {
+        var model = LoadSingle(data, out var bytesConsumed);
+        if (bytesConsumed != data.Length)
+        {
+            throw new InvalidDataException(
+                $"The WTB model ends at byte {bytesConsumed:N0}, but its payload contains {data.Length:N0} bytes. " +
+                "Use LoadAll for a compound WTB resource.");
+        }
+
+        return model;
+    }
+
+    /// <summary>
+    /// Decodes every consecutive WTB object in a compound model resource.
+    /// </summary>
+    public static IReadOnlyList<MechWarriorModel> LoadAll(ReadOnlySpan<byte> data)
+    {
+        var models = new List<MechWarriorModel>();
+        var offset = 0;
+        while (offset < data.Length)
+        {
+            var model = LoadSingle(data[offset..], out var bytesConsumed);
+            models.Add(model);
+            offset += bytesConsumed;
+        }
+
+        return models.AsReadOnly();
+    }
+
+    private static MechWarriorModel LoadSingle(ReadOnlySpan<byte> data, out int bytesConsumed)
+    {
         EnsureRange(data, 0, HeaderSize, "WTB header");
         if (!data[..4].SequenceEqual("WTBO"u8))
         {
@@ -60,13 +90,7 @@ public sealed class MechWarriorModel
         var subtype = data[0x1c];
         var layout = WtbLayout.ForSubtype(subtype);
         var vertices = ReadVertices(data, vertexCount, layout);
-        var polygons = ReadPolygons(data, polygonCount, vertices.Count, layout, out var bytesConsumed);
-        if (bytesConsumed != data.Length)
-        {
-            throw new InvalidDataException(
-                $"The WTB model ends at byte {bytesConsumed:N0}, but its payload contains {data.Length:N0} bytes. " +
-                "Compound or trailing WTB data is not supported yet.");
-        }
+        var polygons = ReadPolygons(data, polygonCount, vertices.Count, layout, out bytesConsumed);
 
         return new MechWarriorModel(subtype, vertices, polygons);
     }

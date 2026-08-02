@@ -10,7 +10,7 @@ The immediate goal is intentionally narrow: load original game data, enter a bat
 
 ## Project status
 
-MechRewired reads the original DOS project archive, palettes and WTB model geometry. It currently assembles and renders the highest-detail Timber Wolf from 13 original components in a Godot inspection scene, but does not yet implement gameplay.
+MechRewired reads the original DOS project archive, palettes, WTB model geometry and BWD world placement data. It currently assembles the highest-detail Timber Wolf from 13 original components and renders 198 positioned objects from Pyre Light, the first Clan Wolf mission, but does not yet implement gameplay.
 
 The first vertical slice will establish:
 

@@ -22,31 +22,37 @@ namespace MechRewired;
 public partial class Main : Node3D
 {
     private const string PalettePath = "PAL/YELL_DA.COL";
+    private const string LevelPath = "BWD/YELLWLD1.BWD";
+    private const string LevelAreaPrefix = "YELLARE";
 
     public override void _Ready()
     {
         GD.Print("MechRewired: reactor online.");
-        if (!TryLoadGameData(out var palette, out var modelParts))
+        if (!TryLoadGameData(out var archive, out var palette, out var modelParts, out var level))
         {
             return;
         }
 
         try
         {
-            BuildModelScene(modelParts, palette);
+            BuildScene(archive, palette, modelParts, level);
         }
         catch (Exception exception)
         {
-            GD.PushError($"MechRewired cannot render the model: {exception.Message}");
+            GD.PushError($"MechRewired cannot render the scene: {exception.Message}");
         }
     }
 
     private static bool TryLoadGameData(
+        out MechWarriorProjectArchive archive,
         out MechWarriorPalette palette,
-        out IReadOnlyList<(MechWarriorModelPartDefinition Definition, MechWarriorModel Model)> modelParts)
+        out IReadOnlyList<(MechWarriorModelPartDefinition Definition, MechWarriorModel Model)> modelParts,
+        out MechWarriorLevel level)
     {
+        archive = null;
         palette = null;
         modelParts = null;
+        level = null;
         try
         {
             var projectDirectory = new DirectoryInfo(ProjectSettings.GlobalizePath("res://"));
@@ -54,7 +60,7 @@ public partial class Main : Node3D
                                       throw new DirectoryNotFoundException("The MechRewired repository directory could not be resolved.");
             var dataDirectory = new DirectoryInfo(Path.Combine(repositoryDirectory.FullName, "local", "game-data"));
             var projectArchive = MechWarriorResourceCheck.CheckDosFiles(dataDirectory);
-            var archive = MechWarriorProjectArchive.Open(projectArchive);
+            archive = MechWarriorProjectArchive.Open(projectArchive);
             GD.Print(
                 $"MechRewired: indexed {archive.Entries.Count:N0} resources from {projectArchive.Name} " +
                 $"({projectArchive.Length:N0} bytes).");
@@ -75,6 +81,18 @@ public partial class Main : Node3D
             }
 
             modelParts = loadedParts.AsReadOnly();
+            level = MechWarriorLevel.Load(
+                archive,
+                LevelPath,
+                include => include.Name.StartsWith(LevelAreaPrefix, StringComparison.OrdinalIgnoreCase));
+            foreach (var source in level.Sources)
+            {
+                GD.Print($"MechRewired: loaded {source.Entry.Path} ({source.ObjectCount} objects).");
+            }
+
+            GD.Print(
+                $"MechRewired: assembled Pyre Light world ({level.Sources.Count} BWD resources, " +
+                $"{level.Objects.Count} positioned objects).");
             return true;
         }
         catch (Exception exception)
@@ -84,9 +102,11 @@ public partial class Main : Node3D
         }
     }
 
-    private void BuildModelScene(
+    private void BuildScene(
+        MechWarriorProjectArchive archive,
+        MechWarriorPalette palette,
         IReadOnlyList<(MechWarriorModelPartDefinition Definition, MechWarriorModel Model)> modelParts,
-        MechWarriorPalette palette)
+        MechWarriorLevel level)
     {
         var environment = new WorldEnvironment
         {
@@ -95,8 +115,8 @@ public partial class Main : Node3D
                 BackgroundMode = Godot.Environment.BGMode.Color,
                 BackgroundColor = new Color("10141d"),
                 AmbientLightSource = Godot.Environment.AmbientSource.Color,
-                AmbientLightColor = new Color("6f829b"),
-                AmbientLightEnergy = 0.35f
+                AmbientLightColor = new Color("b8c5d6"),
+                AmbientLightEnergy = 0.8f
             }
         };
         AddChild(environment);
@@ -104,25 +124,88 @@ public partial class Main : Node3D
         var light = new DirectionalLight3D
         {
             RotationDegrees = new Vector3(-55.0f, -25.0f, 0.0f),
-            LightColor = new Color("f0c690"),
-            LightEnergy = 1.2f,
+            LightColor = new Color("fff2d2"),
+            LightEnergy = 1.6f,
             ShadowEnabled = true
         };
         AddChild(light);
 
-        var ground = new MeshInstance3D
+        var levelRoot = new Node3D
         {
-            Mesh = new PlaneMesh
-            {
-                Size = new Vector2(80.0f, 80.0f)
-            },
-            MaterialOverride = new StandardMaterial3D
-            {
-                AlbedoColor = new Color("343940"),
-                Roughness = 0.92f
-            }
+            Name = "PyreLight"
         };
-        AddChild(ground);
+        AddChild(levelRoot);
+
+        var meshCache = new Dictionary<string, IReadOnlyList<ArrayMesh>>(StringComparer.OrdinalIgnoreCase);
+        var terrainTopPoints = new Dictionary<string, Vector3>(StringComparer.OrdinalIgnoreCase);
+        var worldBounds = new Aabb();
+        var hasWorldBounds = false;
+        var renderedInstanceCount = 0;
+        Vector3? mechSpawn = null;
+        foreach (var levelObject in level.Objects)
+        {
+            if (!meshCache.TryGetValue(levelObject.ModelEntry.Path, out var meshes))
+            {
+                try
+                {
+                    var models = MechWarriorModel.LoadAll(archive.ReadEntry(levelObject.ModelEntry));
+                    meshes = models.Select(model => MechWarriorModelMeshBuilder.Build(model, palette)).ToArray();
+                    var highestVertex = models
+                        .SelectMany(model => model.Vertices)
+                        .MaxBy(vertex => vertex.Position.Y);
+                    terrainTopPoints.Add(
+                        levelObject.ModelEntry.Path,
+                        ToGodot(highestVertex.Position) * MechWarriorModelMeshBuilder.SourceUnitScale);
+                    GD.Print(
+                        $"MechRewired: loaded {levelObject.ModelEntry.Path} ({models.Count} model objects, " +
+                        $"{models.Sum(model => model.Vertices.Count)} vertices, " +
+                        $"{models.Sum(model => model.Polygons.Count)} polygons).");
+                }
+                catch (InvalidDataException exception)
+                {
+                    meshes = Array.Empty<ArrayMesh>();
+                    GD.PushWarning($"MechRewired: skipped unsupported {levelObject.ModelEntry.Path}: {exception.Message}");
+                }
+
+                meshCache.Add(levelObject.ModelEntry.Path, meshes);
+            }
+
+            if (meshes.Count == 0)
+            {
+                continue;
+            }
+
+            var position = ToGodot(levelObject.Transform.Translation);
+            var objectRoot = new Node3D
+            {
+                Name = levelObject.ModelEntry.Name,
+                Position = position,
+                RotationDegrees = ToGodot(levelObject.Transform.RotationDegrees),
+                Scale = ToGodot(levelObject.Transform.Scale)
+            };
+            levelRoot.AddChild(objectRoot);
+            foreach (var mesh in meshes)
+            {
+                objectRoot.AddChild(new MeshInstance3D
+                {
+                    Mesh = mesh
+                });
+            }
+
+            if (mechSpawn == null && levelObject.ModelEntry.Name.StartsWith("T_", StringComparison.OrdinalIgnoreCase))
+            {
+                mechSpawn = objectRoot.Transform * terrainTopPoints[levelObject.ModelEntry.Path];
+            }
+
+            renderedInstanceCount++;
+            var pointBounds = new Aabb(position, Vector3.Zero);
+            worldBounds = hasWorldBounds ? worldBounds.Merge(pointBounds) : pointBounds;
+            hasWorldBounds = true;
+        }
+
+        GD.Print(
+            $"MechRewired: rendered Pyre Light world ({renderedInstanceCount} instances, " +
+            $"{meshCache.Count} unique models).");
 
         var mech = new Node3D
         {
@@ -154,7 +237,8 @@ public partial class Main : Node3D
             triangleCount += model.Polygons.Sum(polygon => polygon.VertexIndices.Count - 2);
         }
 
-        mech.Position = new Vector3(0.0f, -bounds.Position.Y, 0.0f);
+        var mechPosition = mechSpawn ?? Vector3.Zero;
+        mech.Position = mechPosition + new Vector3(0.0f, -bounds.Position.Y, 0.0f);
 
         GD.Print(
             $"MechRewired: assembled Timber Wolf ({modelParts.Count} parts, {vertexCount} source vertices, " +
@@ -162,12 +246,13 @@ public partial class Main : Node3D
 
         var target = mech.Position + bounds.GetCenter();
         var modelSize = Math.Max(bounds.Size.X, Math.Max(bounds.Size.Y, bounds.Size.Z));
-        var cameraDistance = Math.Max(modelSize * 1.3f, 1.0f);
-        var cameraDirection = new Vector3(1.0f, 0.55f, 1.35f).Normalized();
+        var cameraDistance = Math.Max(modelSize * 3.0f, 1.0f);
+        var cameraDirection = new Vector3(0.75f, 0.4f, 1.0f).Normalized();
         var camera = new Camera3D
         {
             Position = target + cameraDirection * cameraDistance,
-            Current = true
+            Current = true,
+            Far = Math.Max(cameraDistance * 4.0f, 4000.0f)
         };
         camera.LookAtFromPosition(camera.Position, target);
         AddChild(camera);

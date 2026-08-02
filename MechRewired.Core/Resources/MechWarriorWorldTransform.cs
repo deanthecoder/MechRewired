@@ -8,15 +8,17 @@
 //
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
+using System.Numerics;
+
 namespace MechRewired.Resources;
 
 /// <summary>
-/// Describes one named resource inside an original MechWarrior 2 project archive.
+/// Describes an MW2 world object's scale, rotation, and position.
 /// </summary>
 /// <remarks>
-/// Offsets and sizes refer only to the resource payload; the archive's local file header is excluded.
+/// Translation is converted from source centimeters while rotation remains in degrees.
 /// </remarks>
-public sealed record MechWarriorProjectEntry(string DirectoryName, int Index, string Name, long Offset, int Size)
+public sealed record MechWarriorWorldTransform(Vector3 Scale, Vector3 RotationDegrees, Vector3 Translation)
 {
-    public string Path => $"{DirectoryName}/{Name}";
+    public static MechWarriorWorldTransform Identity { get; } = new(Vector3.One, Vector3.Zero, Vector3.Zero);
 }

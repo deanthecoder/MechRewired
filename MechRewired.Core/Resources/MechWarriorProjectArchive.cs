@@ -32,12 +32,15 @@ public sealed class MechWarriorProjectArchive
 
     private readonly FileInfo m_file;
     private readonly Dictionary<string, MechWarriorProjectEntry> m_entriesByPath;
+    private readonly Dictionary<(string DirectoryName, int Index), MechWarriorProjectEntry> m_entriesByIndex;
 
     private MechWarriorProjectArchive(FileInfo file, IReadOnlyList<MechWarriorProjectEntry> entries)
     {
         m_file = file;
         Entries = entries;
         m_entriesByPath = entries.ToDictionary(entry => entry.Path, StringComparer.OrdinalIgnoreCase);
+        m_entriesByIndex = entries.ToDictionary(
+            entry => (entry.DirectoryName.ToUpperInvariant(), entry.Index));
     }
 
     public IReadOnlyList<MechWarriorProjectEntry> Entries { get; }
@@ -64,6 +67,21 @@ public sealed class MechWarriorProjectArchive
         if (!m_entriesByPath.TryGetValue(normalizedPath, out var entry))
         {
             throw new FileNotFoundException($"Resource {normalizedPath} was not found in {m_file.Name}.", normalizedPath);
+        }
+
+        return entry;
+    }
+
+    /// <summary>
+    /// Finds an entry using the directory-local index stored in another MW2 resource.
+    /// </summary>
+    public MechWarriorProjectEntry GetEntry(string directoryName, int index)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(directoryName);
+        if (!m_entriesByIndex.TryGetValue((directoryName.ToUpperInvariant(), index), out var entry))
+        {
+            throw new FileNotFoundException(
+                $"Resource {directoryName} entry {index} was not found in {m_file.Name}.");
         }
 
         return entry;
@@ -173,6 +191,7 @@ public sealed class MechWarriorProjectArchive
             var payloadSize = checked((int)(storedSize - LocalFileHeaderSize));
             entries.Add(new MechWarriorProjectEntry(
                 directoryName,
+                entryIndex,
                 name,
                 localHeaderOffset + LocalFileHeaderSize,
                 payloadSize));

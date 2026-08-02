@@ -20,14 +20,14 @@ Deeper archive validation is intentionally deferred until the project is otherwi
 
 - Decode color palettes. — complete
 - Decode enough `WTB` model geometry and material data to assemble one flat-shaded BattleMech. — complete
-- Add a Godot inspection scene with an orbit camera and simple lighting.
+- Add a Godot inspection scene with an overview camera and simple lighting. — complete
 
 This phase is complete when MechRewired displays a recognizable DOS BattleMech directly from the original data.
 
 ## 3. Battlefield rendering
 
-- Decode terrain geometry and mission world references.
-- Establish coordinate, scale and material conventions between MW2 and Godot.
+- Decode terrain geometry and mission world references. — complete
+- Establish coordinate, scale and material conventions between MW2 and Godot. — complete
 - Recreate the DOS terrain shading, skies, palette and mission colors.
 
 This phase is complete when a recognizable original battlefield can be explored with a debug camera.

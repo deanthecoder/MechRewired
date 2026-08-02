@@ -52,8 +52,10 @@ public sealed class MechWarriorProjectArchiveTests
         var entry = archive.GetEntry("pal\\test.col");
 
         Assert.That(entry.Path, Is.EqualTo("PAL/TEST.COL"));
+        Assert.That(entry.Index, Is.EqualTo(1));
         Assert.That(entry.Size, Is.EqualTo(expected.Length));
         Assert.That(archive.ReadEntry(entry), Is.EqualTo(expected));
+        Assert.That(archive.GetEntry("pal", 1), Is.SameAs(entry));
     }
 
     [Test]

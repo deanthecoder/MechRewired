@@ -11,12 +11,9 @@
 namespace MechRewired.Resources;
 
 /// <summary>
-/// Describes one named resource inside an original MechWarrior 2 project archive.
+/// Describes one BWD file included by another BWD world resource.
 /// </summary>
 /// <remarks>
-/// Offsets and sizes refer only to the resource payload; the archive's local file header is excluded.
+/// The resource index is local to the archive's BWD directory.
 /// </remarks>
-public sealed record MechWarriorProjectEntry(string DirectoryName, int Index, string Name, long Offset, int Size)
-{
-    public string Path => $"{DirectoryName}/{Name}";
-}
+public sealed record MechWarriorWorldInclude(int ResourceIndex, string Name, MechWarriorWorldTransform Transform);
