@@ -26,6 +26,7 @@ public partial class DebugCamera : Camera3D
     private const int WireframeMenuItemId = 1;
     private const int UnshadedMenuItemId = 2;
     private const int LogCameraMenuItemId = 3;
+    private const int CycleCameraMenuItemId = 4;
     private const float MoveSpeed = 120.0f;
     private const float BoostMultiplier = 6.0f;
     private const float MouseSensitivity = 0.002f;
@@ -36,16 +37,28 @@ public partial class DebugCamera : Camera3D
 
     public IReadOnlyList<DebugTriangle> SceneTriangles { get; init; } = Array.Empty<DebugTriangle>();
 
+    public Camera3D CockpitCamera { get; init; }
+
+    public Camera3D ExternalCamera { get; init; }
+
+    public PlayerCockpit Cockpit { get; init; }
+
     public override void _Ready()
     {
         AddDebugMenu();
         GD.Print(
             "MechRewired: debug camera ready (click to capture; WASD move; Q/E descend/ascend; " +
-            "Shift boosts; F1 wireframe; F2 unshaded; F3 logs camera; Escape releases).");
+            "Shift boosts; F1 wireframe; F2 unshaded; F3 logs camera/cockpit; F4 cycles cameras; " +
+            "Escape releases).");
     }
 
     public override void _Process(double delta)
     {
+        if (!Current)
+        {
+            return;
+        }
+
         var direction = Vector3.Zero;
         if (Input.IsPhysicalKeyPressed(Key.W))
         {
@@ -105,7 +118,12 @@ public partial class DebugCamera : Camera3D
                 GetViewport().SetInputAsHandled();
                 break;
 
-            case InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Left }:
+            case InputEventKey { Pressed: false, Keycode: Key.F4 }:
+                CycleCamera();
+                GetViewport().SetInputAsHandled();
+                break;
+
+            case InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Left } when Current:
                 Input.MouseMode = Input.MouseModeEnum.Captured;
                 GetViewport().SetInputAsHandled();
                 break;
@@ -115,7 +133,7 @@ public partial class DebugCamera : Camera3D
                 GetViewport().SetInputAsHandled();
                 break;
 
-            case InputEventMouseMotion mouseMotion when Input.MouseMode == Input.MouseModeEnum.Captured:
+            case InputEventMouseMotion mouseMotion when Current && Input.MouseMode == Input.MouseModeEnum.Captured:
                 RotateY(-mouseMotion.Relative.X * MouseSensitivity);
                 Rotation = new Vector3(
                     Mathf.Clamp(Rotation.X - mouseMotion.Relative.Y * MouseSensitivity, -MaximumPitch, MaximumPitch),
@@ -142,6 +160,7 @@ public partial class DebugCamera : Camera3D
         m_debugMenu.AddCheckItem("Wireframe (F1)", WireframeMenuItemId);
         m_debugMenu.AddCheckItem("Unshaded (F2)", UnshadedMenuItemId);
         m_debugMenu.AddItem("Log camera (F3)", LogCameraMenuItemId);
+        m_debugMenu.AddItem("Cycle camera (F4)", CycleCameraMenuItemId);
         m_debugMenu.IdPressed += OnDebugMenuItemPressed;
     }
 
@@ -178,36 +197,70 @@ public partial class DebugCamera : Camera3D
             case LogCameraMenuItemId:
                 LogCamera();
                 break;
+
+            case CycleCameraMenuItemId:
+                CycleCamera();
+                break;
         }
+    }
+
+    private void CycleCamera()
+    {
+        string cameraName;
+        if (CockpitCamera.Current)
+        {
+            CockpitCamera.Current = false;
+            ExternalCamera.Current = true;
+            Current = false;
+            cameraName = "external";
+        }
+        else if (ExternalCamera.Current)
+        {
+            CockpitCamera.Current = false;
+            ExternalCamera.Current = false;
+            Current = true;
+            cameraName = "inspector";
+        }
+        else
+        {
+            ExternalCamera.Current = false;
+            Current = false;
+            CockpitCamera.Current = true;
+            cameraName = "cockpit";
+        }
+
+        Input.MouseMode = Input.MouseModeEnum.Visible;
+        GD.Print($"MechRewired: switched to {cameraName} camera.");
     }
 
     private void LogCamera()
     {
-        var forward = -GlobalBasis.Z.Normalized();
-        var sourcePosition = MechWarriorCoordinateSystem.ToSourcePosition(GlobalPosition);
+        var activeCamera = CockpitCamera.Current
+            ? CockpitCamera
+            : ExternalCamera.Current
+                ? ExternalCamera
+                : this;
+        var forward = -activeCamera.GlobalBasis.Z.Normalized();
+        var sourcePosition = MechWarriorCoordinateSystem.ToSourcePosition(activeCamera.GlobalPosition);
         var sourceDirection = MechWarriorCoordinateSystem.ToSourcePosition(forward);
-        var rotationDegrees = MechWarriorCoordinateSystem.ToSourceRotation(RotationDegrees);
+        var rotationDegrees = MechWarriorCoordinateSystem.ToSourceRotation(activeCamera.GlobalRotationDegrees);
         GD.Print(
-            $"MechRewired: debug camera MW2 position ({sourcePosition.X:F2}, {sourcePosition.Y:F2}, {sourcePosition.Z:F2}); " +
+            $"MechRewired: {activeCamera.Name} MW2 position " +
+            $"({sourcePosition.X:F2}, {sourcePosition.Y:F2}, {sourcePosition.Z:F2}); " +
             $"direction ({sourceDirection.X:F4}, {sourceDirection.Y:F4}, {sourceDirection.Z:F4}); " +
             $"rotation ({rotationDegrees.X:F2}, {rotationDegrees.Y:F2}, {rotationDegrees.Z:F2}) degrees.");
-        LogSceneRay(GlobalPosition, forward);
+        LogSceneRay(activeCamera.GlobalPosition, forward);
+        Cockpit?.LogDimensions();
     }
 
     public void LogSceneRay(Vector3 origin, Vector3 direction)
     {
-        DebugTriangle nearestTriangle = null;
-        var nearestDistance = float.PositiveInfinity;
-        foreach (var triangle in SceneTriangles)
-        {
-            if (TryIntersectRay(origin, direction, triangle, out var distance) && distance < nearestDistance)
-            {
-                nearestTriangle = triangle;
-                nearestDistance = distance;
-            }
-        }
-
-        if (nearestTriangle == null)
+        if (!DebugTriangleRaycaster.TryFindNearest(
+                SceneTriangles,
+                origin,
+                direction,
+                out var nearestTriangle,
+                out var nearestDistance))
         {
             GD.Print($"MechRewired: debug camera ray missed all {SceneTriangles.Count:N0} rendered triangles.");
             return;
@@ -219,44 +272,6 @@ public partial class DebugCamera : Camera3D
             $"MechRewired: debug camera ray hit {nearestTriangle.ResourcePath} object {nearestTriangle.ObjectId}, " +
             $"model {nearestTriangle.ModelIndex}, polygon {nearestTriangle.PolygonIndex} at " +
             $"({sourceHitPosition.X:F2}, {sourceHitPosition.Y:F2}, {sourceHitPosition.Z:F2}), distance {nearestDistance:F2}.");
-    }
-
-    private static bool TryIntersectRay(
-        Vector3 origin,
-        Vector3 direction,
-        DebugTriangle triangle,
-        out float distance)
-    {
-        const float epsilon = 0.000001f;
-        var edge1 = triangle.B - triangle.A;
-        var edge2 = triangle.C - triangle.A;
-        var perpendicular = direction.Cross(edge2);
-        var determinant = edge1.Dot(perpendicular);
-        if (Mathf.Abs(determinant) < epsilon)
-        {
-            distance = 0.0f;
-            return false;
-        }
-
-        var inverseDeterminant = 1.0f / determinant;
-        var originOffset = origin - triangle.A;
-        var u = originOffset.Dot(perpendicular) * inverseDeterminant;
-        if (u is < 0.0f or > 1.0f)
-        {
-            distance = 0.0f;
-            return false;
-        }
-
-        var cross = originOffset.Cross(edge1);
-        var v = direction.Dot(cross) * inverseDeterminant;
-        if (v < 0.0f || u + v > 1.0f)
-        {
-            distance = 0.0f;
-            return false;
-        }
-
-        distance = edge2.Dot(cross) * inverseDeterminant;
-        return distance >= 0.0f;
     }
 
     private void SetMenuItemChecked(int id, bool isChecked)

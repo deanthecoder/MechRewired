@@ -102,6 +102,31 @@ public sealed class MechWarriorWorldFileTests
     }
 
     [Test]
+    public void LoadReadsMissionNavigationPoint()
+    {
+        var data = WriteWorld(writer => WriteNavigationPointTag(
+            writer,
+            new Vector3(125.0f, 3.5f, -80.0f),
+            270,
+            true,
+            2,
+            25,
+            0x30,
+            "Wolf deployment"));
+
+        var world = MechWarriorWorldFile.Load(data);
+
+        Assert.That(world.NavPoints, Has.Count.EqualTo(1));
+        Assert.That(world.NavPoints[0].Position, Is.EqualTo(new Vector3(125.0f, 3.5f, -80.0f)));
+        Assert.That(world.NavPoints[0].StartingAngle, Is.EqualTo(270));
+        Assert.That(world.NavPoints[0].Targetable, Is.True);
+        Assert.That(world.NavPoints[0].GroupId, Is.EqualTo(2));
+        Assert.That(world.NavPoints[0].Radius, Is.EqualTo(25));
+        Assert.That(world.NavPoints[0].ActionFlags, Is.EqualTo(0x30));
+        Assert.That(world.NavPoints[0].Description, Is.EqualTo("Wolf deployment"));
+    }
+
+    [Test]
     public void LoadRejectsATagThatExtendsPastTheResource()
     {
         var data = WriteWorld(writer =>
@@ -225,6 +250,30 @@ public sealed class MechWarriorWorldFileTests
         writer.Write((short)1);
         WriteFixedAscii(writer, name, 8);
         writer.Write(new byte[6]);
+    }
+
+    private static void WriteNavigationPointTag(
+        BinaryWriter writer,
+        Vector3 position,
+        ushort startingAngle,
+        bool targetable,
+        ushort groupId,
+        ushort radius,
+        ushort actionFlags,
+        string description)
+    {
+        WriteFixedAscii(writer, "NAVP", 4);
+        writer.Write(80);
+        WriteVector(writer, position, 100.0f);
+        writer.Write((short)0);
+        writer.Write(startingAngle);
+        writer.Write((ushort)(targetable ? 1 : 0));
+        writer.Write(new byte[4]);
+        writer.Write(groupId);
+        writer.Write(radius);
+        writer.Write(actionFlags);
+        WriteFixedAscii(writer, description, 21);
+        writer.Write(new byte[23]);
     }
 
     private static void WriteVector(BinaryWriter writer, Vector3 vector, float scale)

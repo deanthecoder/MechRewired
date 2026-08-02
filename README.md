@@ -10,7 +10,7 @@ The immediate goal is intentionally narrow: load original game data, enter a bat
 
 ## Project status
 
-MechRewired reads the original DOS project archive, palettes, WTB model geometry and BWD world placement data. It currently assembles the highest-detail Timber Wolf; renders Pyre Light's terrain, palette-derived atmosphere, scenery and ground-settled wreckage; and identifies gameplay actors and their alternate destroyed representations. It does not yet implement gameplay.
+MechRewired reads the original DOS project archive, palettes, WTB model geometry and BWD world placement data. It currently renders Pyre Light's terrain, palette-derived atmosphere, scenery and ground-settled wreckage; identifies gameplay actors and alternate destroyed representations; and deploys a structured PlayerMech rig at the original Dropsite with cockpit, external and inspector cameras. It does not yet implement mech movement or combat.
 
 The first vertical slice will establish:
 
@@ -66,13 +66,14 @@ dotnet test MechRewired.Tests/MechRewired.Tests.csproj --no-build
 
 Open `MechRewired/project.godot` with the .NET edition of Godot to run the application.
 
-The current battlefield inspection controls are:
+The application starts in the 3D cockpit. The current camera and battlefield inspection controls are:
 
-- Click the viewport to capture the mouse and enable mouse-look.
-- Use <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> to fly and <kbd>Q</kbd>/<kbd>E</kbd> to descend/ascend.
+- Click the viewport to capture the mouse. In cockpit view, move the mouse to look around within the pilot's head limits.
+- Press <kbd>F4</kbd> to cycle through cockpit, external and free-flight inspector cameras.
+- In inspector view, use <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> to fly and <kbd>Q</kbd>/<kbd>E</kbd> to descend/ascend.
 - Hold <kbd>Shift</kbd> for a speed boost and press <kbd>Escape</kbd> to release the mouse.
 - Press <kbd>F1</kbd> to toggle wireframe rendering or <kbd>F2</kbd> to toggle unshaded rendering.
-- Press <kbd>F3</kbd> to log the debug camera's transform and its nearest rendered-triangle ray hit.
+- Press <kbd>F3</kbd> to log the active camera's MW2-space transform, its nearest rendered-triangle ray hit and the current cockpit dimensions.
 - The on-screen **Debug** menu provides the same rendering diagnostics when function keys are unavailable.
 
 ## VR

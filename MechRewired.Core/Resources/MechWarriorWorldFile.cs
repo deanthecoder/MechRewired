@@ -30,6 +30,7 @@ public sealed class MechWarriorWorldFile
         IReadOnlyList<MechWarriorWorldInclude> includes,
         IReadOnlyList<MechWarriorWorldObject> objects,
         IReadOnlyList<MechWarriorWorldEntity> entities,
+        IReadOnlyList<MechWarriorWorldNavPoint> navPoints,
         int? timeOfDay,
         MechWarriorWorldLighting lighting,
         string luminosityTable)
@@ -37,6 +38,7 @@ public sealed class MechWarriorWorldFile
         Includes = includes;
         Objects = objects;
         Entities = entities;
+        NavPoints = navPoints;
         TimeOfDay = timeOfDay;
         Lighting = lighting;
         LuminosityTable = luminosityTable;
@@ -47,6 +49,8 @@ public sealed class MechWarriorWorldFile
     public IReadOnlyList<MechWarriorWorldObject> Objects { get; }
 
     public IReadOnlyList<MechWarriorWorldEntity> Entities { get; }
+
+    public IReadOnlyList<MechWarriorWorldNavPoint> NavPoints { get; }
 
     public int? TimeOfDay { get; }
 
@@ -69,6 +73,7 @@ public sealed class MechWarriorWorldFile
         var includes = new List<MechWarriorWorldInclude>();
         var objects = new List<MechWarriorWorldObject>();
         var entities = new List<MechWarriorWorldEntity>();
+        var navPoints = new List<MechWarriorWorldNavPoint>();
         var localTransforms = new Dictionary<int, MechWarriorWorldTransform>();
         int? timeOfDay = null;
         MechWarriorWorldLighting lighting = null;
@@ -153,6 +158,21 @@ public sealed class MechWarriorWorldFile
                     EnsureTagSize(tagName, tagSize, 18);
                     luminosityTable = ReadAscii(data, offset + 10, 8);
                     break;
+
+                case "NAVP":
+                    EnsureTagSize(tagName, tagSize, 80);
+                    navPoints.Add(new MechWarriorWorldNavPoint(
+                        new Vector3(
+                            ReadInt32(data, offset + 8) * TranslationScale,
+                            ReadInt32(data, offset + 12) * TranslationScale,
+                            ReadInt32(data, offset + 16) * TranslationScale),
+                        ReadUInt16(data, offset + 22),
+                        ReadUInt16(data, offset + 24) != 0,
+                        ReadUInt16(data, offset + 30),
+                        ReadUInt16(data, offset + 32),
+                        ReadUInt16(data, offset + 34),
+                        ReadAscii(data, offset + 36, 21).TrimEnd()));
+                    break;
             }
 
             offset += tagSize;
@@ -162,6 +182,7 @@ public sealed class MechWarriorWorldFile
             includes.AsReadOnly(),
             objects.AsReadOnly(),
             entities.AsReadOnly(),
+            navPoints.AsReadOnly(),
             timeOfDay,
             lighting,
             luminosityTable);

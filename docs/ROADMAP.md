@@ -28,7 +28,7 @@ This phase is complete when MechRewired displays a recognizable DOS BattleMech d
 
 - Decode terrain geometry and mission world references. — complete
 - Establish coordinate, scale and material conventions between MW2 and Godot. — complete
-- Recreate the DOS terrain shading, skies, palette and mission colors.
+- Recreate the DOS terrain shading, skies, palette and mission colors. — complete
 
 This phase is complete when a recognizable original battlefield can be explored with a debug camera.
 
@@ -36,7 +36,7 @@ This phase is complete when a recognizable original battlefield can be explored 
 
 - Implement throttle, reverse, leg steering and torso twist.
 - Follow terrain and enforce slope limits.
-- Add cockpit and external diagnostic cameras.
+- Add cockpit and external diagnostic cameras. — initial rig complete
 - Implement targeting, weapons, heat, armor and location-based damage.
 - Add a minimal diagnostic HUD.
 

@@ -27,19 +27,26 @@ public partial class Main : Node3D
     private const string PalettePath = "PAL/YELL_DA.COL";
     private const string LevelPath = "BWD/YELLWLD1.BWD";
     private const string PlanetPath = "BWD/YELLPLT1.BWD";
+    private const string PlayerStartPath = "BWD/YELLST01.BWD";
     private const string LevelAreaPrefix = "YELLARE";
 
     public override void _Ready()
     {
         GD.Print("MechRewired: reactor online.");
-        if (!TryLoadGameData(out var archive, out var palette, out var modelParts, out var level, out var planet))
+        if (!TryLoadGameData(
+                out var archive,
+                out var palette,
+                out var modelParts,
+                out var level,
+                out var planet,
+                out var playerStart))
         {
             return;
         }
 
         try
         {
-            BuildScene(archive, palette, modelParts, level, planet);
+            BuildScene(archive, palette, modelParts, level, planet, playerStart);
         }
         catch (Exception exception)
         {
@@ -52,13 +59,15 @@ public partial class Main : Node3D
         out MechWarriorPalette palette,
         out IReadOnlyList<(MechWarriorModelPartDefinition Definition, MechWarriorModel Model)> modelParts,
         out MechWarriorLevel level,
-        out MechWarriorWorldFile planet)
+        out MechWarriorWorldFile planet,
+        out MechWarriorWorldNavPoint playerStart)
     {
         archive = null;
         palette = null;
         modelParts = null;
         level = null;
         planet = null;
+        playerStart = null;
         try
         {
             var projectDirectory = new DirectoryInfo(ProjectSettings.GlobalizePath("res://"));
@@ -94,6 +103,22 @@ public partial class Main : Node3D
                 $"ambient {planet.Lighting?.AmbientLevel}; light type {planet.Lighting?.Type}; " +
                 $"light at {planet.Lighting?.Position}; shade distance {planet.Lighting?.ShadeDistance:F2}; " +
                 $"luma {planet.LuminosityTable}).");
+
+            var playerStartEntry = archive.GetEntry(PlayerStartPath);
+            var playerStartWorld = MechWarriorWorldFile.Load(archive.ReadEntry(playerStartEntry));
+            if (playerStartWorld.NavPoints.Count != 1)
+            {
+                throw new InvalidDataException(
+                    $"{playerStartEntry.Path} contains {playerStartWorld.NavPoints.Count} deployment points; expected one.");
+            }
+
+            playerStart = playerStartWorld.NavPoints[0];
+            GD.Print(
+                $"MechRewired: loaded {playerStartEntry.Path} player deployment " +
+                $"at ({playerStart.Position.X:F2}, {playerStart.Position.Y:F2}, {playerStart.Position.Z:F2}), " +
+                $"heading {playerStart.StartingAngle} degrees (group {playerStart.GroupId}; " +
+                $"radius {playerStart.Radius}; action 0x{playerStart.ActionFlags:X4}; " +
+                $"'{playerStart.Description}').");
 
             level = MechWarriorLevel.Load(
                 archive,
@@ -138,7 +163,8 @@ public partial class Main : Node3D
         MechWarriorPalette palette,
         IReadOnlyList<(MechWarriorModelPartDefinition Definition, MechWarriorModel Model)> modelParts,
         MechWarriorLevel level,
-        MechWarriorWorldFile planet)
+        MechWarriorWorldFile planet,
+        MechWarriorWorldNavPoint playerStart)
     {
         var skyTopColor = ToGodotColor(palette[SkyTopPaletteIndex]);
         var skyHorizonColor = ToGodotColor(palette[SkyHorizonPaletteIndex]);
@@ -201,7 +227,6 @@ public partial class Main : Node3D
         var meshCache = new Dictionary<string, IReadOnlyList<ArrayMesh>>(StringComparer.OrdinalIgnoreCase);
         var wireframeCache = new Dictionary<string, IReadOnlyList<ArrayMesh>>(StringComparer.OrdinalIgnoreCase);
         var modelCache = new Dictionary<string, IReadOnlyList<MechWarriorModel>>(StringComparer.OrdinalIgnoreCase);
-        var terrainTopPoints = new Dictionary<string, Vector3>(StringComparer.OrdinalIgnoreCase);
         var terrainPaletteCounts = new Dictionary<byte, int>();
         var debugTriangles = new List<DebugTriangle>();
         var worldBounds = new Aabb();
@@ -209,7 +234,6 @@ public partial class Main : Node3D
         var renderedInstanceCount = 0;
         var renderedActorComponentCount = 0;
         var renderedDebrisCount = 0;
-        Vector3? mechSpawn = null;
         var renderedObjects = level.StaticObjects
             .Concat(level.Actors.SelectMany(actor => actor.Components));
         foreach (var levelObject in renderedObjects)
@@ -229,13 +253,6 @@ public partial class Main : Node3D
                     wireframeCache.Add(
                         levelObject.ModelEntry.Path,
                         highestDetailModels.Select(MechWarriorModelMeshBuilder.BuildWireframe).ToArray());
-                    var highestVertex = highestDetailModels
-                        .SelectMany(model => model.Vertices)
-                        .MaxBy(vertex => vertex.Position.Y);
-                    terrainTopPoints.Add(
-                        levelObject.ModelEntry.Path,
-                        MechWarriorCoordinateSystem.ToGodotPosition(highestVertex.Position) *
-                        MechWarriorModelMeshBuilder.SourceUnitScale);
                     if (levelObject.ModelEntry.Name.StartsWith("T_", StringComparison.OrdinalIgnoreCase))
                     {
                         foreach (var polygon in highestDetailModels.SelectMany(model => model.Polygons))
@@ -307,11 +324,6 @@ public partial class Main : Node3D
 
             AddDebugTriangles(debugTriangles, levelObject, objectRoot.Transform, modelCache[levelObject.ModelEntry.Path]);
 
-            if (mechSpawn == null && levelObject.ModelEntry.Name.StartsWith("T_", StringComparison.OrdinalIgnoreCase))
-            {
-                mechSpawn = objectRoot.Transform * terrainTopPoints[levelObject.ModelEntry.Path];
-            }
-
             renderedInstanceCount++;
             if (levelObject.Kind == MechWarriorLevelObjectKind.Actor)
             {
@@ -334,11 +346,8 @@ public partial class Main : Node3D
 
         AddImplicitGround(levelRoot, worldBounds, terrainPaletteCounts, palette, debugTriangles);
 
-        var mech = new Node3D
-        {
-            Name = "TimberWolf"
-        };
-        AddChild(mech);
+        var playerMech = new PlayerMech();
+        AddChild(playerMech);
 
         var bounds = new Aabb();
         var hasBounds = false;
@@ -352,9 +361,10 @@ public partial class Main : Node3D
             {
                 Name = definition.Name,
                 Mesh = renderMesh,
-                Position = partPosition
+                Position = partPosition,
+                Layers = PlayerMech.ExteriorRenderLayer
             };
-            mech.AddChild(modelInstance);
+            playerMech.GetPartParent(definition.Name).AddChild(modelInstance);
             modelInstance.AddToGroup(DebugCamera.SolidMeshGroup);
 
             var wireframeInstance = new MeshInstance3D
@@ -362,9 +372,10 @@ public partial class Main : Node3D
                 Name = $"{definition.Name}Wireframe",
                 Mesh = MechWarriorModelMeshBuilder.BuildWireframe(model),
                 Position = partPosition,
-                Visible = false
+                Visible = false,
+                Layers = PlayerMech.ExteriorRenderLayer
             };
-            mech.AddChild(wireframeInstance);
+            playerMech.GetPartParent(definition.Name).AddChild(wireframeInstance);
             wireframeInstance.AddToGroup(DebugCamera.WireframeMeshGroup);
 
             var partBounds = renderMesh.GetAabb();
@@ -375,26 +386,63 @@ public partial class Main : Node3D
             triangleCount += model.Polygons.Sum(polygon => polygon.VertexIndices.Count - 2);
         }
 
-        var mechPosition = mechSpawn ?? Vector3.Zero;
-        mech.Position = mechPosition + new Vector3(0.0f, -bounds.Position.Y, 0.0f);
+        var deploymentPosition = MechWarriorCoordinateSystem.ToGodotPosition(playerStart.Position);
+        var surfaceHeight = FindDeploymentSurfaceHeight(debugTriangles, deploymentPosition);
+        playerMech.Position = new Vector3(
+            deploymentPosition.X,
+            surfaceHeight - bounds.Position.Y,
+            deploymentPosition.Z);
+        playerMech.RotationDegrees = MechWarriorCoordinateSystem.ToGodotRotation(
+            new System.Numerics.Vector3(0.0f, playerStart.StartingAngle, 0.0f));
+        playerMech.ConfigureCameras(bounds);
 
         GD.Print(
-            $"MechRewired: assembled Timber Wolf ({modelParts.Count} parts, {vertexCount} source vertices, " +
+            $"MechRewired: deployed PlayerMech Timber Wolf at MW2 " +
+            $"({playerStart.Position.X:F2}, {playerStart.Position.Y:F2}, {playerStart.Position.Z:F2}), " +
+            $"heading {playerStart.StartingAngle} degrees, feet at rendered Y={surfaceHeight:F2} " +
+            $"({modelParts.Count} parts, {vertexCount} source vertices, " +
             $"{triangleCount} triangles, scale {MechWarriorModelMeshBuilder.SourceUnitScale}).");
 
-        var target = mech.Position + bounds.GetCenter();
+        var target = playerMech.ToGlobal(bounds.GetCenter());
         var modelSize = Math.Max(bounds.Size.X, Math.Max(bounds.Size.Y, bounds.Size.Z));
         var cameraDistance = Math.Max(modelSize * 3.0f, 1.0f);
         var cameraDirection = new Vector3(0.75f, 0.4f, 1.0f).Normalized();
         var camera = new DebugCamera
         {
             Position = target + cameraDirection * cameraDistance,
-            Current = true,
-            Far = Math.Max(cameraDistance * 4.0f, 4000.0f),
-            SceneTriangles = debugTriangles.AsReadOnly()
+            Current = false,
+            Far = Math.Max(cameraDistance * 4.0f, 8000.0f),
+            CullMask = 1u | PlayerMech.ExteriorRenderLayer,
+            SceneTriangles = debugTriangles.AsReadOnly(),
+            CockpitCamera = playerMech.CockpitCamera,
+            ExternalCamera = playerMech.ExternalCamera,
+            Cockpit = playerMech.Cockpit
         };
         camera.LookAtFromPosition(camera.Position, target);
         AddChild(camera);
+    }
+
+    private static float FindDeploymentSurfaceHeight(
+        IEnumerable<DebugTriangle> debugTriangles,
+        Vector3 deploymentPosition)
+    {
+        const float rayHeight = 10000.0f;
+        var terrainTriangles = debugTriangles.Where(triangle =>
+            triangle.ResourcePath == "IMPLICIT/GROUND" ||
+            triangle.ResourcePath.StartsWith("POLY/T_", StringComparison.Ordinal));
+        var origin = new Vector3(deploymentPosition.X, rayHeight, deploymentPosition.Z);
+        if (!DebugTriangleRaycaster.TryFindNearest(
+                terrainTriangles,
+                origin,
+                Vector3.Down,
+                out _,
+                out var distance))
+        {
+            GD.PushWarning("MechRewired: no rendered surface found beneath the player deployment; using NAVP Y.");
+            return deploymentPosition.Y;
+        }
+
+        return origin.Y - distance;
     }
 
     private static Color ToGodotColor(DTC.Core.Rgb color) =>
