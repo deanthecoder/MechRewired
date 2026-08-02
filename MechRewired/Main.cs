@@ -91,9 +91,26 @@ public partial class Main : Node3D
                 GD.Print($"MechRewired: loaded {source.Entry.Path} ({source.ObjectCount} objects).");
             }
 
+            foreach (var actor in level.Actors)
+            {
+                var description = string.IsNullOrWhiteSpace(actor.Description)
+                    ? actor.Components[0].ModelEntry.Name
+                    : actor.Description;
+                var position = actor.Components[0].Transform.Translation;
+                var activeComponents = string.Join(", ", actor.Components.Select(component => component.ModelEntry.Name));
+                var destroyedComponents = actor.DestroyedComponents.Count == 0
+                    ? "none"
+                    : string.Join(", ", actor.DestroyedComponents.Select(component => component.ModelEntry.Name));
+                GD.Print(
+                    $"MechRewired: discovered actor {actor.SourceEntry.Path} object {actor.ObjectId} " +
+                    $"'{description}' at ({position.X:F2}, {position.Y:F2}, {position.Z:F2}) " +
+                    $"(health {actor.Health}; active [{activeComponents}]; destroyed [{destroyedComponents}]).");
+            }
+
             GD.Print(
                 $"MechRewired: assembled Pyre Light world ({level.Sources.Count} BWD resources, " +
-                $"{level.Objects.Count} positioned objects).");
+                $"{level.TerrainObjects.Count} terrain objects, {level.SceneryObjects.Count} scenery objects, " +
+                $"{level.DebrisObjects.Count} debris objects, {level.Actors.Count} actors).");
             return true;
         }
         catch (Exception exception)
@@ -137,6 +154,12 @@ public partial class Main : Node3D
         };
         AddChild(levelRoot);
 
+        var actorRoot = new Node3D
+        {
+            Name = "Actors"
+        };
+        AddChild(actorRoot);
+
         var meshCache = new Dictionary<string, IReadOnlyList<ArrayMesh>>(StringComparer.OrdinalIgnoreCase);
         var wireframeCache = new Dictionary<string, IReadOnlyList<ArrayMesh>>(StringComparer.OrdinalIgnoreCase);
         var modelCache = new Dictionary<string, IReadOnlyList<MechWarriorModel>>(StringComparer.OrdinalIgnoreCase);
@@ -146,8 +169,12 @@ public partial class Main : Node3D
         var worldBounds = new Aabb();
         var hasWorldBounds = false;
         var renderedInstanceCount = 0;
+        var renderedActorComponentCount = 0;
+        var renderedDebrisCount = 0;
         Vector3? mechSpawn = null;
-        foreach (var levelObject in level.Objects)
+        var renderedObjects = level.StaticObjects
+            .Concat(level.Actors.SelectMany(actor => actor.Components));
+        foreach (var levelObject in renderedObjects)
         {
             if (!meshCache.TryGetValue(levelObject.ModelEntry.Path, out var meshes))
             {
@@ -203,6 +230,12 @@ public partial class Main : Node3D
             }
 
             var position = ToGodot(levelObject.Transform.Translation);
+            if (levelObject.Kind == MechWarriorLevelObjectKind.Debris)
+            {
+                var lowestVertex = meshes.Min(mesh => mesh.GetAabb().Position.Y);
+                position.Y = ImplicitGroundHeight - lowestVertex;
+            }
+
             var objectRoot = new Node3D
             {
                 Name = levelObject.ModelEntry.Name,
@@ -210,7 +243,10 @@ public partial class Main : Node3D
                 RotationDegrees = ToGodot(levelObject.Transform.RotationDegrees),
                 Scale = ToGodot(levelObject.Transform.Scale)
             };
-            levelRoot.AddChild(objectRoot);
+            var parent = levelObject.Kind == MechWarriorLevelObjectKind.Actor
+                ? actorRoot
+                : levelRoot;
+            parent.AddChild(objectRoot);
             var wireframes = wireframeCache[levelObject.ModelEntry.Path];
             for (var meshIndex = 0; meshIndex < meshes.Count; meshIndex++)
             {
@@ -238,6 +274,15 @@ public partial class Main : Node3D
             }
 
             renderedInstanceCount++;
+            if (levelObject.Kind == MechWarriorLevelObjectKind.Actor)
+            {
+                renderedActorComponentCount++;
+            }
+            else if (levelObject.Kind == MechWarriorLevelObjectKind.Debris)
+            {
+                renderedDebrisCount++;
+            }
+
             var pointBounds = new Aabb(position, Vector3.Zero);
             worldBounds = hasWorldBounds ? worldBounds.Merge(pointBounds) : pointBounds;
             hasWorldBounds = true;
@@ -245,6 +290,7 @@ public partial class Main : Node3D
 
         GD.Print(
             $"MechRewired: rendered Pyre Light world ({renderedInstanceCount} instances, " +
+            $"{renderedActorComponentCount} active actor components, {renderedDebrisCount} ground-settled debris objects, " +
             $"{meshCache.Count} unique models).");
 
         AddImplicitGround(levelRoot, worldBounds, terrainPaletteCounts, palette, debugTriangles);

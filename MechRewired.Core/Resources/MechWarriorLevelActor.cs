@@ -11,15 +11,16 @@
 namespace MechRewired.Resources;
 
 /// <summary>
-/// Describes one positioned model object decoded from a BWD world resource.
+/// Describes one gameplay actor and the BWD objects forming its representations.
 /// </summary>
 /// <remarks>
-/// The model resource index is local to the archive's POLY directory.
+/// Active and destroyed components remain separate so the renderer does not display both states simultaneously.
 /// </remarks>
-public sealed record MechWarriorWorldObject(
-    int Id,
-    int RelativeToId,
-    int CollisionType,
-    int ObjectType,
-    int ModelResourceIndex,
-    MechWarriorWorldTransform Transform);
+public sealed record MechWarriorLevelActor(
+    MechWarriorProjectEntry SourceEntry,
+    int ObjectId,
+    int? DestroyedObjectId,
+    int Health,
+    string Description,
+    IReadOnlyList<MechWarriorLevelObject> Components,
+    IReadOnlyList<MechWarriorLevelObject> DestroyedComponents);

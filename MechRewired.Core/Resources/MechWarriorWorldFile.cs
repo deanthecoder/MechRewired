@@ -28,15 +28,19 @@ public sealed class MechWarriorWorldFile
 
     private MechWarriorWorldFile(
         IReadOnlyList<MechWarriorWorldInclude> includes,
-        IReadOnlyList<MechWarriorWorldObject> objects)
+        IReadOnlyList<MechWarriorWorldObject> objects,
+        IReadOnlyList<MechWarriorWorldEntity> entities)
     {
         Includes = includes;
         Objects = objects;
+        Entities = entities;
     }
 
     public IReadOnlyList<MechWarriorWorldInclude> Includes { get; }
 
     public IReadOnlyList<MechWarriorWorldObject> Objects { get; }
+
+    public IReadOnlyList<MechWarriorWorldEntity> Entities { get; }
 
     /// <summary>
     /// Decodes one BWD payload, applying an optional transform supplied by its parent include.
@@ -52,6 +56,7 @@ public sealed class MechWarriorWorldFile
 
         var includes = new List<MechWarriorWorldInclude>();
         var objects = new List<MechWarriorWorldObject>();
+        var entities = new List<MechWarriorWorldEntity>();
         var localTransforms = new Dictionary<int, MechWarriorWorldTransform>();
         var blockTransform = MechWarriorWorldTransform.Identity;
         var offset = TagOffset;
@@ -93,14 +98,30 @@ public sealed class MechWarriorWorldFile
 
                     var transform = ReadTransform(data, offset + 14, baseTransform);
                     localTransforms.Add(id, transform);
-                    objects.Add(new MechWarriorWorldObject(id, ReadInt16(data, offset + 56), transform));
+                    objects.Add(new MechWarriorWorldObject(
+                        id,
+                        relativeTo,
+                        ReadUInt16(data, offset + 12),
+                        ReadUInt16(data, offset + 52),
+                        ReadInt16(data, offset + 56),
+                        transform));
+                    break;
+
+                case "GT":
+                    EnsureTagSize(tagName, tagSize, 32);
+                    var destroyedObjectId = ReadInt16(data, offset + 10);
+                    entities.Add(new MechWarriorWorldEntity(
+                        ReadInt16(data, offset + 8),
+                        destroyedObjectId < 0 ? null : destroyedObjectId,
+                        ReadUInt16(data, offset + 24),
+                        ReadAscii(data, offset + 32, tagSize - 32)));
                     break;
             }
 
             offset += tagSize;
         }
 
-        return new MechWarriorWorldFile(includes.AsReadOnly(), objects.AsReadOnly());
+        return new MechWarriorWorldFile(includes.AsReadOnly(), objects.AsReadOnly(), entities.AsReadOnly());
     }
 
     private static MechWarriorWorldTransform ReadTransform(
@@ -128,6 +149,9 @@ public sealed class MechWarriorWorldFile
 
     private static short ReadInt16(ReadOnlySpan<byte> data, int offset) =>
         BinaryPrimitives.ReadInt16LittleEndian(data.Slice(offset, sizeof(short)));
+
+    private static ushort ReadUInt16(ReadOnlySpan<byte> data, int offset) =>
+        BinaryPrimitives.ReadUInt16LittleEndian(data.Slice(offset, sizeof(ushort)));
 
     private static int ReadInt32(ReadOnlySpan<byte> data, int offset) =>
         BinaryPrimitives.ReadInt32LittleEndian(data.Slice(offset, sizeof(int)));

@@ -11,15 +11,12 @@
 namespace MechRewired.Resources;
 
 /// <summary>
-/// Describes one positioned model object decoded from a BWD world resource.
+/// Identifies how a positioned BWD object participates in the loaded level.
 /// </summary>
-/// <remarks>
-/// The model resource index is local to the archive's POLY directory.
-/// </remarks>
-public sealed record MechWarriorWorldObject(
-    int Id,
-    int RelativeToId,
-    int CollisionType,
-    int ObjectType,
-    int ModelResourceIndex,
-    MechWarriorWorldTransform Transform);
+public enum MechWarriorLevelObjectKind
+{
+    Terrain,
+    Scenery,
+    Debris,
+    Actor
+}

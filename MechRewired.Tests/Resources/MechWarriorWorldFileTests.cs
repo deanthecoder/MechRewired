@@ -47,7 +47,7 @@ public sealed class MechWarriorWorldFileTests
     {
         var data = WriteWorld(writer =>
         {
-            WriteObjectTag(writer, 7, -2, 101, new Vector3(2.0f, 3.0f, 4.0f));
+            WriteObjectTag(writer, 7, -2, 101, new Vector3(2.0f, 3.0f, 4.0f), 5, 0x50);
             WriteObjectTag(writer, 8, 7, 102, new Vector3(5.0f, 6.0f, 7.0f));
         });
         var parent = new MechWarriorWorldTransform(Vector3.One, Vector3.Zero, new Vector3(10.0f, 20.0f, 30.0f));
@@ -56,8 +56,29 @@ public sealed class MechWarriorWorldFileTests
 
         Assert.That(world.Objects, Has.Count.EqualTo(2));
         Assert.That(world.Objects[0].ModelResourceIndex, Is.EqualTo(101));
+        Assert.That(world.Objects[0].RelativeToId, Is.EqualTo(-2));
+        Assert.That(world.Objects[0].CollisionType, Is.EqualTo(5));
+        Assert.That(world.Objects[0].ObjectType, Is.EqualTo(0x50));
         Assert.That(world.Objects[0].Transform.Translation, Is.EqualTo(new Vector3(12.0f, 23.0f, 34.0f)));
         Assert.That(world.Objects[1].Transform.Translation, Is.EqualTo(new Vector3(17.0f, 29.0f, 41.0f)));
+    }
+
+    [Test]
+    public void LoadAssociatesGameplayMetadataWithAnObjectAssembly()
+    {
+        var data = WriteWorld(writer =>
+        {
+            WriteObjectTag(writer, 7, -2, 101, Vector3.Zero);
+            WriteEntityTag(writer, 7, 12, 250, "Dire Wolf");
+        });
+
+        var world = MechWarriorWorldFile.Load(data);
+
+        Assert.That(world.Entities, Has.Count.EqualTo(1));
+        Assert.That(world.Entities[0].ObjectId, Is.EqualTo(7));
+        Assert.That(world.Entities[0].DestroyedObjectId, Is.EqualTo(12));
+        Assert.That(world.Entities[0].Health, Is.EqualTo(250));
+        Assert.That(world.Entities[0].Description, Is.EqualTo("Dire Wolf"));
     }
 
     [Test]
@@ -113,19 +134,42 @@ public sealed class MechWarriorWorldFileTests
         short id,
         short relativeTo,
         short modelResourceIndex,
-        Vector3 translation)
+        Vector3 translation,
+        ushort collisionType = 0,
+        ushort objectType = 0)
     {
         WriteFixedAscii(writer, "OBJ", 4);
         writer.Write(60);
         writer.Write(id);
         writer.Write(relativeTo);
-        writer.Write((short)0);
+        writer.Write(collisionType);
         WriteVector(writer, Vector3.One, 1.0f);
         WriteVector(writer, Vector3.Zero, 65536.0f);
         WriteVector(writer, translation, 100.0f);
-        writer.Write(new byte[6]);
+        writer.Write((short)0);
+        writer.Write(objectType);
+        writer.Write((short)0);
         writer.Write(modelResourceIndex);
         writer.Write((short)0);
+    }
+
+    private static void WriteEntityTag(
+        BinaryWriter writer,
+        short objectId,
+        short destroyedObjectId,
+        ushort health,
+        string description)
+    {
+        var descriptionBytes = Encoding.ASCII.GetBytes(description);
+        WriteFixedAscii(writer, "GT", 4);
+        writer.Write(33 + descriptionBytes.Length);
+        writer.Write(objectId);
+        writer.Write(destroyedObjectId);
+        writer.Write(new byte[12]);
+        writer.Write(health);
+        writer.Write(new byte[6]);
+        writer.Write(descriptionBytes);
+        writer.Write((byte)0);
     }
 
     private static void WriteVector(BinaryWriter writer, Vector3 vector, float scale)

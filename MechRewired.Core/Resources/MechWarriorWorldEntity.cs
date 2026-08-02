@@ -11,15 +11,13 @@
 namespace MechRewired.Resources;
 
 /// <summary>
-/// Describes one positioned model object decoded from a BWD world resource.
+/// Describes gameplay metadata attached to an object assembly by a BWD GT tag.
 /// </summary>
 /// <remarks>
-/// The model resource index is local to the archive's POLY directory.
+/// Destroyed object IDs identify an alternative representation within the same BWD resource.
 /// </remarks>
-public sealed record MechWarriorWorldObject(
-    int Id,
-    int RelativeToId,
-    int CollisionType,
-    int ObjectType,
-    int ModelResourceIndex,
-    MechWarriorWorldTransform Transform);
+public sealed record MechWarriorWorldEntity(
+    int ObjectId,
+    int? DestroyedObjectId,
+    int Health,
+    string Description);

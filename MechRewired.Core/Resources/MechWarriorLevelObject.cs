@@ -18,5 +18,10 @@ namespace MechRewired.Resources;
 /// </remarks>
 public sealed record MechWarriorLevelObject(
     int Id,
+    int RelativeToId,
+    int CollisionType,
+    int ObjectType,
+    MechWarriorLevelObjectKind Kind,
+    MechWarriorProjectEntry SourceEntry,
     MechWarriorProjectEntry ModelEntry,
     MechWarriorWorldTransform Transform);
