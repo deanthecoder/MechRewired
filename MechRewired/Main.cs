@@ -21,6 +21,8 @@ namespace MechRewired;
 /// </remarks>
 public partial class Main : Node3D
 {
+    private const string DiagnosticPalettePath = "PAL/BROWN_DA.COL";
+
     public override void _Ready()
     {
         GD.Print("MechRewired: reactor online.");
@@ -41,7 +43,12 @@ public partial class Main : Node3D
                                       throw new DirectoryNotFoundException("The MechRewired repository directory could not be resolved.");
             var dataDirectory = new DirectoryInfo(Path.Combine(repositoryDirectory.FullName, "local", "game-data"));
             var projectArchive = MechWarriorResourceCheck.CheckDosFiles(dataDirectory);
-            GD.Print($"MechRewired: found {projectArchive.Name} ({projectArchive.Length:N0} bytes).");
+            var archive = MechWarriorProjectArchive.Open(projectArchive);
+            var paletteEntry = archive.GetEntry(DiagnosticPalettePath);
+            var palette = MechWarriorPalette.Load(archive.ReadEntry(paletteEntry));
+            GD.Print(
+                $"MechRewired: indexed {archive.Entries.Count:N0} resources from {projectArchive.Name} " +
+                $"({projectArchive.Length:N0} bytes); loaded {paletteEntry.Path} ({palette.Colors.Count} colors).");
             return true;
         }
         catch (Exception exception)

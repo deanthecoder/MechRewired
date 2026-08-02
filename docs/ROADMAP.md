@@ -18,7 +18,7 @@ Deeper archive validation is intentionally deferred until the project is otherwi
 
 ## 2. First original image
 
-- Decode color palettes.
+- Decode color palettes. — complete
 - Decode enough `WTB` model geometry and material data to assemble one flat-shaded BattleMech.
 - Add a Godot inspection scene with an orbit camera and simple lighting.
 
