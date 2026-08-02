@@ -38,6 +38,8 @@ public partial class PlayerCockpit : Node3D
 
     public float SideTaper { get; }
 
+    public float PitchDegrees => RotationDegrees.X;
+
     public override void _Ready()
     {
         Rebuild();
@@ -47,7 +49,14 @@ public partial class PlayerCockpit : Node3D
     {
         GD.Print(
             $"MechRewired: cockpit dimensions width {Width:F2}, height {Height:F2}, " +
-            $"length {Length:F2}, post thickness {PostThickness:F2}, side taper {SideTaper:F2}.");
+            $"length {Length:F2}, post thickness {PostThickness:F2}, side taper {SideTaper:F2}, " +
+            $"pitch {PitchDegrees:F1} degrees.");
+    }
+
+    public void SetPose(float pitchDegrees, float yaw, Vector3 gaitPosition, float gaitRoll)
+    {
+        Position = gaitPosition;
+        Rotation = new Vector3(Mathf.DegToRad(pitchDegrees), yaw, gaitRoll);
     }
 
     private void Rebuild()

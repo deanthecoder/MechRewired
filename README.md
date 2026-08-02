@@ -10,7 +10,7 @@ The immediate goal is intentionally narrow: load original game data, enter a bat
 
 ## Project status
 
-MechRewired reads the original DOS project archive, palettes, WTB model geometry and BWD world placement data. It currently renders Pyre Light's terrain, palette-derived atmosphere, scenery and ground-settled wreckage; identifies gameplay actors and alternate destroyed representations; and deploys a structured PlayerMech rig at the original Dropsite with cockpit, external and inspector cameras. It does not yet implement mech movement or combat.
+MechRewired reads the original DOS project archive, palettes, WTB model geometry, MEK movement data and BWD world placement data. It currently renders Pyre Light's terrain, palette-derived atmosphere, scenery and ground-settled wreckage; identifies gameplay actors and alternate destroyed representations; and deploys a controllable PlayerMech at the original Dropsite with cockpit, external and inspector cameras. The initial movement slice includes the original latched throttle controls, reverse at half speed, speed-dependent steering, terrain following, slope limits, torso aim and speed-driven cockpit gait. Combat is not yet implemented.
 
 The first vertical slice will establish:
 
@@ -66,14 +66,23 @@ dotnet test MechRewired.Tests/MechRewired.Tests.csproj --no-build
 
 Open `MechRewired/project.godot` with the .NET edition of Godot to run the application.
 
-The application starts in the 3D cockpit. The current camera and battlefield inspection controls are:
+The application starts in the 3D cockpit. The current piloting controls follow the original game's defaults:
 
-- Click the viewport to capture the mouse. In cockpit view, move the mouse to look around within the pilot's head limits.
+- Press <kbd>1</kbd> to stop, <kbd>2</kbd>–<kbd>9</kbd> for 20–90% throttle, or <kbd>0</kbd> for full throttle. Press <kbd>-</kbd>/<kbd>=</kbd> to adjust the throttle in 10% steps.
+- Press <kbd>Backspace</kbd> or <kbd>`</kbd> to toggle forward/reverse. Reverse is limited to half the forward speed.
+- Use <kbd>Left</kbd>/<kbd>Right</kbd> to steer the legs, <kbd>Up</kbd>/<kbd>Down</kbd> to tilt the torso, and <kbd>,</kbd>/<kbd>.</kbd> to turn the torso.
+- Click the viewport to capture the mouse, then move it to aim the torso. Left-click fires, right-click cycles weapons and middle-click targets under the reticle; these buttons currently log their requested combat action.
+- Hold <kbd>Shift</kbd> and use the arrow keys for a quick, damped pilot head pivot. Releasing <kbd>Shift</kbd> or the arrows smoothly returns the pilot view to centre.
+- Press <kbd>C</kbd> or keypad <kbd>5</kbd> to centre both the torso and pilot view. Keypad <kbd>5</kbd> matches the original key map; <kbd>C</kbd> is the laptop-friendly alias.
+- Press <kbd>Escape</kbd> to release the mouse.
+
+The camera and battlefield inspection controls are:
+
 - Press <kbd>F4</kbd> to cycle through cockpit, external and free-flight inspector cameras.
 - In inspector view, use <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> to fly and <kbd>Q</kbd>/<kbd>E</kbd> to descend/ascend.
-- Hold <kbd>Shift</kbd> for a speed boost and press <kbd>Escape</kbd> to release the mouse.
+- Hold <kbd>Shift</kbd> for an inspector-camera speed boost.
 - Press <kbd>F1</kbd> to toggle wireframe rendering or <kbd>F2</kbd> to toggle unshaded rendering.
-- Press <kbd>F3</kbd> to log the active camera's MW2-space transform, its nearest rendered-triangle ray hit and the current cockpit dimensions.
+- Press <kbd>F3</kbd> to log the active camera's MW2-space transform, its nearest rendered-triangle ray hit, the current cockpit dimensions and the PlayerMech movement state.
 - The on-screen **Debug** menu provides the same rendering diagnostics when function keys are unavailable.
 
 ## VR

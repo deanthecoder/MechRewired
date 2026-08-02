@@ -43,6 +43,8 @@ public partial class DebugCamera : Camera3D
 
     public PlayerCockpit Cockpit { get; init; }
 
+    public PlayerMech PlayerMech { get; init; }
+
     public override void _Ready()
     {
         AddDebugMenu();
@@ -251,6 +253,7 @@ public partial class DebugCamera : Camera3D
             $"rotation ({rotationDegrees.X:F2}, {rotationDegrees.Y:F2}, {rotationDegrees.Z:F2}) degrees.");
         LogSceneRay(activeCamera.GlobalPosition, forward);
         Cockpit?.LogDimensions();
+        PlayerMech?.LogMovementState();
     }
 
     public void LogSceneRay(Vector3 origin, Vector3 direction)

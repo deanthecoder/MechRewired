@@ -34,8 +34,9 @@ This phase is complete when a recognizable original battlefield can be explored 
 
 ## 4. Mech piloting
 
-- Implement throttle, reverse, leg steering and torso twist.
-- Follow terrain and enforce slope limits.
+- Implement throttle, reverse, leg steering and torso twist. — initial rigid-body movement complete
+- Follow terrain and enforce slope limits. — initial implementation complete
+- Add speed-driven cockpit gait and landing weight. — initial implementation complete
 - Add cockpit and external diagnostic cameras. — initial rig complete
 - Implement targeting, weapons, heat, armor and location-based damage.
 - Add a minimal diagnostic HUD.
@@ -54,11 +55,12 @@ This phase is complete when one original mission can be played from deployment t
 ## 6. Fidelity and remaster effects
 
 - Add articulated legs and inverse kinematics.
+- Improve cockpit shadow quality, stabilize nearby building shadows and tune shadow darkness for the dusk palette.
 - Add emissive missile and weapon lighting.
 - Add particles for explosions, smoke, sparks, dust and damage feedback.
 - Add depth fog, bloom, glow, dynamic shadows and cockpit lighting.
 - Add restrained bump or normal mapping without losing the DOS art direction.
-- Play original sound, voice and CD music resources.
+- Play original sound, voice and CD music resources, beginning with torso motors, footsteps and mission-start status announcements such as "Temperature nominal."
 - Make major enhancements independently adjustable where useful.
 
 ## 7. Productization

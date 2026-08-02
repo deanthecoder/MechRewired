@@ -28,6 +28,7 @@ public partial class Main : Node3D
     private const string LevelPath = "BWD/YELLWLD1.BWD";
     private const string PlanetPath = "BWD/YELLPLT1.BWD";
     private const string PlayerStartPath = "BWD/YELLST01.BWD";
+    private const string PlayerMechPath = "MEK/TBR00STD.MEK";
     private const string LevelAreaPrefix = "YELLARE";
 
     public override void _Ready()
@@ -39,14 +40,15 @@ public partial class Main : Node3D
                 out var modelParts,
                 out var level,
                 out var planet,
-                out var playerStart))
+                out var playerStart,
+                out var playerMechDefinition))
         {
             return;
         }
 
         try
         {
-            BuildScene(archive, palette, modelParts, level, planet, playerStart);
+            BuildScene(archive, palette, modelParts, level, planet, playerStart, playerMechDefinition);
         }
         catch (Exception exception)
         {
@@ -60,7 +62,8 @@ public partial class Main : Node3D
         out IReadOnlyList<(MechWarriorModelPartDefinition Definition, MechWarriorModel Model)> modelParts,
         out MechWarriorLevel level,
         out MechWarriorWorldFile planet,
-        out MechWarriorWorldNavPoint playerStart)
+        out MechWarriorWorldNavPoint playerStart,
+        out MechWarriorMechFile playerMechDefinition)
     {
         archive = null;
         palette = null;
@@ -68,6 +71,7 @@ public partial class Main : Node3D
         level = null;
         planet = null;
         playerStart = null;
+        playerMechDefinition = null;
         try
         {
             var projectDirectory = new DirectoryInfo(ProjectSettings.GlobalizePath("res://"));
@@ -96,6 +100,13 @@ public partial class Main : Node3D
             }
 
             modelParts = loadedParts.AsReadOnly();
+            var playerMechEntry = archive.GetEntry(PlayerMechPath);
+            playerMechDefinition = MechWarriorMechFile.Load(archive.ReadEntry(playerMechEntry));
+            GD.Print(
+                $"MechRewired: loaded {playerMechEntry.Path} ({playerMechDefinition.Tonnage} tons; " +
+                $"{playerMechDefinition.WalkingMovementPoints} walking movement points; " +
+                $"{playerMechDefinition.CruisingSpeedKph:F1} km/h cruise; " +
+                $"{playerMechDefinition.MaximumSpeedKph:F1} km/h maximum).");
             var planetEntry = archive.GetEntry(PlanetPath);
             planet = MechWarriorWorldFile.Load(archive.ReadEntry(planetEntry));
             GD.Print(
@@ -164,7 +175,8 @@ public partial class Main : Node3D
         IReadOnlyList<(MechWarriorModelPartDefinition Definition, MechWarriorModel Model)> modelParts,
         MechWarriorLevel level,
         MechWarriorWorldFile planet,
-        MechWarriorWorldNavPoint playerStart)
+        MechWarriorWorldNavPoint playerStart,
+        MechWarriorMechFile playerMechDefinition)
     {
         var skyTopColor = ToGodotColor(palette[SkyTopPaletteIndex]);
         var skyHorizonColor = ToGodotColor(palette[SkyHorizonPaletteIndex]);
@@ -346,7 +358,7 @@ public partial class Main : Node3D
 
         AddImplicitGround(levelRoot, worldBounds, terrainPaletteCounts, palette, debugTriangles);
 
-        var playerMech = new PlayerMech();
+        var playerMech = new PlayerMech(playerMechDefinition.MaximumSpeedKph);
         AddChild(playerMech);
 
         var bounds = new Aabb();
@@ -394,7 +406,7 @@ public partial class Main : Node3D
             deploymentPosition.Z);
         playerMech.RotationDegrees = MechWarriorCoordinateSystem.ToGodotRotation(
             new System.Numerics.Vector3(0.0f, playerStart.StartingAngle, 0.0f));
-        playerMech.ConfigureCameras(bounds);
+        playerMech.Configure(bounds, debugTriangles.AsReadOnly());
 
         GD.Print(
             $"MechRewired: deployed PlayerMech Timber Wolf at MW2 " +
@@ -416,7 +428,8 @@ public partial class Main : Node3D
             SceneTriangles = debugTriangles.AsReadOnly(),
             CockpitCamera = playerMech.CockpitCamera,
             ExternalCamera = playerMech.ExternalCamera,
-            Cockpit = playerMech.Cockpit
+            Cockpit = playerMech.Cockpit,
+            PlayerMech = playerMech
         };
         camera.LookAtFromPosition(camera.Position, target);
         AddChild(camera);
