@@ -234,7 +234,8 @@ public partial class Main : Node3D
                         .MaxBy(vertex => vertex.Position.Y);
                     terrainTopPoints.Add(
                         levelObject.ModelEntry.Path,
-                        ToGodot(highestVertex.Position) * MechWarriorModelMeshBuilder.SourceUnitScale);
+                        MechWarriorCoordinateSystem.ToGodotPosition(highestVertex.Position) *
+                        MechWarriorModelMeshBuilder.SourceUnitScale);
                     if (levelObject.ModelEntry.Name.StartsWith("T_", StringComparison.OrdinalIgnoreCase))
                     {
                         foreach (var polygon in highestDetailModels.SelectMany(model => model.Polygons))
@@ -267,7 +268,7 @@ public partial class Main : Node3D
                 continue;
             }
 
-            var position = ToGodot(levelObject.Transform.Translation);
+            var position = MechWarriorCoordinateSystem.ToGodotPosition(levelObject.Transform.Translation);
             if (levelObject.Kind == MechWarriorLevelObjectKind.Debris)
             {
                 var lowestVertex = meshes.Min(mesh => mesh.GetAabb().Position.Y);
@@ -278,8 +279,8 @@ public partial class Main : Node3D
             {
                 Name = levelObject.ModelEntry.Name,
                 Position = position,
-                RotationDegrees = ToGodot(levelObject.Transform.RotationDegrees),
-                Scale = ToGodot(levelObject.Transform.Scale)
+                RotationDegrees = MechWarriorCoordinateSystem.ToGodotRotation(levelObject.Transform.RotationDegrees),
+                Scale = MechWarriorCoordinateSystem.ToGodotScale(levelObject.Transform.Scale)
             };
             var parent = levelObject.Kind == MechWarriorLevelObjectKind.Actor
                 ? actorRoot
@@ -346,7 +347,7 @@ public partial class Main : Node3D
         foreach (var (definition, model) in modelParts)
         {
             var renderMesh = MechWarriorModelMeshBuilder.Build(model, palette);
-            var partPosition = ToGodot(definition.Translation);
+            var partPosition = MechWarriorCoordinateSystem.ToGodotPosition(definition.Translation);
             var modelInstance = new MeshInstance3D
             {
                 Name = definition.Name,
@@ -396,8 +397,6 @@ public partial class Main : Node3D
         AddChild(camera);
     }
 
-    private static Vector3 ToGodot(System.Numerics.Vector3 vector) => new(vector.X, vector.Y, vector.Z);
-
     private static Color ToGodotColor(DTC.Core.Rgb color) =>
         new(color.R / 255.0f, color.G / 255.0f, color.B / 255.0f);
 
@@ -443,7 +442,8 @@ public partial class Main : Node3D
     }
 
     private static Vector3 TransformVertex(Transform3D transform, MechWarriorModelVertex vertex) =>
-        transform * (ToGodot(vertex.Position) * MechWarriorModelMeshBuilder.SourceUnitScale);
+        transform * (MechWarriorCoordinateSystem.ToGodotPosition(vertex.Position) *
+                     MechWarriorModelMeshBuilder.SourceUnitScale);
 
     private static void AddImplicitGround(
         Node3D levelRoot,

@@ -184,10 +184,12 @@ public partial class DebugCamera : Camera3D
     private void LogCamera()
     {
         var forward = -GlobalBasis.Z.Normalized();
-        var rotationDegrees = RotationDegrees;
+        var sourcePosition = MechWarriorCoordinateSystem.ToSourcePosition(GlobalPosition);
+        var sourceDirection = MechWarriorCoordinateSystem.ToSourcePosition(forward);
+        var rotationDegrees = MechWarriorCoordinateSystem.ToSourceRotation(RotationDegrees);
         GD.Print(
-            $"MechRewired: debug camera position ({GlobalPosition.X:F2}, {GlobalPosition.Y:F2}, {GlobalPosition.Z:F2}); " +
-            $"direction ({forward.X:F4}, {forward.Y:F4}, {forward.Z:F4}); " +
+            $"MechRewired: debug camera MW2 position ({sourcePosition.X:F2}, {sourcePosition.Y:F2}, {sourcePosition.Z:F2}); " +
+            $"direction ({sourceDirection.X:F4}, {sourceDirection.Y:F4}, {sourceDirection.Z:F4}); " +
             $"rotation ({rotationDegrees.X:F2}, {rotationDegrees.Y:F2}, {rotationDegrees.Z:F2}) degrees.");
         LogSceneRay(GlobalPosition, forward);
     }
@@ -212,10 +214,11 @@ public partial class DebugCamera : Camera3D
         }
 
         var hitPosition = origin + direction * nearestDistance;
+        var sourceHitPosition = MechWarriorCoordinateSystem.ToSourcePosition(hitPosition);
         GD.Print(
             $"MechRewired: debug camera ray hit {nearestTriangle.ResourcePath} object {nearestTriangle.ObjectId}, " +
             $"model {nearestTriangle.ModelIndex}, polygon {nearestTriangle.PolygonIndex} at " +
-            $"({hitPosition.X:F2}, {hitPosition.Y:F2}, {hitPosition.Z:F2}), distance {nearestDistance:F2}.");
+            $"({sourceHitPosition.X:F2}, {sourceHitPosition.Y:F2}, {sourceHitPosition.Z:F2}), distance {nearestDistance:F2}.");
     }
 
     private static bool TryIntersectRay(

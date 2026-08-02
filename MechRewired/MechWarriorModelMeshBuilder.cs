@@ -18,7 +18,7 @@ namespace MechRewired;
 /// Converts decoded MechWarrior 2 model data into a Godot mesh.
 /// </summary>
 /// <remarks>
-/// Polygons are fan-triangulated with their original clockwise winding and DOS palette colors.
+/// Polygons are fan-triangulated with DOS palette colors and reversed winding to compensate for the source-axis reflection.
 /// Vertices are duplicated so generated normals retain the original flat-shaded appearance.
 /// </remarks>
 public static class MechWarriorModelMeshBuilder
@@ -41,8 +41,8 @@ public static class MechWarriorModelMeshBuilder
             for (var triangleIndex = 1; triangleIndex < polygon.VertexIndices.Count - 1; triangleIndex++)
             {
                 AddVertex(surfaceTool, model.Vertices[polygon.VertexIndices[0]], palette[polygon.PaletteIndex]);
-                AddVertex(surfaceTool, model.Vertices[polygon.VertexIndices[triangleIndex]], palette[polygon.PaletteIndex]);
                 AddVertex(surfaceTool, model.Vertices[polygon.VertexIndices[triangleIndex + 1]], palette[polygon.PaletteIndex]);
+                AddVertex(surfaceTool, model.Vertices[polygon.VertexIndices[triangleIndex]], palette[polygon.PaletteIndex]);
             }
         }
 
@@ -95,9 +95,7 @@ public static class MechWarriorModelMeshBuilder
 
     private static void AddPosition(SurfaceTool surfaceTool, MechWarriorModelVertex vertex)
     {
-        surfaceTool.AddVertex(new Vector3(
-            vertex.Position.X * SourceUnitScale,
-            vertex.Position.Y * SourceUnitScale,
-            vertex.Position.Z * SourceUnitScale));
+        surfaceTool.AddVertex(
+            MechWarriorCoordinateSystem.ToGodotPosition(vertex.Position) * SourceUnitScale);
     }
 }
