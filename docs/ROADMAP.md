@@ -19,7 +19,7 @@ Deeper archive validation is intentionally deferred until the project is otherwi
 ## 2. First original image
 
 - Decode color palettes. — complete
-- Decode enough `WTB` model geometry and material data to assemble one flat-shaded BattleMech.
+- Decode enough `WTB` model geometry and material data to assemble one flat-shaded BattleMech. — complete
 - Add a Godot inspection scene with an orbit camera and simple lighting.
 
 This phase is complete when MechRewired displays a recognizable DOS BattleMech directly from the original data.

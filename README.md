@@ -10,7 +10,7 @@ The immediate goal is intentionally narrow: load original game data, enter a bat
 
 ## Project status
 
-MechRewired has completed its initial resource-foundation stage. It detects and performs a lightweight check of the original DOS project archive, but does not yet render or play MechWarrior 2.
+MechRewired reads the original DOS project archive, palettes and WTB model geometry. It currently assembles and renders the highest-detail Timber Wolf from 13 original components in a Godot inspection scene, but does not yet implement gameplay.
 
 The first vertical slice will establish:
 

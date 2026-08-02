@@ -21,20 +21,19 @@ namespace MechRewired;
 /// </remarks>
 public partial class Main : Node3D
 {
-    private const string ModelPath = "POLY/BM1_HIPS.WTB";
-    private const string PalettePath = "PAL/BROWN_DA.COL";
+    private const string PalettePath = "PAL/YELL_DA.COL";
 
     public override void _Ready()
     {
         GD.Print("MechRewired: reactor online.");
-        if (!TryLoadGameData(out var palette, out var model))
+        if (!TryLoadGameData(out var palette, out var modelParts))
         {
             return;
         }
 
         try
         {
-            BuildModelScene(model, palette);
+            BuildModelScene(modelParts, palette);
         }
         catch (Exception exception)
         {
@@ -42,10 +41,12 @@ public partial class Main : Node3D
         }
     }
 
-    private static bool TryLoadGameData(out MechWarriorPalette palette, out MechWarriorModel model)
+    private static bool TryLoadGameData(
+        out MechWarriorPalette palette,
+        out IReadOnlyList<(MechWarriorModelPartDefinition Definition, MechWarriorModel Model)> modelParts)
     {
         palette = null;
-        model = null;
+        modelParts = null;
         try
         {
             var projectDirectory = new DirectoryInfo(ProjectSettings.GlobalizePath("res://"));
@@ -62,11 +63,18 @@ public partial class Main : Node3D
             palette = MechWarriorPalette.Load(archive.ReadEntry(paletteEntry));
             GD.Print($"MechRewired: loaded {paletteEntry.Path} ({palette.Colors.Count} colors).");
 
-            var modelEntry = archive.GetEntry(ModelPath);
-            model = MechWarriorModel.Load(archive.ReadEntry(modelEntry));
-            GD.Print(
-                $"MechRewired: loaded {modelEntry.Path} (subtype {model.Subtype}, {model.Vertices.Count} vertices, " +
-                $"{model.Polygons.Count} polygons).");
+            var loadedParts = new List<(MechWarriorModelPartDefinition, MechWarriorModel)>();
+            foreach (var definition in TimberWolfModelDefinition.Parts)
+            {
+                var modelEntry = archive.GetEntry(definition.ResourcePath);
+                var model = MechWarriorModel.Load(archive.ReadEntry(modelEntry));
+                loadedParts.Add((definition, model));
+                GD.Print(
+                    $"MechRewired: loaded {modelEntry.Path} (subtype {model.Subtype}, " +
+                    $"{model.Vertices.Count} vertices, {model.Polygons.Count} polygons).");
+            }
+
+            modelParts = loadedParts.AsReadOnly();
             return true;
         }
         catch (Exception exception)
@@ -76,7 +84,9 @@ public partial class Main : Node3D
         }
     }
 
-    private void BuildModelScene(MechWarriorModel model, MechWarriorPalette palette)
+    private void BuildModelScene(
+        IReadOnlyList<(MechWarriorModelPartDefinition Definition, MechWarriorModel Model)> modelParts,
+        MechWarriorPalette palette)
     {
         var environment = new WorldEnvironment
         {
@@ -114,21 +124,43 @@ public partial class Main : Node3D
         };
         AddChild(ground);
 
-        var renderMesh = MechWarriorModelMeshBuilder.Build(model, palette);
-        var modelInstance = new MeshInstance3D
+        var mech = new Node3D
         {
-            Mesh = renderMesh
+            Name = "TimberWolf"
         };
-        var bounds = renderMesh.GetAabb();
-        modelInstance.Position = new Vector3(0.0f, -bounds.Position.Y, 0.0f);
-        AddChild(modelInstance);
+        AddChild(mech);
 
-        var triangleCount = model.Polygons.Sum(polygon => polygon.VertexIndices.Count - 2);
+        var bounds = new Aabb();
+        var hasBounds = false;
+        var triangleCount = 0;
+        var vertexCount = 0;
+        foreach (var (definition, model) in modelParts)
+        {
+            var renderMesh = MechWarriorModelMeshBuilder.Build(model, palette);
+            var partPosition = ToGodot(definition.Translation);
+            var modelInstance = new MeshInstance3D
+            {
+                Name = definition.Name,
+                Mesh = renderMesh,
+                Position = partPosition
+            };
+            mech.AddChild(modelInstance);
+
+            var partBounds = renderMesh.GetAabb();
+            partBounds.Position += partPosition;
+            bounds = hasBounds ? bounds.Merge(partBounds) : partBounds;
+            hasBounds = true;
+            vertexCount += model.Vertices.Count;
+            triangleCount += model.Polygons.Sum(polygon => polygon.VertexIndices.Count - 2);
+        }
+
+        mech.Position = new Vector3(0.0f, -bounds.Position.Y, 0.0f);
+
         GD.Print(
-            $"MechRewired: built render mesh for {ModelPath} ({triangleCount} triangles, " +
-            $"scale {MechWarriorModelMeshBuilder.SourceUnitScale}).");
+            $"MechRewired: assembled Timber Wolf ({modelParts.Count} parts, {vertexCount} source vertices, " +
+            $"{triangleCount} triangles, scale {MechWarriorModelMeshBuilder.SourceUnitScale}).");
 
-        var target = modelInstance.Position + bounds.GetCenter();
+        var target = mech.Position + bounds.GetCenter();
         var modelSize = Math.Max(bounds.Size.X, Math.Max(bounds.Size.Y, bounds.Size.Z));
         var cameraDistance = Math.Max(modelSize * 1.3f, 1.0f);
         var cameraDirection = new Vector3(1.0f, 0.55f, 1.35f).Normalized();
@@ -140,4 +172,6 @@ public partial class Main : Node3D
         camera.LookAtFromPosition(camera.Position, target);
         AddChild(camera);
     }
+
+    private static Vector3 ToGodot(System.Numerics.Vector3 vector) => new(vector.X, vector.Y, vector.Z);
 }
