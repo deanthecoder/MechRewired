@@ -21,6 +21,7 @@ namespace MechRewired;
 /// </remarks>
 public partial class Main : Node3D
 {
+    private const string DiagnosticModelPath = "POLY/BM1_HIPS.WTB";
     private const string DiagnosticPalettePath = "PAL/BROWN_DA.COL";
 
     public override void _Ready()
@@ -44,11 +45,19 @@ public partial class Main : Node3D
             var dataDirectory = new DirectoryInfo(Path.Combine(repositoryDirectory.FullName, "local", "game-data"));
             var projectArchive = MechWarriorResourceCheck.CheckDosFiles(dataDirectory);
             var archive = MechWarriorProjectArchive.Open(projectArchive);
-            var paletteEntry = archive.GetEntry(DiagnosticPalettePath);
-            var palette = MechWarriorPalette.Load(archive.ReadEntry(paletteEntry));
             GD.Print(
                 $"MechRewired: indexed {archive.Entries.Count:N0} resources from {projectArchive.Name} " +
-                $"({projectArchive.Length:N0} bytes); loaded {paletteEntry.Path} ({palette.Colors.Count} colors).");
+                $"({projectArchive.Length:N0} bytes).");
+
+            var paletteEntry = archive.GetEntry(DiagnosticPalettePath);
+            var palette = MechWarriorPalette.Load(archive.ReadEntry(paletteEntry));
+            GD.Print($"MechRewired: loaded {paletteEntry.Path} ({palette.Colors.Count} colors).");
+
+            var modelEntry = archive.GetEntry(DiagnosticModelPath);
+            var model = MechWarriorModel.Load(archive.ReadEntry(modelEntry));
+            GD.Print(
+                $"MechRewired: loaded {modelEntry.Path} (subtype {model.Subtype}, {model.Vertices.Count} vertices, " +
+                $"{model.Polygons.Count} polygons).");
             return true;
         }
         catch (Exception exception)
