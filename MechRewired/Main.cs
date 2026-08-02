@@ -21,7 +21,7 @@ namespace MechRewired;
 /// </remarks>
 public partial class Main : Node3D
 {
-    private const float ImplicitGroundHeight = -0.25f;
+    private const float ImplicitGroundHeight = 0.15f;
     private const int SkyTopPaletteIndex = 224;
     private const int SkyHorizonPaletteIndex = 238;
     private const string PalettePath = "PAL/YELL_DA.COL";
