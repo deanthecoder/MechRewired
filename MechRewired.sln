@@ -9,6 +9,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MechRewired", "MechRewired\
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MechRewired.Tests", "MechRewired.Tests\MechRewired.Tests.csproj", "{004E4A6C-A684-465D-869F-BB2A384BA058}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DTC.Core", "DTC.Core\DTC.Core\DTC.Core.csproj", "{3EAE49FE-18C2-4CC5-B982-7EF89C5050C6}"
+EndProject
 Global
     GlobalSection(SolutionConfigurationPlatforms) = preSolution
         Debug|Any CPU = Debug|Any CPU
@@ -27,5 +29,9 @@ Global
         {004E4A6C-A684-465D-869F-BB2A384BA058}.Debug|Any CPU.Build.0 = Debug|Any CPU
         {004E4A6C-A684-465D-869F-BB2A384BA058}.Release|Any CPU.ActiveCfg = Release|Any CPU
         {004E4A6C-A684-465D-869F-BB2A384BA058}.Release|Any CPU.Build.0 = Release|Any CPU
+        {3EAE49FE-18C2-4CC5-B982-7EF89C5050C6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+        {3EAE49FE-18C2-4CC5-B982-7EF89C5050C6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+        {3EAE49FE-18C2-4CC5-B982-7EF89C5050C6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+        {3EAE49FE-18C2-4CC5-B982-7EF89C5050C6}.Release|Any CPU.Build.0 = Release|Any CPU
     EndGlobalSection
 EndGlobal

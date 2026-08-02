@@ -1,13 +1,54 @@
+// Code authored by Dean Edis (DeanTheCoder).
+// Anyone is free to copy, modify, use, compile, or distribute this software,
+// either in source code form or as a compiled binary, for any purpose.
+//
+// If you modify the code, please retain this copyright header,
+// and consider contributing back to the repository or letting us know
+// about your modifications. Your contributions are valued!
+//
+// THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
+
 using Godot;
+using MechRewired.Resources;
 
 namespace MechRewired;
 
+/// <summary>
+/// Hosts the initial MechRewired Godot scene.
+/// </summary>
+/// <remarks>
+/// Startup composition remains here while resource parsing and simulation live in the engine-independent core project.
+/// </remarks>
 public partial class Main : Node3D
 {
     public override void _Ready()
     {
         GD.Print("MechRewired: reactor online.");
+        if (!CheckGameData())
+        {
+            return;
+        }
+
         BuildPlaceholderScene();
+    }
+
+    private static bool CheckGameData()
+    {
+        try
+        {
+            var projectDirectory = new DirectoryInfo(ProjectSettings.GlobalizePath("res://"));
+            var repositoryDirectory = projectDirectory.Parent ??
+                                      throw new DirectoryNotFoundException("The MechRewired repository directory could not be resolved.");
+            var dataDirectory = new DirectoryInfo(Path.Combine(repositoryDirectory.FullName, "local", "game-data"));
+            var projectArchive = MechWarriorResourceCheck.CheckDosFiles(dataDirectory);
+            GD.Print($"MechRewired: found {projectArchive.Name} ({projectArchive.Length:N0} bytes).");
+            return true;
+        }
+        catch (Exception exception)
+        {
+            GD.PushError($"MechRewired cannot load original game data: {exception.Message}");
+            return false;
+        }
     }
 
     private void BuildPlaceholderScene()

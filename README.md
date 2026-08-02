@@ -4,22 +4,26 @@
 
 **A modern, cross-platform reimplementation of the classic MechWarrior 2 combat experience.**
 
-MechRewired is an independent engine written in C# with Godot. Its first target is the in-mission experience of *MechWarrior 2: 31st Century Combat*, with particular affection for the textured 3dfx Voodoo edition.
+MechRewired is an independent engine written in C# with Godot. Its first target is the in-mission experience of the original DOS release of *MechWarrior 2: 31st Century Combat*.
 
 The immediate goal is intentionally narrow: load original game data, enter a battlefield, pilot a BattleMech, target enemies, manage heat and weapons, and complete a mission. Intro videos, menus, the mech lab and campaign presentation come later.
 
 ## Project status
 
-MechRewired is at the initial engine-scaffolding stage. It does not yet load or play MechWarrior 2.
+MechRewired has completed its initial resource-foundation stage. It detects and performs a lightweight check of the original DOS project archive, but does not yet render or play MechWarrior 2.
 
 The first vertical slice will establish:
 
-- Detection and validation of an original 3dfx installation.
-- Readers for `MW2.PRJ`, `MW2.MIP` and `SKYGND.PAR`.
-- Textured terrain, animated skies and articulated BattleMechs.
+- Detection and validation of an original DOS installation.
+- Readers for `MW2.PRJ` and the resource formats needed by the first mission.
+- DOS-inspired terrain, skies and articulated BattleMechs.
 - Throttle, steering, torso twist and cockpit movement.
 - Targeting, radar, weapons, heat and location-based damage.
 - One completable mission with basic friendly and hostile AI.
+
+The remaster will preserve the DOS version's stark geometry, colors and atmosphere while adding modern lighting, particles, depth fog, bloom, shadows and material detail.
+
+See the [development roadmap](docs/ROADMAP.md) for the planned sequence of playable milestones.
 
 ## Architecture
 
@@ -28,6 +32,7 @@ The repository separates the original-game implementation from the host engine:
 - `MechRewired.Core` contains data readers, simulation, mission logic and deterministic tests. It has no dependency on Godot.
 - `MechRewired` is the Godot 4.7 .NET application responsible for rendering, input, audio and platform integration.
 - `MechRewired.Tests` contains NUnit tests for the independent core.
+- `DTC.Core` is included as a submodule for shared logging, filesystem and general-purpose infrastructure.
 
 This separation keeps gameplay testable and leaves room for desktop, VR and tooling hosts to share the same simulation.
 
@@ -53,6 +58,7 @@ Requirements:
 Restore, build and test the managed projects:
 
 ```shell
+git submodule update --init --recursive
 dotnet restore MechRewired.sln
 dotnet build MechRewired.sln --no-restore
 dotnet test MechRewired.Tests/MechRewired.Tests.csproj --no-build

@@ -4,5 +4,8 @@
     <AssemblyName>MechRewired.Core</AssemblyName>
     <RootNamespace>MechRewired</RootNamespace>
   </PropertyGroup>
-</Project>
 
+  <ItemGroup>
+    <ProjectReference Include="../DTC.Core/DTC.Core/DTC.Core.csproj" />
+  </ItemGroup>
+</Project>

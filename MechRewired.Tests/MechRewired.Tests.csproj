@@ -20,4 +20,3 @@
     <ProjectReference Include="../MechRewired.Core/MechRewired.Core.csproj" />
   </ItemGroup>
 </Project>
-
