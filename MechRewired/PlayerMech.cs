@@ -38,6 +38,7 @@ public partial class PlayerMech : Node3D
     private const float CockpitRelativeRollGait = 0.016f;
     private const float CockpitTorsoYawFactor = 0.08f;
     private const float CockpitPitchDegrees = -19.0f;
+    private const float MotorSettleSeconds = 0.15f;
 
     private IReadOnlyList<DebugTriangle> m_terrainTriangles = Array.Empty<DebugTriangle>();
     private float m_modelBottomY;
@@ -47,10 +48,18 @@ public partial class PlayerMech : Node3D
     private float m_targetTorsoPitch;
     private float m_gaitPhase;
     private float m_gaitWeight;
+    private float m_motorIdleTime;
+    private bool m_gaitActive;
+    private int m_footfallCount;
     private bool m_slopeBlocked;
+    private readonly AudioStreamPlayer m_torsoMotor;
+    private readonly AudioStreamPlayer m_footfall;
+    private readonly AudioStreamPlayer m_startup;
+    private readonly AudioStreamPlayer m_deploymentReport;
 
-    public PlayerMech(double maximumForwardSpeedKph)
+    public PlayerMech(double maximumForwardSpeedKph, PlayerMechSounds sounds)
     {
+        ArgumentNullException.ThrowIfNull(sounds);
         Name = "PlayerMech";
         Drive = new MechDrive(new MechDriveProfile(maximumForwardSpeedKph));
         Legs = new Node3D { Name = "Legs" };
@@ -61,6 +70,35 @@ public partial class PlayerMech : Node3D
         AddChild(Torso);
         Torso.AddChild(CockpitMount);
         CockpitMount.AddChild(ViewBobMount);
+
+        m_torsoMotor = new AudioStreamPlayer
+        {
+            Name = "TorsoMotor",
+            Stream = sounds.TorsoMotor,
+            VolumeDb = -10.0f
+        };
+        m_footfall = new AudioStreamPlayer
+        {
+            Name = "Footfall",
+            Stream = sounds.Footfall,
+            VolumeDb = -4.0f,
+            MaxPolyphony = 2
+        };
+        m_startup = new AudioStreamPlayer
+        {
+            Name = "Startup",
+            Stream = sounds.Startup,
+            VolumeDb = -3.0f
+        };
+        m_deploymentReport = new AudioStreamPlayer
+        {
+            Name = "DeploymentReport",
+            Stream = sounds.DeploymentReport
+        };
+        AddChild(m_torsoMotor);
+        AddChild(m_footfall);
+        AddChild(m_startup);
+        AddChild(m_deploymentReport);
     }
 
     public MechDrive Drive { get; }
@@ -122,6 +160,8 @@ public partial class PlayerMech : Node3D
         var cameraPosition = new Vector3(0.0f, target.Y + modelBounds.Size.Y * 0.45f, modelBounds.Size.Z * 2.5f + 12.0f);
         ExternalCamera.Position = cameraPosition;
         ExternalCamera.LookAt(ToGlobal(target));
+        m_startup.Play();
+        m_deploymentReport.Play();
 
         GD.Print(
             $"MechRewired: player controls ready (1-0 throttle; -/= adjust; Backspace reverses; " +
@@ -154,7 +194,7 @@ public partial class PlayerMech : Node3D
         }
 
         ApplyKeyboardTorsoAim(delta, isPilotCamera, headLookHeld);
-        ApplySmoothedTorsoAim((float)delta);
+        var torsoAngularSpeed = ApplySmoothedTorsoAim((float)delta);
         var driveStep = Drive.Advance(delta, steering);
         RotateY(Mathf.DegToRad((float)driveStep.HeadingChangeDegrees));
         var appliedDistance = TryMoveAcrossTerrain((float)driveStep.DistanceMeters)
@@ -164,6 +204,8 @@ public partial class PlayerMech : Node3D
             appliedDistance,
             Mathf.Abs(Mathf.DegToRad((float)driveStep.HeadingChangeDegrees)),
             (float)delta);
+        var chassisAngularSpeed = Mathf.Abs(Mathf.DegToRad((float)driveStep.HeadingChangeDegrees)) / (float)delta;
+        UpdateMotorAudio(Mathf.Max(torsoAngularSpeed, chassisAngularSpeed), (float)delta);
     }
 
     public override void _UnhandledInput(InputEvent inputEvent)
@@ -337,12 +379,16 @@ public partial class PlayerMech : Node3D
             MaximumTorsoPitch);
     }
 
-    private void ApplySmoothedTorsoAim(float delta)
+    private float ApplySmoothedTorsoAim(float delta)
     {
+        var previousYaw = m_torsoYaw;
+        var previousPitch = m_torsoPitch;
         var blend = 1.0f - Mathf.Exp(-TorsoAimResponse * delta);
         m_torsoYaw = Mathf.LerpAngle(m_torsoYaw, m_targetTorsoYaw, blend);
         m_torsoPitch = Mathf.LerpAngle(m_torsoPitch, m_targetTorsoPitch, blend);
         Torso.Rotation = new Vector3(m_torsoPitch, m_torsoYaw, 0.0f);
+        return (Mathf.Abs(Mathf.AngleDifference(previousYaw, m_torsoYaw)) +
+                Mathf.Abs(Mathf.AngleDifference(previousPitch, m_torsoPitch))) / delta;
     }
 
     private void CenterPilotView()
@@ -418,15 +464,23 @@ public partial class PlayerMech : Node3D
         var targetWeight = Mathf.Max(movementWeight, pivotWeight);
         var gaitWeightRate = targetWeight < m_gaitWeight ? GaitSettleRate : GaitEngageRate;
         m_gaitWeight = Mathf.MoveToward(m_gaitWeight, targetWeight, delta * gaitWeightRate);
-        if (distanceMeters > 0.0f || headingChangeRadians > 0.0f)
+        var gaitActive = distanceMeters > 0.0f || headingChangeRadians > 0.0f;
+        if (gaitActive)
         {
             var strideScale = Mathf.Max(1.0f, speedFraction / MaximumGaitSpeedFraction);
             var movementPhase = distanceMeters / (GaitCycleDistance * strideScale);
             var pivotPhase = headingChangeRadians * PivotGaitRadius / GaitCycleDistance;
-            m_gaitPhase = Mathf.PosMod(
-                m_gaitPhase + Mathf.Max(movementPhase, pivotPhase) * Mathf.Tau,
-                Mathf.Tau);
+            var phaseAdvance = Mathf.Max(movementPhase, pivotPhase) * Mathf.Tau;
+            var crossedFootfall = Mathf.FloorToInt((m_gaitPhase + phaseAdvance) / Mathf.Pi) >
+                                  Mathf.FloorToInt(m_gaitPhase / Mathf.Pi);
+            m_gaitPhase = Mathf.PosMod(m_gaitPhase + phaseAdvance, Mathf.Tau);
+            if (!m_gaitActive || crossedFootfall)
+            {
+                PlayFootfall();
+            }
         }
+
+        m_gaitActive = gaitActive;
 
         var landingPulse = Mathf.Pow(Mathf.Max(0.0f, Mathf.Cos(m_gaitPhase * 2.0f)), 10.0f);
         var vertical = (Mathf.Sin(m_gaitPhase * 2.0f) * 0.015f - landingPulse * 0.07f) * m_gaitWeight;
@@ -448,5 +502,32 @@ public partial class PlayerMech : Node3D
             m_torsoYaw * CockpitTorsoYawFactor,
             viewOffset + cockpitRelativeOffset,
             roll + cockpitRelativeRoll);
+    }
+
+    private void UpdateMotorAudio(float angularSpeed, float delta)
+    {
+        if (angularSpeed > 0.005f)
+        {
+            m_motorIdleTime = 0.0f;
+            m_torsoMotor.PitchScale = Mathf.Clamp(0.85f + angularSpeed * 0.3f, 0.85f, 1.15f);
+            if (!m_torsoMotor.Playing)
+            {
+                m_torsoMotor.Play();
+            }
+
+            return;
+        }
+
+        m_motorIdleTime += delta;
+        if (m_motorIdleTime >= MotorSettleSeconds && m_torsoMotor.Playing)
+        {
+            m_torsoMotor.Stop();
+        }
+    }
+
+    private void PlayFootfall()
+    {
+        m_footfall.PitchScale = m_footfallCount++ % 2 == 0 ? 0.97f : 1.03f;
+        m_footfall.Play();
     }
 }

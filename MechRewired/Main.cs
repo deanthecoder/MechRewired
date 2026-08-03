@@ -24,6 +24,7 @@ public partial class Main : Node3D
     private const float ImplicitGroundHeight = 0.15f;
     private const int SkyTopPaletteIndex = 224;
     private const int SkyHorizonPaletteIndex = 238;
+    private const float DirectionalShadowDistance = 400.0f;
     private const string PalettePath = "PAL/YELL_DA.COL";
     private const string LevelPath = "BWD/YELLWLD1.BWD";
     private const string PlanetPath = "BWD/YELLPLT1.BWD";
@@ -216,13 +217,24 @@ public partial class Main : Node3D
             RotationDegrees = new Vector3(-sunElevation, -25.0f, 0.0f),
             LightColor = ToGodotColor(palette[17]),
             LightEnergy = 1.6f,
-            ShadowEnabled = true
+            ShadowEnabled = true,
+            ShadowOpacity = 0.9f,
+            ShadowBlur = 0.6f,
+            DirectionalShadowMode = DirectionalLight3D.ShadowMode.Parallel4Splits,
+            DirectionalShadowMaxDistance = DirectionalShadowDistance,
+            DirectionalShadowSplit1 = 0.04f,
+            DirectionalShadowSplit2 = 0.12f,
+            DirectionalShadowSplit3 = 0.35f,
+            DirectionalShadowBlendSplits = true,
+            DirectionalShadowFadeStart = 0.9f,
+            DirectionalShadowPancakeSize = 5.0f
         };
         AddChild(light);
         GD.Print(
             $"MechRewired: rendered Pyre Light atmosphere (time {planet.TimeOfDay}; " +
             $"palette sky {SkyTopPaletteIndex}-{SkyHorizonPaletteIndex}; ambient {ambientEnergy:F2}; " +
-            $"sun elevation {sunElevation:F1} degrees).");
+            $"sun elevation {sunElevation:F1} degrees; 8192px 32-bit directional shadows to " +
+            $"{DirectionalShadowDistance:F0}m at 90% opacity).");
 
         var levelRoot = new Node3D
         {
@@ -320,7 +332,8 @@ public partial class Main : Node3D
             {
                 var solidInstance = new MeshInstance3D
                 {
-                    Mesh = meshes[meshIndex]
+                    Mesh = meshes[meshIndex],
+                    CastShadow = GeometryInstance3D.ShadowCastingSetting.DoubleSided
                 };
                 objectRoot.AddChild(solidInstance);
                 solidInstance.AddToGroup(DebugCamera.SolidMeshGroup);
@@ -358,7 +371,8 @@ public partial class Main : Node3D
 
         AddImplicitGround(levelRoot, worldBounds, terrainPaletteCounts, palette, debugTriangles);
 
-        var playerMech = new PlayerMech(playerMechDefinition.MaximumSpeedKph);
+        var playerMechSounds = PlayerMechSounds.Load(archive);
+        var playerMech = new PlayerMech(playerMechDefinition.MaximumSpeedKph, playerMechSounds);
         AddChild(playerMech);
 
         var bounds = new Aabb();
@@ -374,7 +388,8 @@ public partial class Main : Node3D
                 Name = definition.Name,
                 Mesh = renderMesh,
                 Position = partPosition,
-                Layers = PlayerMech.ExteriorRenderLayer
+                Layers = PlayerMech.ExteriorRenderLayer,
+                CastShadow = GeometryInstance3D.ShadowCastingSetting.DoubleSided
             };
             playerMech.GetPartParent(definition.Name).AddChild(modelInstance);
             modelInstance.AddToGroup(DebugCamera.SolidMeshGroup);
