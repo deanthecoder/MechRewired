@@ -21,11 +21,21 @@ namespace MechRewired.Resources;
 /// </remarks>
 public static class TimberWolfModelDefinition
 {
+    private static readonly Vector3 TorsoTranslation = new(0.0f, 0.45f, 0.9f);
+
     public static IReadOnlyList<MechWarriorModelPartDefinition> Parts { get; } =
     [
         new("Hips", "POLY/TW1_HIPS.WTB", Vector3.Zero),
-        new("Torso", "POLY/TW1_HEAD.WTB", new Vector3(0.0f, 0.45f, 0.9f)),
+        new("Torso", "POLY/TW1_HEAD.WTB", TorsoTranslation),
         new("Windshield", "POLY/TW1WINSH.WTB", new Vector3(0.08f, 1.99f, 1.22f)),
+        new(
+            "RightDecal",
+            "POLY/TW1DECLR.WTB",
+            TorsoTranslation + new Vector3(3.23f, 3.69f, -0.39f)),
+        new(
+            "LeftDecal",
+            "POLY/TW1DECLL.WTB",
+            TorsoTranslation + new Vector3(-3.36f, 3.69f, -0.39f)),
         new("LeftArm", "POLY/TW1_LARM.WTB", new Vector3(-2.0f, 2.5f, 0.0f)),
         new("RightArm", "POLY/TW1_RARM.WTB", new Vector3(2.0f, 2.5f, 0.0f)),
         new("LeftUpperLeg", "POLY/TW1LULEG.WTB", new Vector3(-1.2f, -0.6f, -0.3f)),

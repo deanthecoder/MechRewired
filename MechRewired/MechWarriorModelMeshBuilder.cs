@@ -32,37 +32,92 @@ public static class MechWarriorModelMeshBuilder
         MechWarriorModel model,
         MechWarriorPalette palette,
         MechWarriorLuminosityTable luminosityTable,
-        int illuminationLevel)
+        int illuminationLevel) =>
+        Build(
+            model,
+            palette,
+            luminosityTable,
+            illuminationLevel,
+            new Dictionary<byte, MechWarriorIndexedImage>());
+
+    /// <summary>
+    /// Builds a WTB mesh, splitting indexed textured materials from its remaining flat-shaded polygons.
+    /// </summary>
+    public static ArrayMesh Build(
+        MechWarriorModel model,
+        MechWarriorPalette palette,
+        MechWarriorLuminosityTable luminosityTable,
+        int illuminationLevel,
+        IReadOnlyDictionary<byte, MechWarriorIndexedImage> materialImages)
     {
         ArgumentNullException.ThrowIfNull(model);
         ArgumentNullException.ThrowIfNull(palette);
         ArgumentNullException.ThrowIfNull(luminosityTable);
+        ArgumentNullException.ThrowIfNull(materialImages);
 
-        using var surfaceTool = new SurfaceTool();
-        surfaceTool.Begin(Mesh.PrimitiveType.Triangles);
-        surfaceTool.SetSmoothGroup(uint.MaxValue);
-        foreach (var polygon in model.Polygons)
+        var mesh = new ArrayMesh();
+        var flatPolygons = model.Polygons
+            .Where(polygon => !materialImages.ContainsKey(polygon.MaterialIndex))
+            .ToArray();
+        if (flatPolygons.Length > 0)
         {
-            var litColor = palette[luminosityTable.GetPaletteIndex(
-                polygon.PaletteIndex,
-                illuminationLevel)];
-            for (var triangleIndex = 1; triangleIndex < polygon.VertexIndices.Count - 1; triangleIndex++)
+            using var surfaceTool = BeginTriangles();
+            foreach (var polygon in flatPolygons)
             {
-                AddVertex(surfaceTool, model.Vertices[polygon.VertexIndices[0]], litColor);
-                AddVertex(surfaceTool, model.Vertices[polygon.VertexIndices[triangleIndex + 1]], litColor);
-                AddVertex(surfaceTool, model.Vertices[polygon.VertexIndices[triangleIndex]], litColor);
+                var litColor = palette[luminosityTable.GetPaletteIndex(
+                    polygon.PaletteIndex,
+                    illuminationLevel)];
+                for (var triangleIndex = 1; triangleIndex < polygon.VertexIndices.Count - 1; triangleIndex++)
+                {
+                    AddVertex(surfaceTool, model.Vertices[polygon.VertexIndices[0]], litColor);
+                    AddVertex(surfaceTool, model.Vertices[polygon.VertexIndices[triangleIndex + 1]], litColor);
+                    AddVertex(surfaceTool, model.Vertices[polygon.VertexIndices[triangleIndex]], litColor);
+                }
             }
+
+            CommitSurface(surfaceTool, mesh, new StandardMaterial3D
+            {
+                AlbedoColor = Colors.White,
+                Metallic = 0.0f,
+                Roughness = 0.9f,
+                VertexColorUseAsAlbedo = true
+            });
         }
 
-        surfaceTool.GenerateNormals();
-        var mesh = surfaceTool.Commit() ?? throw new InvalidOperationException("Godot did not create a model mesh.");
-        mesh.SurfaceSetMaterial(0, new StandardMaterial3D
+        foreach (var materialGroup in model.Polygons
+                     .Where(polygon => materialImages.ContainsKey(polygon.MaterialIndex))
+                     .GroupBy(polygon => polygon.MaterialIndex))
         {
-            AlbedoColor = Colors.White,
-            Metallic = 0.0f,
-            Roughness = 0.9f,
-            VertexColorUseAsAlbedo = true
-        });
+            var indexedImage = materialImages[materialGroup.Key];
+            var textureCoordinateScale = new Vector2(
+                1.0f / Math.Max(indexedImage.Width - 1, 1),
+                1.0f / Math.Max(indexedImage.Height - 1, 1));
+            using var surfaceTool = BeginTriangles();
+            foreach (var polygon in materialGroup)
+            {
+                for (var triangleIndex = 1; triangleIndex < polygon.VertexIndices.Count - 1; triangleIndex++)
+                {
+                    AddTexturedVertex(surfaceTool, model.Vertices[polygon.VertexIndices[0]], textureCoordinateScale);
+                    AddTexturedVertex(surfaceTool, model.Vertices[polygon.VertexIndices[triangleIndex + 1]], textureCoordinateScale);
+                    AddTexturedVertex(surfaceTool, model.Vertices[polygon.VertexIndices[triangleIndex]], textureCoordinateScale);
+                }
+            }
+
+            CommitSurface(surfaceTool, mesh, new StandardMaterial3D
+            {
+                AlbedoTexture = BuildTexture(indexedImage, palette, luminosityTable, illuminationLevel),
+                Metallic = 0.0f,
+                Roughness = 0.9f,
+                Transparency = BaseMaterial3D.TransparencyEnum.AlphaScissor,
+                TextureFilter = BaseMaterial3D.TextureFilterEnum.Nearest
+            });
+        }
+
+        if (mesh.GetSurfaceCount() == 0)
+        {
+            throw new InvalidOperationException("Godot did not create a model mesh.");
+        }
+
         return mesh;
     }
 
@@ -99,6 +154,69 @@ public static class MechWarriorModelMeshBuilder
         surfaceTool.SetColor(new Color(color.R / 255.0f, color.G / 255.0f, color.B / 255.0f));
         surfaceTool.SetUV(new Vector2(vertex.TextureCoordinate.X, vertex.TextureCoordinate.Y));
         AddPosition(surfaceTool, vertex);
+    }
+
+    private static void AddTexturedVertex(
+        SurfaceTool surfaceTool,
+        MechWarriorModelVertex vertex,
+        Vector2 textureCoordinateScale)
+    {
+        surfaceTool.SetUV(new Vector2(
+            vertex.TextureCoordinate.X * textureCoordinateScale.X,
+            vertex.TextureCoordinate.Y * textureCoordinateScale.Y));
+        AddPosition(surfaceTool, vertex);
+    }
+
+    private static SurfaceTool BeginTriangles()
+    {
+        var surfaceTool = new SurfaceTool();
+        surfaceTool.Begin(Mesh.PrimitiveType.Triangles);
+        surfaceTool.SetSmoothGroup(uint.MaxValue);
+        return surfaceTool;
+    }
+
+    private static void CommitSurface(SurfaceTool surfaceTool, ArrayMesh mesh, Godot.Material material)
+    {
+        surfaceTool.GenerateNormals();
+        if (surfaceTool.Commit(mesh) == null)
+        {
+            throw new InvalidOperationException("Godot did not create a model mesh surface.");
+        }
+
+        mesh.SurfaceSetMaterial(mesh.GetSurfaceCount() - 1, material);
+    }
+
+    private static ImageTexture BuildTexture(
+        MechWarriorIndexedImage indexedImage,
+        MechWarriorPalette palette,
+        MechWarriorLuminosityTable luminosityTable,
+        int illuminationLevel)
+    {
+        using var image = Image.CreateEmpty(
+            indexedImage.Width,
+            indexedImage.Height,
+            false,
+            Image.Format.Rgba8);
+        for (var y = 0; y < indexedImage.Height; y++)
+        {
+            for (var x = 0; x < indexedImage.Width; x++)
+            {
+                var paletteIndex = indexedImage.GetPixel(x, y);
+                if (paletteIndex == byte.MaxValue)
+                {
+                    image.SetPixel(x, y, Colors.Transparent);
+                    continue;
+                }
+
+                var color = palette[luminosityTable.GetPaletteIndex(paletteIndex, illuminationLevel)];
+                image.SetPixel(x, y, new Color(
+                    color.R / 255.0f,
+                    color.G / 255.0f,
+                    color.B / 255.0f));
+            }
+        }
+
+        return ImageTexture.CreateFromImage(image);
     }
 
     private static void AddPosition(SurfaceTool surfaceTool, MechWarriorModelVertex vertex)

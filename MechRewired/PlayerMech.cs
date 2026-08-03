@@ -21,6 +21,7 @@ public partial class PlayerMech : Node3D
     public const uint ExteriorRenderLayer = 1u << 1;
 
     private const float MaximumSlopeDegrees = 50.0f;
+    private const float MaximumUphillSpeedReduction = 0.3f;
     private const float MouseSensitivity = 0.002f;
     private const float MaximumTorsoYaw = Mathf.Pi / 2.0f;
     private const float MinimumTorsoPitch = -Mathf.Pi / 6.0f;
@@ -133,6 +134,8 @@ public partial class PlayerMech : Node3D
 
     public float FeetElevation => Position.Y + m_modelBottomY;
 
+    public float ActualSpeedKph { get; private set; }
+
     public Node3D Legs { get; }
 
     public Node3D Torso { get; }
@@ -149,7 +152,7 @@ public partial class PlayerMech : Node3D
 
     public Node3D GetPartParent(string partName) => partName switch
     {
-        "Torso" or "Windshield" or "LeftArm" or "RightArm" => Torso,
+        "Torso" or "Windshield" or "LeftDecal" or "RightDecal" or "LeftArm" or "RightArm" => Torso,
         _ => Legs
     };
 
@@ -242,11 +245,12 @@ public partial class PlayerMech : Node3D
         var headingChangeRadians = Mathf.DegToRad((float)driveStep.HeadingChangeDegrees);
         headingChangeRadians = ApplyLegAlignment(headingChangeRadians);
         RotateY(headingChangeRadians);
-        var appliedDistance = TryMoveAcrossTerrain((float)driveStep.DistanceMeters)
-            ? Math.Abs((float)driveStep.DistanceMeters)
-            : 0.0f;
+        var appliedDistance = TryMoveAcrossTerrain((float)driveStep.DistanceMeters);
+        ActualSpeedKph = Mathf.IsZeroApprox((float)delta)
+            ? 0.0f
+            : appliedDistance / (float)delta * 3.6f;
         ApplyCockpitGait(
-            appliedDistance,
+            Mathf.Abs(appliedDistance),
             Mathf.Abs(headingChangeRadians),
             (float)delta);
         var chassisAngularSpeed = Mathf.Abs(headingChangeRadians) / (float)delta;
@@ -523,17 +527,17 @@ public partial class PlayerMech : Node3D
         return headingChange;
     }
 
-    private bool TryMoveAcrossTerrain(float distanceMeters)
+    private float TryMoveAcrossTerrain(float distanceMeters)
     {
         if (Mathf.IsZeroApprox(distanceMeters))
         {
-            return true;
+            return 0.0f;
         }
 
         var candidate = Position - GlobalBasis.Z * distanceMeters;
         if (!TryGetSurface(candidate, out var surfaceHeight, out var slopeDegrees))
         {
-            return false;
+            return 0.0f;
         }
 
         if (slopeDegrees > MaximumSlopeDegrees)
@@ -546,13 +550,27 @@ public partial class PlayerMech : Node3D
             }
 
             m_slopeBlocked = true;
-            return false;
+            return 0.0f;
+        }
+
+        var elevationGain = surfaceHeight - FeetElevation;
+        var uphillAngle = elevationGain > 0.0f
+            ? Mathf.RadToDeg(Mathf.Atan2(elevationGain, Mathf.Abs(distanceMeters)))
+            : 0.0f;
+        var speedMultiplier = 1.0f - MaximumUphillSpeedReduction *
+            Mathf.Clamp(uphillAngle / MaximumSlopeDegrees, 0.0f, 1.0f);
+        var appliedDistance = distanceMeters * speedMultiplier;
+        candidate = Position - GlobalBasis.Z * appliedDistance;
+        if (!TryGetSurface(candidate, out surfaceHeight, out slopeDegrees) ||
+            slopeDegrees > MaximumSlopeDegrees)
+        {
+            return 0.0f;
         }
 
         m_slopeBlocked = false;
         candidate.Y = surfaceHeight - m_modelBottomY;
         Position = candidate;
-        return true;
+        return appliedDistance;
     }
 
     private bool TryGetSurface(Vector3 position, out float height, out float slopeDegrees)

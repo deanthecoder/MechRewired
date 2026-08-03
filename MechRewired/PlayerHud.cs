@@ -24,7 +24,6 @@ public partial class PlayerHud : Control
     private const float ReferenceWidth = 1280.0f;
     private const float ReferenceHeight = 720.0f;
     private const float RadarRadius = 91.0f;
-    private const float RadarForwardSpan = RadarRadius * 2.0f;
     private const float CompassScale = 0.75f;
     private const float CompassPixelsPerDegree = 3.2f * CompassScale;
     private const float AltimeterPixelsPerMeter = 14.0f;
@@ -133,7 +132,7 @@ public partial class PlayerHud : Control
     {
         var center = Point(155.0f, 117.0f);
         var radius = RadarRadius * m_scale;
-        var playerPosition = center + new Vector2(0.0f, (RadarRadius - 7.0f) * m_scale);
+        var playerPosition = center;
         DrawArc(center, radius, 0.0f, Mathf.Tau, 64, RadarAmber, LineWidth(2.0f), false);
         DrawText(new Vector2(24.0f, 42.0f), $"R: {RadarRanges[m_radarRangeIndex] / 1000.0f:F1}Km", HudGreen, 24);
 
@@ -189,7 +188,7 @@ public partial class PlayerHud : Control
         var radarRange = RadarRanges[m_radarRangeIndex];
         var point = playerPosition + new Vector2(
             localPosition.X / radarRange * RadarRadius,
-            localPosition.Z / radarRange * RadarForwardSpan) * m_scale;
+            localPosition.Z / radarRange * RadarRadius) * m_scale;
         var fromCenter = point - center;
         var maximumRadius = (RadarRadius - 5.0f) * m_scale;
         if (fromCenter.Length() > maximumRadius)
@@ -356,7 +355,7 @@ public partial class PlayerHud : Control
 
         const float inset = 3.0f;
         const float sideShadeWidth = 2.0f;
-        var speed = m_playerMech.Drive.CurrentSpeedKph;
+        var speed = m_playerMech.Drive.TargetSpeedKph;
         if (speed > 0.001)
         {
             var fraction = (float)Math.Clamp(
@@ -404,7 +403,7 @@ public partial class PlayerHud : Control
 
         DrawText(
             new Vector2(1110.0f, 687.0f),
-            $"{m_playerMech.Drive.CurrentSpeedKph:F0} kph",
+            $"{m_playerMech.ActualSpeedKph:F0} kph",
             HudGreen,
             25);
     }

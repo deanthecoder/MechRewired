@@ -29,6 +29,7 @@ This phase is complete when MechRewired displays a recognizable DOS BattleMech d
 - Decode terrain geometry and mission world references. — complete
 - Establish coordinate, scale and material conventions between MW2 and Godot. — complete
 - Recreate the DOS terrain shading, skies, palette and mission colors. — complete
+- Decode textured WTB material/decal selection and its indexed XEL resources for scenery and battlefield detail. — initial player-mech material map complete; scenery remains
 
 This phase is complete when a recognizable original battlefield can be explored with a debug camera.
 
@@ -38,6 +39,7 @@ This phase is complete when a recognizable original battlefield can be explored 
 - Follow terrain and enforce slope limits. — initial implementation complete
 - Add speed-driven cockpit gait and landing weight. — initial implementation complete
 - Add cockpit and external diagnostic cameras. — initial rig complete
+- Decode the original `MW2MECH.CPI`/`VWSP` cockpit and view definitions, then replace or validate the procedural cockpit frame against them.
 - Implement targeting, weapons, heat, armor and location-based damage.
 - Add a minimal diagnostic HUD.
 
@@ -46,9 +48,13 @@ This phase is complete when the player can pilot one mech around the battlefield
 ## 5. Original mission gameplay
 
 - Load mech definitions and weapon configurations from original data.
-- Decode mission entities, teams, spawn points, waypoints and objectives.
+- Replace the current Pyre Light-specific resource constants with a scenario-driven mission definition that resolves the planet, battlefield, deployment, NAV sequence, enemy groups and music from the original data.
+- Decode the remaining mission metadata (`MTBL`, `TSK` and `AFFL`) and compare Pyre Light with structurally different missions before settling the runtime model.
+- Represent original objectives with reusable primitives: reach a NAV point or zone, destroy an entity or group, inspect a target, protect a target, eliminate all required enemies, extract, and wait for a timer or prerequisite.
+- Add targetable mission actors, health and destruction transitions, inspection, weapons and damage.
 - Add basic friendly and hostile navigation, targeting and combat.
-- Implement mission success and failure.
+- Recreate Pyre Light's mission chain: reach Nav Epsilon and engage the power plant, reach Nav Zeta and inspect the firebase, then reach Nav Eta for extraction.
+- Implement data-driven objective activation, reports, success and failure while keeping movement, targeting, combat and objective evaluation reusable across missions.
 
 This phase is complete when one original mission can be played from deployment to a diagnostic debrief state.
 

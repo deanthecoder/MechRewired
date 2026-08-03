@@ -28,6 +28,7 @@ public partial class Main : Node3D
     private const float FallbackSunAzimuthDegrees = 25.0f;
     private const int GeneralIlluminationLevel = 12;
     private const int ObjectIlluminationLevel = 8;
+    private const byte MaximumTexturedMechMaterialIndex = 63;
     private const float DefaultFogDistance = 1200.0f;
     private const float MinimumFogDistance = 300.0f;
     private const float MaximumFogDistance = 5000.0f;
@@ -504,13 +505,42 @@ public partial class Main : Node3D
         var hasBounds = false;
         var triangleCount = 0;
         var vertexCount = 0;
+        var materialMapEntry = archive.GetEntry("BWD/MW2_MAP1.BWD");
+        var materialMap = MechWarriorMaterialMap.Load(archive.ReadEntry(materialMapEntry), 1);
+        var usedMaterialIndices = modelParts
+            .SelectMany(part => part.Model.Polygons)
+            .Select(polygon => polygon.MaterialIndex)
+            .Distinct()
+            .Order()
+            .ToArray();
+        var materialImages = new Dictionary<byte, MechWarriorIndexedImage>();
+        foreach (var materialIndex in usedMaterialIndices)
+        {
+            // Values above the DOS mech texture slots are polygon rendering flags. Their low byte can
+            // collide with unrelated later entries in the wider material table (for example 240/0x1f0).
+            if (materialIndex > MaximumTexturedMechMaterialIndex ||
+                !materialMap.Images.TryGetValue(materialIndex, out var materialImage))
+            {
+                continue;
+            }
+
+            var imageEntry = archive.GetEntry("CEL", materialImage.ImageResourceIndex);
+            var indexedImage = MechWarriorIndexedImage.Load(archive.ReadEntry(imageEntry));
+            materialImages.Add(materialIndex, indexedImage);
+            GD.Print(
+                $"MechRewired: mapped WTB material {materialIndex} through {materialMapEntry.Path} to " +
+                $"{imageEntry.Path} ({indexedImage.Width}x{indexedImage.Height} indexed texture; " +
+                $"'{materialImage.Name}').");
+        }
+
         foreach (var (definition, model) in modelParts)
         {
             var renderMesh = MechWarriorModelMeshBuilder.Build(
                 model,
                 palette,
                 luminosityTable,
-                GeneralIlluminationLevel);
+                GeneralIlluminationLevel,
+                materialImages);
             var partPosition = MechWarriorCoordinateSystem.ToGodotPosition(definition.Translation);
             var modelInstance = new MeshInstance3D
             {
@@ -518,7 +548,9 @@ public partial class Main : Node3D
                 Mesh = renderMesh,
                 Position = partPosition,
                 Layers = PlayerMech.ExteriorRenderLayer,
-                CastShadow = GeometryInstance3D.ShadowCastingSetting.DoubleSided
+                CastShadow = definition.Name.EndsWith("Decal", StringComparison.Ordinal)
+                    ? GeometryInstance3D.ShadowCastingSetting.Off
+                    : GeometryInstance3D.ShadowCastingSetting.DoubleSided
             };
             playerMech.GetPartParent(definition.Name).AddChild(modelInstance);
             modelInstance.AddToGroup(DebugCamera.SolidMeshGroup);
