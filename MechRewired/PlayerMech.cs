@@ -39,6 +39,7 @@ public partial class PlayerMech : Node3D
     private const float CockpitTorsoYawFactor = 0.08f;
     private const float CockpitPitchDegrees = -19.0f;
     private const float MotorSettleSeconds = 0.15f;
+    private const float LegAlignmentTolerance = 0.005f;
 
     private IReadOnlyList<DebugTriangle> m_terrainTriangles = Array.Empty<DebugTriangle>();
     private float m_modelBottomY;
@@ -52,6 +53,7 @@ public partial class PlayerMech : Node3D
     private bool m_gaitActive;
     private int m_footfallCount;
     private bool m_slopeBlocked;
+    private bool m_aligningLegsToTorso;
     private readonly AudioStreamPlayer m_torsoMotor;
     private readonly AudioStreamPlayer m_footfall;
     private readonly AudioStreamPlayer m_startup;
@@ -193,7 +195,7 @@ public partial class PlayerMech : Node3D
 
         GD.Print(
             $"MechRewired: player controls ready (1-0 throttle; -/= adjust; Backspace reverses; " +
-            $"Left/Right steer; mouse aims torso; keypad 5 centers; " +
+            $"Left/Right steer; mouse aims torso; M aligns legs; keypad 5 centers; " +
             $"maximum {Drive.Profile.MaximumForwardSpeedKph:F1} km/h, " +
             $"reverse {Drive.Profile.MaximumForwardSpeedKph * Drive.Profile.ReverseSpeedFactor:F1} km/h).");
     }
@@ -208,31 +210,46 @@ public partial class PlayerMech : Node3D
         var isPilotCamera = CockpitCamera.Current || ExternalCamera.Current;
         var headLookHeld = Input.IsPhysicalKeyPressed(Key.Shift);
         var steering = 0.0;
+        var manualSteering = false;
         if (isPilotCamera && !headLookHeld)
         {
             if (Input.IsPhysicalKeyPressed(Key.Left))
             {
                 steering += 1.0;
+                manualSteering = true;
             }
 
             if (Input.IsPhysicalKeyPressed(Key.Right))
             {
                 steering -= 1.0;
+                manualSteering = true;
             }
+        }
+
+        if (manualSteering)
+        {
+            m_aligningLegsToTorso = false;
         }
 
         ApplyKeyboardTorsoAim(delta, isPilotCamera, headLookHeld);
         var torsoAngularSpeed = ApplySmoothedTorsoAim((float)delta);
+        if (m_aligningLegsToTorso)
+        {
+            steering = Mathf.Sign(m_torsoYaw);
+        }
+
         var driveStep = Drive.Advance(delta, steering);
-        RotateY(Mathf.DegToRad((float)driveStep.HeadingChangeDegrees));
+        var headingChangeRadians = Mathf.DegToRad((float)driveStep.HeadingChangeDegrees);
+        headingChangeRadians = ApplyLegAlignment(headingChangeRadians);
+        RotateY(headingChangeRadians);
         var appliedDistance = TryMoveAcrossTerrain((float)driveStep.DistanceMeters)
             ? Math.Abs((float)driveStep.DistanceMeters)
             : 0.0f;
         ApplyCockpitGait(
             appliedDistance,
-            Mathf.Abs(Mathf.DegToRad((float)driveStep.HeadingChangeDegrees)),
+            Mathf.Abs(headingChangeRadians),
             (float)delta);
-        var chassisAngularSpeed = Mathf.Abs(Mathf.DegToRad((float)driveStep.HeadingChangeDegrees)) / (float)delta;
+        var chassisAngularSpeed = Mathf.Abs(headingChangeRadians) / (float)delta;
         UpdateMotorAudio(Mathf.Max(torsoAngularSpeed, chassisAngularSpeed), (float)delta);
     }
 
@@ -252,6 +269,11 @@ public partial class PlayerMech : Node3D
             case InputEventKey { Pressed: true, Echo: false } centerEvent
                 when centerEvent.Keycode is Key.Kp5 or Key.C:
                 CenterPilotView();
+                GetViewport().SetInputAsHandled();
+                break;
+
+            case InputEventKey { Pressed: true, Echo: false, Keycode: Key.M }:
+                AlignLegsToTorso();
                 GetViewport().SetInputAsHandled();
                 break;
 
@@ -281,6 +303,7 @@ public partial class PlayerMech : Node3D
                 break;
 
             case InputEventMouseMotion mouseMotion when Input.MouseMode == Input.MouseModeEnum.Captured:
+                m_aligningLegsToTorso = false;
                 m_targetTorsoYaw = Mathf.Clamp(
                     m_targetTorsoYaw - mouseMotion.Relative.X * MouseSensitivity,
                     -MaximumTorsoYaw,
@@ -429,6 +452,7 @@ public partial class PlayerMech : Node3D
             return;
         }
 
+        m_aligningLegsToTorso = false;
         m_targetTorsoYaw = Mathf.Clamp(
             m_targetTorsoYaw + yawInput * KeyboardTorsoSpeed * (float)delta,
             -MaximumTorsoYaw,
@@ -453,10 +477,50 @@ public partial class PlayerMech : Node3D
 
     private void CenterPilotView()
     {
+        m_aligningLegsToTorso = false;
         m_targetTorsoYaw = 0.0f;
         m_targetTorsoPitch = 0.0f;
         CockpitCamera.CenterView();
         GD.Print("MechRewired: centered torso and pilot view.");
+    }
+
+    private void AlignLegsToTorso()
+    {
+        if (Mathf.Abs(m_torsoYaw) <= LegAlignmentTolerance)
+        {
+            GD.Print("MechRewired: legs already aligned with torso.");
+            return;
+        }
+
+        m_targetTorsoYaw = m_torsoYaw;
+        m_aligningLegsToTorso = true;
+        GD.Print(
+            $"MechRewired: aligning legs to torso bearing " +
+            $"({Mathf.RadToDeg(m_torsoYaw):F1} degrees relative).");
+    }
+
+    private float ApplyLegAlignment(float proposedHeadingChange)
+    {
+        if (!m_aligningLegsToTorso)
+        {
+            return proposedHeadingChange;
+        }
+
+        var headingChange = Mathf.Sign(m_torsoYaw) * Mathf.Min(
+            Mathf.Abs(proposedHeadingChange),
+            Mathf.Abs(m_torsoYaw));
+        m_torsoYaw -= headingChange;
+        m_targetTorsoYaw -= headingChange;
+        if (Mathf.Abs(m_torsoYaw) <= LegAlignmentTolerance)
+        {
+            m_torsoYaw = 0.0f;
+            m_targetTorsoYaw = 0.0f;
+            m_aligningLegsToTorso = false;
+            GD.Print("MechRewired: legs aligned with torso.");
+        }
+
+        Torso.Rotation = new Vector3(m_torsoPitch, m_torsoYaw, 0.0f);
+        return headingChange;
     }
 
     private bool TryMoveAcrossTerrain(float distanceMeters)

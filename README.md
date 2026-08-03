@@ -74,6 +74,7 @@ The application starts in the 3D cockpit. The current piloting controls follow t
 - Click the viewport to capture the mouse, then move it to aim the torso. Left-click fires, right-click cycles weapons and middle-click targets under the reticle; these buttons currently log their requested combat action.
 - Hold <kbd>Shift</kbd> and use the arrow keys for a quick, damped pilot head pivot. Releasing <kbd>Shift</kbd> or the arrows smoothly returns the pilot view to centre.
 - Press <kbd>C</kbd> or keypad <kbd>5</kbd> to centre both the torso and pilot view. Keypad <kbd>5</kbd> matches the original key map; <kbd>C</kbd> is the laptop-friendly alias.
+- Press <kbd>M</kbd> to turn the legs and chassis smoothly towards the torso's current bearing.
 - Press <kbd>X</kbd> to reduce the radar range or <kbd>Shift</kbd>+<kbd>X</kbd> to increase it. Press <kbd>N</kbd>/<kbd>Shift</kbd>+<kbd>N</kbd> to cycle forwards/backwards through mission NAV points.
 - Press <kbd>Escape</kbd> to release the mouse.
 

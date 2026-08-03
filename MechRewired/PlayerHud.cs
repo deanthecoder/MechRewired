@@ -242,12 +242,35 @@ public partial class PlayerHud : Control
             }
         }
 
+        DrawActiveNavigationBearing(centerX, top, heading);
         var torsoOffset = Mathf.RadToDeg(m_playerMech.TorsoYawRadians) * CompassPixelsPerDegree;
         DrawLine(
             Point(centerX - torsoOffset - 3.75f, top - 4.5f),
             Point(centerX - torsoOffset + 3.75f, top - 4.5f),
             HudGreen,
             LineWidth(3.0f * CompassScale));
+    }
+
+    private void DrawActiveNavigationBearing(float centerX, float top, float heading)
+    {
+        var navigationPosition = MechWarriorCoordinateSystem.ToGodotPosition(
+            m_navigation.SelectedPoint.Position);
+        var direction = navigationPosition - m_playerMech.GlobalPosition;
+        var bearing = NormalizeDegrees(Mathf.RadToDeg(Mathf.Atan2(direction.X, -direction.Z)));
+        var bearingOffset = Mathf.RadToDeg(Mathf.AngleDifference(
+            Mathf.DegToRad(heading),
+            Mathf.DegToRad(bearing)));
+        var markerOffset = Mathf.Clamp(bearingOffset, -60.0f, 60.0f) * CompassPixelsPerDegree;
+        var markerCenter = Point(centerX - markerOffset, top - 12.0f);
+        var markerRadius = 4.5f * m_scale;
+        Vector2[] marker =
+        {
+            markerCenter + Vector2.Up * markerRadius,
+            markerCenter + Vector2.Right * markerRadius,
+            markerCenter + Vector2.Down * markerRadius,
+            markerCenter + Vector2.Left * markerRadius
+        };
+        DrawColoredPolygon(marker, RadarAmber);
     }
 
     private void DrawAltimeter()
