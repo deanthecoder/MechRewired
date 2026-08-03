@@ -39,9 +39,9 @@ This phase is complete when a recognizable original battlefield can be explored 
 - Follow terrain and enforce slope limits. — initial implementation complete
 - Add speed-driven cockpit gait and landing weight. — initial implementation complete
 - Add cockpit and external diagnostic cameras. — initial rig complete
-- Decode the original `MW2MECH.CPI`/`VWSP` cockpit and view definitions, then replace or validate the procedural cockpit frame against them.
-- Implement targeting, weapons, heat, armor and location-based damage.
-- Add a minimal diagnostic HUD.
+- Decode the original `MW2MECH.CPI`/`VWSP` cockpit and view definitions, then replace or validate the procedural cockpit frame against them. - Not a priority.
+- Implement targeting, weapons, heat, armor and location-based damage. — initial reticle, actor targeting, laser damage and destroyed representations complete
+- Add a minimal diagnostic HUD. — navigation, movement reticle and selected-target overlay complete
 
 This phase is complete when the player can pilot one mech around the battlefield and destroy a stationary target.
 
@@ -49,12 +49,12 @@ This phase is complete when the player can pilot one mech around the battlefield
 
 - Load mech definitions and weapon configurations from original data.
 - Replace the current Pyre Light-specific resource constants with a scenario-driven mission definition that resolves the planet, battlefield, deployment, NAV sequence, enemy groups and music from the original data.
-- Decode the remaining mission metadata (`MTBL`, `TSK` and `AFFL`) and compare Pyre Light with structurally different missions before settling the runtime model.
-- Represent original objectives with reusable primitives: reach a NAV point or zone, destroy an entity or group, inspect a target, protect a target, eliminate all required enemies, extract, and wait for a timer or prerequisite.
-- Add targetable mission actors, health and destruction transitions, inspection, weapons and damage.
+- Decode the remaining mission metadata (`MTBL`, `TSK` and `AFFL`) and compare Pyre Light with structurally different missions before settling the runtime model. — MTBL fixed records and Pyre Light trigger/goal flags decoded; comparison, TSK and AFFL remain
+- Represent original objectives with reusable primitives: reach a NAV point or zone, destroy an entity or group, inspect a target, protect a target, eliminate all required enemies, extract, and wait for a timer or prerequisite. — destroy, inspect and extract runtime primitives complete
+- Add targetable mission actors, health and destruction transitions, inspection, weapons and damage. — initial static-actor and laser slice complete
 - Add basic friendly and hostile navigation, targeting and combat.
-- Recreate Pyre Light's mission chain: reach Nav Epsilon and engage the power plant, reach Nav Zeta and inspect the firebase, then reach Nav Eta for extraction.
-- Implement data-driven objective activation, reports, success and failure while keeping movement, targeting, combat and objective evaluation reusable across missions.
+- Recreate Pyre Light's mission chain: reach Nav Epsilon and engage the power plant, reach Nav Zeta and inspect the firebase, then reach Nav Eta for extraction. — initial playable objective chain implemented pending playtest; enemy opposition remains
+- Implement data-driven objective activation, reports, success and failure while keeping movement, targeting, combat and objective evaluation reusable across missions. — activation, completion and original success reports complete; failure and debrief remain
 
 This phase is complete when one original mission can be played from deployment to a diagnostic debrief state.
 
@@ -64,6 +64,8 @@ This phase is complete when one original mission can be played from deployment t
 - Improve cockpit shadow quality, stabilize nearby building shadows and tune shadow darkness for the dusk palette.
 - Add emissive missile and weapon lighting.
 - Add particles for explosions, smoke, sparks, dust and damage feedback.
+- Decode placed `TSK` effect emitters such as Pyre Light's `YELLSMO1.BWD`, including its original fire sound references.
+- Add exploding structure chunks after actor destruction and impact positions are stable. — initial original `CHUNKER`/`CHUNKLET` low-gravity debris implemented; visual tuning remains
 - Add depth fog, bloom, glow, dynamic shadows and cockpit lighting.
 - Add restrained bump or normal mapping without losing the DOS art direction.
 - Play original sound, voice and CD music resources, beginning with torso motors, footsteps and mission-start status announcements such as "Temperature nominal."

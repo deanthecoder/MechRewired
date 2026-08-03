@@ -8,22 +8,15 @@
 //
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
-using Godot;
-
-namespace MechRewired;
+namespace MechRewired.Missions;
 
 /// <summary>
-/// Associates one rendered diagnostic triangle with its original level resource.
+/// Reports one objective state change caused by a mission event.
 /// </summary>
 /// <remarks>
-/// Vertices use Godot world coordinates so camera rays can be queried without physics collision bodies.
+/// Callers use transitions for logging, HUD updates and one-shot audio cues.
 /// </remarks>
-public sealed record DebugTriangle(
-    string SourceResourcePath,
-    string ResourcePath,
-    int ObjectId,
-    int ModelIndex,
-    int PolygonIndex,
-    Vector3 A,
-    Vector3 B,
-    Vector3 C);
+public sealed record MissionObjectiveTransition(
+    MissionObjectiveDefinition Objective,
+    MissionObjectiveState PreviousState,
+    MissionObjectiveState State);

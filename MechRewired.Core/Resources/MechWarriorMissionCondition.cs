@@ -8,22 +8,12 @@
 //
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
-using Godot;
-
-namespace MechRewired;
+namespace MechRewired.Resources;
 
 /// <summary>
-/// Associates one rendered diagnostic triangle with its original level resource.
+/// Preserves one compact condition or action encoded in an MW2 mission-table record.
 /// </summary>
 /// <remarks>
-/// Vertices use Godot world coordinates so camera rays can be queried without physics collision bodies.
+/// The one-byte opcode and 24-bit argument are exposed without assigning unverified semantics.
 /// </remarks>
-public sealed record DebugTriangle(
-    string SourceResourcePath,
-    string ResourcePath,
-    int ObjectId,
-    int ModelIndex,
-    int PolygonIndex,
-    Vector3 A,
-    Vector3 B,
-    Vector3 C);
+public sealed record MechWarriorMissionCondition(char Opcode, int Argument);

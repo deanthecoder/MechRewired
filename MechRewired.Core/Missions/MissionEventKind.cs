@@ -8,22 +8,17 @@
 //
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
-using Godot;
-
-namespace MechRewired;
+namespace MechRewired.Missions;
 
 /// <summary>
-/// Associates one rendered diagnostic triangle with its original level resource.
+/// Identifies a gameplay event that may complete a mission objective.
 /// </summary>
 /// <remarks>
-/// Vertices use Godot world coordinates so camera rays can be queried without physics collision bodies.
+/// Events form the boundary between host-engine gameplay and deterministic mission logic.
 /// </remarks>
-public sealed record DebugTriangle(
-    string SourceResourcePath,
-    string ResourcePath,
-    int ObjectId,
-    int ModelIndex,
-    int PolygonIndex,
-    Vector3 A,
-    Vector3 B,
-    Vector3 C);
+public enum MissionEventKind
+{
+    TargetDestroyed,
+    TargetInspected,
+    NavigationPointReached
+}

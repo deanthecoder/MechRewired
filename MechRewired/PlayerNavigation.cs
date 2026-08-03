@@ -24,12 +24,13 @@ public partial class PlayerNavigation : Node
     private readonly PlayerMech m_playerMech;
     private readonly IReadOnlyList<AudioStreamWav> m_reachedReports;
     private readonly bool[] m_reached;
+    private readonly bool[] m_inside;
     private readonly AudioStreamPlayer m_tonePlayer;
     private readonly AudioStreamPlayer m_reportPlayer;
 
     public PlayerNavigation(
         PlayerMech playerMech,
-        IReadOnlyList<MechWarriorWorldNavPoint> navigationPoints,
+        IReadOnlyList<MechWarriorMissionNavigationPoint> navigationPoints,
         AudioStreamWav reachedTone,
         IReadOnlyList<AudioStreamWav> reachedReports)
     {
@@ -44,9 +45,11 @@ public partial class PlayerNavigation : Node
 
         Name = "PlayerNavigation";
         m_playerMech = playerMech;
-        NavigationPoints = navigationPoints;
+        MissionNavigationPoints = navigationPoints;
+        NavigationPoints = navigationPoints.Select(navigationPoint => navigationPoint.Point).ToArray();
         m_reachedReports = reachedReports;
         m_reached = new bool[navigationPoints.Count];
+        m_inside = new bool[navigationPoints.Count];
         m_tonePlayer = new AudioStreamPlayer
         {
             Name = "NavigationTone",
@@ -62,6 +65,10 @@ public partial class PlayerNavigation : Node
 
     public IReadOnlyList<MechWarriorWorldNavPoint> NavigationPoints { get; }
 
+    public IReadOnlyList<MechWarriorMissionNavigationPoint> MissionNavigationPoints { get; }
+
+    public event Action<int> NavigationPointReached;
+
     public int SelectedIndex { get; private set; }
 
     public MechWarriorWorldNavPoint SelectedPoint => NavigationPoints[SelectedIndex];
@@ -72,12 +79,26 @@ public partial class PlayerNavigation : Node
 
     public override void _PhysicsProcess(double delta)
     {
-        if (m_reached[SelectedIndex] || DistanceToSelectedMeters > SelectedPoint.Radius)
+        if (DistanceToSelectedMeters > SelectedPoint.Radius)
         {
+            m_inside[SelectedIndex] = false;
             return;
         }
 
         var reachedIndex = SelectedIndex;
+        if (m_inside[reachedIndex])
+        {
+            return;
+        }
+
+        m_inside[reachedIndex] = true;
+        NavigationPointReached?.Invoke(reachedIndex);
+        if (m_reached[reachedIndex])
+        {
+            GD.Print($"MechRewired: re-entered NAV '{SelectedPoint.Description}'.");
+            return;
+        }
+
         m_reached[reachedIndex] = true;
         m_tonePlayer.Play();
         if (reachedIndex < m_reachedReports.Count)

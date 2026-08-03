@@ -8,22 +8,17 @@
 //
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
-using Godot;
-
-namespace MechRewired;
+namespace MechRewired.Missions;
 
 /// <summary>
-/// Associates one rendered diagnostic triangle with its original level resource.
+/// Describes an objective's current position in the mission progression.
 /// </summary>
 /// <remarks>
-/// Vertices use Godot world coordinates so camera rays can be queried without physics collision bodies.
+/// Locked objectives activate only after all of their prerequisites complete.
 /// </remarks>
-public sealed record DebugTriangle(
-    string SourceResourcePath,
-    string ResourcePath,
-    int ObjectId,
-    int ModelIndex,
-    int PolygonIndex,
-    Vector3 A,
-    Vector3 B,
-    Vector3 C);
+public enum MissionObjectiveState
+{
+    Locked,
+    Active,
+    Completed
+}

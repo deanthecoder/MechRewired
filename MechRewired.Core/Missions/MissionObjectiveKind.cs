@@ -8,22 +8,18 @@
 //
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
-using Godot;
-
-namespace MechRewired;
+namespace MechRewired.Missions;
 
 /// <summary>
-/// Associates one rendered diagnostic triangle with its original level resource.
+/// Identifies a reusable action that can satisfy a mission objective.
 /// </summary>
 /// <remarks>
-/// Vertices use Godot world coordinates so camera rays can be queried without physics collision bodies.
+/// Objective kinds remain independent of any particular battlefield or host engine.
 /// </remarks>
-public sealed record DebugTriangle(
-    string SourceResourcePath,
-    string ResourcePath,
-    int ObjectId,
-    int ModelIndex,
-    int PolygonIndex,
-    Vector3 A,
-    Vector3 B,
-    Vector3 C);
+public enum MissionObjectiveKind
+{
+    Destroy,
+    Inspect,
+    ReachNavigationPoint,
+    Extract
+}

@@ -41,8 +41,6 @@ public partial class DebugCamera : Camera3D
 
     public Camera3D ExternalCamera { get; init; }
 
-    public PlayerCockpit Cockpit { get; init; }
-
     public PlayerMech PlayerMech { get; init; }
 
     public override void _Ready()
@@ -257,7 +255,6 @@ public partial class DebugCamera : Camera3D
             $"direction ({sourceDirection.X:F4}, {sourceDirection.Y:F4}, {sourceDirection.Z:F4}); " +
             $"rotation ({rotationDegrees.X:F2}, {rotationDegrees.Y:F2}, {rotationDegrees.Z:F2}) degrees.");
         LogSceneRay(activeCamera.GlobalPosition, forward);
-        Cockpit?.LogDimensions();
         PlayerMech?.LogMovementState();
     }
 

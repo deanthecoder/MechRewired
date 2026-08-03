@@ -150,6 +150,10 @@ public partial class PlayerMech : Node3D
 
     public Camera3D ExternalCamera { get; private set; }
 
+    public event Action FireRequested;
+
+    public event Action TargetRequested;
+
     public Node3D GetPartParent(string partName) => partName switch
     {
         "Torso" or "Windshield" or "LeftDecal" or "RightDecal" or "LeftArm" or "RightArm" => Torso,
@@ -245,7 +249,8 @@ public partial class PlayerMech : Node3D
         var headingChangeRadians = Mathf.DegToRad((float)driveStep.HeadingChangeDegrees);
         headingChangeRadians = ApplyLegAlignment(headingChangeRadians);
         RotateY(headingChangeRadians);
-        var appliedDistance = TryMoveAcrossTerrain((float)driveStep.DistanceMeters);
+        var appliedDistance = TryMoveAcrossTerrain(
+            (float)driveStep.DistanceMeters * GetDebugTravelMultiplier());
         ActualSpeedKph = Mathf.IsZeroApprox((float)delta)
             ? 0.0f
             : appliedDistance / (float)delta * 3.6f;
@@ -281,10 +286,32 @@ public partial class PlayerMech : Node3D
                 GetViewport().SetInputAsHandled();
                 break;
 
-            case InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Left }:
+            case InputEventKey { Pressed: true, Echo: false, Keycode: Key.Tab }:
+                RequestWeaponCycle();
+                GetViewport().SetInputAsHandled();
+                break;
+
+            case InputEventKey { Pressed: true, Echo: false, Keycode: Key.T }:
+                TargetRequested?.Invoke();
+                GetViewport().SetInputAsHandled();
+                break;
+
+            case InputEventKey { Pressed: true, Echo: false, Keycode: Key.Space }:
+                FireRequested?.Invoke();
+                GetViewport().SetInputAsHandled();
+                break;
+
+            case InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Left } leftButton:
                 if (Input.MouseMode == Input.MouseModeEnum.Captured)
                 {
-                    GD.Print("MechRewired: weapon fire requested (weapon simulation not yet implemented).");
+                    if (leftButton.CtrlPressed)
+                    {
+                        RequestWeaponCycle();
+                    }
+                    else
+                    {
+                        FireRequested?.Invoke();
+                    }
                 }
                 else
                 {
@@ -296,13 +323,13 @@ public partial class PlayerMech : Node3D
 
             case InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Right }
                 when Input.MouseMode == Input.MouseModeEnum.Captured:
-                GD.Print("MechRewired: weapon cycle requested (weapon simulation not yet implemented).");
+                RequestWeaponCycle();
                 GetViewport().SetInputAsHandled();
                 break;
 
             case InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Middle }
                 when Input.MouseMode == Input.MouseModeEnum.Captured:
-                GD.Print("MechRewired: target-under-reticle requested (targeting not yet implemented).");
+                TargetRequested?.Invoke();
                 GetViewport().SetInputAsHandled();
                 break;
 
@@ -330,7 +357,7 @@ public partial class PlayerMech : Node3D
     {
         GD.Print(
             $"MechRewired: PlayerMech throttle {Drive.ThrottlePercent}% " +
-            $"{(Drive.IsReversing ? "reverse" : "forward")}; speed {Drive.CurrentSpeedKph:F1} km/h; " +
+            $"{(Drive.IsReversing ? "reverse" : "forward")}; speed {ActualSpeedKph:F1} km/h; " +
             $"target {Drive.TargetSpeedKph:F1} km/h; torso yaw {Mathf.RadToDeg(m_torsoYaw):F1} degrees, " +
             $"pitch {Mathf.RadToDeg(m_torsoPitch):F1} degrees (target " +
             $"{Mathf.RadToDeg(m_targetTorsoYaw):F1}, {Mathf.RadToDeg(m_targetTorsoPitch):F1}).");
@@ -358,6 +385,12 @@ public partial class PlayerMech : Node3D
             Drive.SetThrottleKey(throttleKey);
             PlayDriveTransition(previousTargetSpeedKph);
             LogThrottleChange();
+#if DEBUG
+            if (throttleKey == 0)
+            {
+                GD.Print("MechRewired: DEBUG speed 0 travel override active (3x movement speed).");
+            }
+#endif
             return true;
         }
 
@@ -392,6 +425,20 @@ public partial class PlayerMech : Node3D
             $"MechRewired: throttle {Drive.ThrottlePercent}% " +
             $"{(Drive.IsReversing ? "reverse" : "forward")} selected; " +
             $"target speed {Drive.TargetSpeedKph:F1} km/h.");
+    }
+
+    private float GetDebugTravelMultiplier()
+    {
+#if DEBUG
+        return Drive.ThrottleKey == 0 ? 3.0f : 1.0f;
+#else
+        return 1.0f;
+#endif
+    }
+
+    private static void RequestWeaponCycle()
+    {
+        GD.Print("MechRewired: medium laser selected (additional weapons not yet implemented).");
     }
 
     private void PlayDriveTransition(double previousTargetSpeedKph)

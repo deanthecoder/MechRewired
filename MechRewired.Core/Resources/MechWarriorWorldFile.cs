@@ -31,6 +31,7 @@ public sealed class MechWarriorWorldFile
         IReadOnlyList<MechWarriorWorldObject> objects,
         IReadOnlyList<MechWarriorWorldEntity> entities,
         IReadOnlyList<MechWarriorWorldNavPoint> navPoints,
+        IReadOnlyList<MechWarriorMissionTable> missionTables,
         int? timeOfDay,
         MechWarriorWorldLighting lighting,
         string luminosityTable,
@@ -40,6 +41,7 @@ public sealed class MechWarriorWorldFile
         Objects = objects;
         Entities = entities;
         NavPoints = navPoints;
+        MissionTables = missionTables;
         TimeOfDay = timeOfDay;
         Lighting = lighting;
         LuminosityTable = luminosityTable;
@@ -53,6 +55,8 @@ public sealed class MechWarriorWorldFile
     public IReadOnlyList<MechWarriorWorldEntity> Entities { get; }
 
     public IReadOnlyList<MechWarriorWorldNavPoint> NavPoints { get; }
+
+    public IReadOnlyList<MechWarriorMissionTable> MissionTables { get; }
 
     public int? TimeOfDay { get; }
 
@@ -78,6 +82,7 @@ public sealed class MechWarriorWorldFile
         var objects = new List<MechWarriorWorldObject>();
         var entities = new List<MechWarriorWorldEntity>();
         var navPoints = new List<MechWarriorWorldNavPoint>();
+        var missionTables = new List<MechWarriorMissionTable>();
         var localTransforms = new Dictionary<int, MechWarriorWorldTransform>();
         int? timeOfDay = null;
         MechWarriorWorldLighting lighting = null;
@@ -188,6 +193,10 @@ public sealed class MechWarriorWorldFile
                         ReadUInt16(data, offset + 34),
                         ReadAscii(data, offset + 36, 21).TrimEnd()));
                     break;
+
+                case "MTBL":
+                    missionTables.Add(MechWarriorMissionTable.Load(data.Slice(offset + 8, tagSize - 8)));
+                    break;
             }
 
             offset += tagSize;
@@ -198,6 +207,7 @@ public sealed class MechWarriorWorldFile
             objects.AsReadOnly(),
             entities.AsReadOnly(),
             navPoints.AsReadOnly(),
+            missionTables.AsReadOnly(),
             timeOfDay,
             lighting,
             luminosityTable,

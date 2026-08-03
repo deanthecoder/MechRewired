@@ -26,7 +26,8 @@ public sealed record PlayerMechSounds(
     AudioStreamWav StartRunning,
     AudioStreamWav StopRunning,
     AudioStreamWav NavigationPointTone,
-    IReadOnlyList<AudioStreamWav> NavigationPointReports)
+    IReadOnlyList<AudioStreamWav> NavigationPointReports,
+    AudioStreamWav MediumLaser)
 {
     private const string TorsoMotorPath = "SNDS/TORSLOOP.SFL";
     private const string FootfallPath = "SNDS/NONFOOT.SFL";
@@ -37,6 +38,7 @@ public sealed record PlayerMechSounds(
     private const string StartRunningPath = "SNDS/WALK2RUN.SFL";
     private const string StopRunningPath = "SNDS/RUN2WLK.SFL";
     private const string NavigationPointTonePath = "SNDS/MECNAVPT.SFL";
+    private const string MediumLaserPath = "SNDS/MECMLASR.SFL";
     private static readonly string[] NavigationPointReportPaths =
     [
         "SNDS/GENEGOES.SFL",
@@ -48,25 +50,26 @@ public sealed record PlayerMechSounds(
     {
         ArgumentNullException.ThrowIfNull(archive);
         return new PlayerMechSounds(
-            Load(archive, TorsoMotorPath, true, "torso motor"),
-            Load(archive, FootfallPath, false, "footfall"),
-            Load(archive, StartupPath, false, "mech startup"),
-            Load(archive, DeploymentReportPath, false, "Pyre Light deployment report"),
-            Load(archive, StartWalkingPath, false, "stop-to-walk transition"),
-            Load(archive, StopWalkingPath, false, "walk-to-stop transition"),
-            Load(archive, StartRunningPath, false, "walk-to-run transition"),
-            Load(archive, StopRunningPath, false, "run-to-walk transition"),
-            Load(archive, NavigationPointTonePath, false, "navigation point arrival tone"),
+            LoadResource(archive, TorsoMotorPath, true, "torso motor"),
+            LoadResource(archive, FootfallPath, false, "footfall"),
+            LoadResource(archive, StartupPath, false, "mech startup"),
+            LoadResource(archive, DeploymentReportPath, false, "Pyre Light deployment report"),
+            LoadResource(archive, StartWalkingPath, false, "stop-to-walk transition"),
+            LoadResource(archive, StopWalkingPath, false, "walk-to-stop transition"),
+            LoadResource(archive, StartRunningPath, false, "walk-to-run transition"),
+            LoadResource(archive, StopRunningPath, false, "run-to-walk transition"),
+            LoadResource(archive, NavigationPointTonePath, false, "navigation point arrival tone"),
             NavigationPointReportPaths
-                .Select((path, index) => Load(
+                .Select((path, index) => LoadResource(
                     archive,
                     path,
                     false,
                     $"Pyre Light NAV {index + 1} arrival report"))
-                .ToArray());
+                .ToArray(),
+            LoadResource(archive, MediumLaserPath, false, "medium laser fire"));
     }
 
-    private static AudioStreamWav Load(
+    internal static AudioStreamWav LoadResource(
         MechWarriorProjectArchive archive,
         string resourcePath,
         bool loop,

@@ -9,6 +9,7 @@
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
 using Godot;
+using MechRewired.Missions;
 using MechRewired.Resources;
 
 namespace MechRewired;
@@ -27,6 +28,8 @@ public partial class PlayerHud : Control
     private const float CompassScale = 0.75f;
     private const float CompassPixelsPerDegree = 3.2f * CompassScale;
     private const float AltimeterPixelsPerMeter = 14.0f;
+    private const float MaximumTargetFrameSize = 160.0f;
+    private const float ObjectiveTargetFrameSize = 48.0f;
     private static readonly float[] RadarRanges = [500.0f, 1000.0f, 2000.0f, 4000.0f];
     private static readonly Color HudGreen = Color.FromHtml("00f000");
     private static readonly Color RadarAmber = Color.FromHtml("d7a900");
@@ -37,19 +40,27 @@ public partial class PlayerHud : Control
 
     private readonly PlayerMech m_playerMech;
     private readonly PlayerNavigation m_navigation;
+    private readonly PlayerTargeting m_targeting;
+    private readonly PlayerMission m_mission;
     private int m_radarRangeIndex = 1;
     private float m_scale = 1.0f;
     private Vector2 m_offset;
 
     public PlayerHud(
         PlayerMech playerMech,
-        PlayerNavigation navigation)
+        PlayerNavigation navigation,
+        PlayerTargeting targeting,
+        PlayerMission mission)
     {
         ArgumentNullException.ThrowIfNull(playerMech);
         ArgumentNullException.ThrowIfNull(navigation);
+        ArgumentNullException.ThrowIfNull(targeting);
+        ArgumentNullException.ThrowIfNull(mission);
 
         m_playerMech = playerMech;
         m_navigation = navigation;
+        m_targeting = targeting;
+        m_mission = mission;
     }
 
     public override void _Ready()
@@ -123,6 +134,10 @@ public partial class PlayerHud : Control
         DrawAltimeter();
         DrawNavigationTarget();
         DrawSpeed();
+        DrawCombatReticle();
+        DrawObjectiveTargets();
+        DrawSelectedTarget();
+        DrawMissionStatus();
     }
 
     private MechWarriorWorldNavPoint SelectedNavigationPoint =>
@@ -220,7 +235,7 @@ public partial class PlayerHud : Control
         var centerX = 640.0f;
         var top = 47.0f;
         var heading = NormalizeDegrees(MechWarriorCoordinateSystem.ToSourceRotation(
-            m_playerMech.GlobalRotationDegrees).Y);
+            m_playerMech.Torso.GlobalRotationDegrees).Y);
         var firstBearing = (int)MathF.Floor((heading - 60.0f) / 5.0f) * 5;
         var lastBearing = (int)MathF.Ceiling((heading + 60.0f) / 5.0f) * 5;
         for (var unwrappedBearing = firstBearing; unwrappedBearing <= lastBearing; unwrappedBearing += 5)
@@ -242,10 +257,9 @@ public partial class PlayerHud : Control
         }
 
         DrawActiveNavigationBearing(centerX, top, heading);
-        var torsoOffset = Mathf.RadToDeg(m_playerMech.TorsoYawRadians) * CompassPixelsPerDegree;
         DrawLine(
-            Point(centerX - torsoOffset - 3.75f, top - 4.5f),
-            Point(centerX - torsoOffset + 3.75f, top - 4.5f),
+            Point(centerX - 3.75f, top - 4.5f),
+            Point(centerX + 3.75f, top - 4.5f),
             HudGreen,
             LineWidth(3.0f * CompassScale));
     }
@@ -335,6 +349,154 @@ public partial class PlayerHud : Control
             center + Vector2.Up * radius
         };
         DrawPolyline(points, RadarAmber, LineWidth(width));
+    }
+
+    private void DrawCombatReticle()
+    {
+        var center = Size * 0.5f;
+        var inner = 7.0f * m_scale;
+        var outer = 22.0f * m_scale;
+        var width = LineWidth(2.0f);
+        DrawLine(center + Vector2.Left * outer, center + Vector2.Left * inner, HudGreen, width);
+        DrawLine(center + Vector2.Right * inner, center + Vector2.Right * outer, HudGreen, width);
+        DrawLine(center + Vector2.Up * outer, center + Vector2.Up * inner, HudGreen, width);
+        DrawLine(center + Vector2.Down * inner, center + Vector2.Down * outer, HudGreen, width);
+        DrawArc(center, 13.0f * m_scale, 0.0f, Mathf.Tau, 24, HudGreen, width);
+    }
+
+    private void DrawSelectedTarget()
+    {
+        var actor = m_targeting.SelectedActor;
+        var camera = m_playerMech.CockpitCamera;
+        if (actor == null ||
+            ReferenceEquals(actor, m_targeting.ObjectiveActor) ||
+            camera == null ||
+            camera.IsPositionBehind(actor.TargetPosition))
+        {
+            return;
+        }
+
+        var targetRect = GetScreenRect(camera, actor).Grow(5.0f * m_scale);
+        DrawTargetCorners(targetRect, RadarAmber);
+        var center = targetRect.GetCenter();
+        var radius = Math.Max(targetRect.Size.X, targetRect.Size.Y) * 0.5f;
+        var fontSize = Math.Max((int)(18 * m_scale), 1);
+        var labelWidth = ThemeDB.FallbackFont.GetStringSize(
+            actor.Description,
+            HorizontalAlignment.Left,
+            -1.0f,
+            fontSize).X;
+        DrawString(
+            ThemeDB.FallbackFont,
+            center + new Vector2(-labelWidth * 0.5f, radius + 22.0f * m_scale),
+            actor.Description,
+            HorizontalAlignment.Left,
+            -1.0f,
+            fontSize,
+            RadarAmber);
+    }
+
+    private void DrawObjectiveTargets()
+    {
+        var camera = m_playerMech.CockpitCamera;
+        if (camera == null)
+        {
+            return;
+        }
+
+        var actor = m_targeting.ObjectiveActor;
+        var aimPosition = m_targeting.ObjectiveAimPosition;
+        if (actor == null || camera.IsPositionBehind(aimPosition))
+        {
+            return;
+        }
+
+        var frameSize = new Vector2(ObjectiveTargetFrameSize, ObjectiveTargetFrameSize) * m_scale;
+        var targetRect = new Rect2(
+            camera.UnprojectPosition(aimPosition) - frameSize * 0.5f,
+            frameSize);
+        var objectiveKind = m_mission.GetActiveObjectiveKind(actor);
+        var color = objectiveKind == MissionObjectiveKind.Inspect
+            ? RadarAmber
+            : GaugeRed;
+        DrawTargetCorners(targetRect, color);
+        if (objectiveKind == MissionObjectiveKind.Inspect)
+        {
+            var fontSize = Math.Max((int)(16 * m_scale), 1);
+            const string label = "INSPECT [T]";
+            var labelWidth = ThemeDB.FallbackFont.GetStringSize(
+                label,
+                HorizontalAlignment.Left,
+                -1.0f,
+                fontSize).X;
+            DrawString(
+                ThemeDB.FallbackFont,
+                targetRect.GetCenter() + new Vector2(-labelWidth * 0.5f, 42.0f * m_scale),
+                label,
+                HorizontalAlignment.Left,
+                -1.0f,
+                fontSize,
+                color);
+        }
+    }
+
+    private Rect2 GetScreenRect(Camera3D camera, BattlefieldActor actor)
+    {
+        var bounds = actor.WorldBounds;
+        var minimum = new Vector2(float.PositiveInfinity, float.PositiveInfinity);
+        var maximum = new Vector2(float.NegativeInfinity, float.NegativeInfinity);
+        for (var x = 0; x <= 1; x++)
+        {
+            for (var y = 0; y <= 1; y++)
+            {
+                for (var z = 0; z <= 1; z++)
+                {
+                    var corner = bounds.Position + new Vector3(
+                        bounds.Size.X * x,
+                        bounds.Size.Y * y,
+                        bounds.Size.Z * z);
+                    var point = camera.UnprojectPosition(corner);
+                    minimum = minimum.Min(point);
+                    maximum = maximum.Max(point);
+                }
+            }
+        }
+
+        var minimumSize = new Vector2(30.0f, 30.0f) * m_scale;
+        var size = maximum - minimum;
+        var adjustment = (minimumSize - size).Max(Vector2.Zero);
+        var rect = new Rect2(minimum - adjustment * 0.5f, size + adjustment);
+        var maximumSize = MaximumTargetFrameSize * m_scale;
+        var cappedSize = new Vector2(
+            Math.Min(rect.Size.X, maximumSize),
+            Math.Min(rect.Size.Y, maximumSize));
+        return new Rect2(rect.GetCenter() - cappedSize * 0.5f, cappedSize);
+    }
+
+    private void DrawTargetCorners(Rect2 rect, Color color)
+    {
+        var corner = Math.Min(12.0f * m_scale, Math.Min(rect.Size.X, rect.Size.Y) * 0.4f);
+        var width = LineWidth(2.0f);
+        DrawLine(rect.Position, rect.Position + Vector2.Right * corner, color, width);
+        DrawLine(rect.Position, rect.Position + Vector2.Down * corner, color, width);
+        DrawLine(rect.End, rect.End + Vector2.Left * corner, color, width);
+        DrawLine(rect.End, rect.End + Vector2.Up * corner, color, width);
+        var topRight = new Vector2(rect.End.X, rect.Position.Y);
+        DrawLine(topRight, topRight + Vector2.Left * corner, color, width);
+        DrawLine(topRight, topRight + Vector2.Down * corner, color, width);
+        var bottomLeft = new Vector2(rect.Position.X, rect.End.Y);
+        DrawLine(bottomLeft, bottomLeft + Vector2.Right * corner, color, width);
+        DrawLine(bottomLeft, bottomLeft + Vector2.Up * corner, color, width);
+    }
+
+    private void DrawMissionStatus()
+    {
+        if (string.IsNullOrWhiteSpace(m_mission.StatusMessage))
+        {
+            return;
+        }
+
+        DrawCenteredText(640.0f, 105.0f, m_mission.StatusMessage, HudGreen, 24);
     }
 
     private void DrawSpeed()

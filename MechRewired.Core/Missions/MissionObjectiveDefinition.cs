@@ -8,22 +8,21 @@
 //
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
-using Godot;
+using MechRewired.Resources;
 
-namespace MechRewired;
+namespace MechRewired.Missions;
 
 /// <summary>
-/// Associates one rendered diagnostic triangle with its original level resource.
+/// Defines one data-driven objective and the action needed to satisfy it.
 /// </summary>
 /// <remarks>
-/// Vertices use Godot world coordinates so camera rays can be queried without physics collision bodies.
+/// Definitions contain original resource links but no Godot state.
 /// </remarks>
-public sealed record DebugTriangle(
-    string SourceResourcePath,
-    string ResourcePath,
-    int ObjectId,
-    int ModelIndex,
-    int PolygonIndex,
-    Vector3 A,
-    Vector3 B,
-    Vector3 C);
+public sealed record MissionObjectiveDefinition(
+    string Id,
+    string Description,
+    MissionObjectiveKind Kind,
+    string TargetResourceName,
+    bool IsOptional,
+    IReadOnlyList<string> PrerequisiteIds,
+    MechWarriorMissionResourceReference SuccessReport);

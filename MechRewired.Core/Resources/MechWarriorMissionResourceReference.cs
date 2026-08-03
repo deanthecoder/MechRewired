@@ -8,22 +8,12 @@
 //
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
-using Godot;
-
-namespace MechRewired;
+namespace MechRewired.Resources;
 
 /// <summary>
-/// Associates one rendered diagnostic triangle with its original level resource.
+/// Identifies a directory-local resource referenced by an MW2 mission-table record.
 /// </summary>
 /// <remarks>
-/// Vertices use Godot world coordinates so camera rays can be queried without physics collision bodies.
+/// Both the index and stored name are retained so format discoveries can be validated against the archive.
 /// </remarks>
-public sealed record DebugTriangle(
-    string SourceResourcePath,
-    string ResourcePath,
-    int ObjectId,
-    int ModelIndex,
-    int PolygonIndex,
-    Vector3 A,
-    Vector3 B,
-    Vector3 C);
+public sealed record MechWarriorMissionResourceReference(int? ResourceIndex, string Name);

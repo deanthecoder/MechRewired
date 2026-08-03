@@ -10,7 +10,7 @@ The immediate goal is intentionally narrow: load original game data, enter a bat
 
 ## Project status
 
-MechRewired reads the original DOS project archive, palettes, WTB model geometry, MEK movement data and BWD world placement data. It currently renders Pyre Light's terrain, palette-derived atmosphere, scenery and ground-settled wreckage; identifies gameplay actors and alternate destroyed representations; and deploys a controllable PlayerMech at the original Dropsite with cockpit, external and inspector cameras. The initial movement slice includes the original latched throttle controls, reverse at half speed, speed-dependent steering, terrain following, slope limits, torso aim and speed-driven cockpit gait. Combat is not yet implemented.
+MechRewired reads the original DOS project archive, palettes, WTB model geometry, MEK movement data, BWD world placement data and MTBL mission objectives. It currently renders Pyre Light's terrain, palette-derived atmosphere, scenery and ground-settled wreckage; identifies targetable gameplay actors and alternate destroyed representations; and deploys a controllable PlayerMech at the original Dropsite with cockpit, external and inspector cameras. The initial gameplay slice includes original-style movement, objective targeting, a medium laser, building damage, low-gravity original-model explosion debris and the original mission reports.
 
 The first vertical slice will establish:
 
@@ -71,7 +71,8 @@ The application starts in the 3D cockpit. The current piloting controls follow t
 - Press <kbd>1</kbd> to stop, <kbd>2</kbd>–<kbd>9</kbd> for 20–90% throttle, or <kbd>0</kbd> for full throttle. Press <kbd>-</kbd>/<kbd>=</kbd> to adjust the throttle in 10% steps.
 - Press <kbd>Backspace</kbd> or <kbd>`</kbd> to toggle forward/reverse. Reverse is limited to half the forward speed.
 - Use <kbd>Left</kbd>/<kbd>Right</kbd> to steer the legs, <kbd>Up</kbd>/<kbd>Down</kbd> to tilt the torso, and <kbd>,</kbd>/<kbd>.</kbd> to turn the torso.
-- Click the viewport to capture the mouse, then move it to aim the torso. Left-click fires, right-click cycles weapons and middle-click targets under the reticle; these buttons currently log their requested combat action.
+- Click the viewport to capture the mouse, then move it to aim the torso. Left-click or <kbd>Space</kbd> fires the initial laser weapon; <kbd>T</kbd> or middle-click targets the actor under the reticle. Targeting an active inspection objective inspects it. Right-click cycles weapons; <kbd>Tab</kbd> and Control-click are trackpad-friendly aliases.
+- In debug builds, selecting maximum speed with <kbd>0</kbd> applies a 3× travel multiplier to shorten mission playtesting; release builds retain the original speed.
 - Hold <kbd>Shift</kbd> and use the arrow keys for a quick, damped pilot head pivot. Releasing <kbd>Shift</kbd> or the arrows smoothly returns the pilot view to centre.
 - Press <kbd>C</kbd> or keypad <kbd>5</kbd> to centre both the torso and pilot view. Keypad <kbd>5</kbd> matches the original key map; <kbd>C</kbd> is the laptop-friendly alias.
 - Press <kbd>M</kbd> to turn the legs and chassis smoothly towards the torso's current bearing.
