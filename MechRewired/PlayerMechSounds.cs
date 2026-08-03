@@ -20,12 +20,20 @@ public sealed record PlayerMechSounds(
     AudioStreamWav TorsoMotor,
     AudioStreamWav Footfall,
     AudioStreamWav Startup,
-    AudioStreamWav DeploymentReport)
+    AudioStreamWav DeploymentReport,
+    AudioStreamWav StartWalking,
+    AudioStreamWav StopWalking,
+    AudioStreamWav StartRunning,
+    AudioStreamWav StopRunning)
 {
     private const string TorsoMotorPath = "SNDS/TORSLOOP.SFL";
     private const string FootfallPath = "SNDS/NONFOOT.SFL";
     private const string StartupPath = "SNDS/NONPSTRT.SFL";
     private const string DeploymentReportPath = "SNDS/YELL00BS.SFL";
+    private const string StartWalkingPath = "SNDS/STOP2WLK.SFL";
+    private const string StopWalkingPath = "SNDS/WLK2STOP.SFL";
+    private const string StartRunningPath = "SNDS/WALK2RUN.SFL";
+    private const string StopRunningPath = "SNDS/RUN2WLK.SFL";
 
     public static PlayerMechSounds Load(MechWarriorProjectArchive archive)
     {
@@ -34,7 +42,11 @@ public sealed record PlayerMechSounds(
             Load(archive, TorsoMotorPath, true, "torso motor"),
             Load(archive, FootfallPath, false, "footfall"),
             Load(archive, StartupPath, false, "mech startup"),
-            Load(archive, DeploymentReportPath, false, "Pyre Light deployment report"));
+            Load(archive, DeploymentReportPath, false, "Pyre Light deployment report"),
+            Load(archive, StartWalkingPath, false, "stop-to-walk transition"),
+            Load(archive, StopWalkingPath, false, "walk-to-stop transition"),
+            Load(archive, StartRunningPath, false, "walk-to-run transition"),
+            Load(archive, StopRunningPath, false, "run-to-walk transition"));
     }
 
     private static AudioStreamWav Load(

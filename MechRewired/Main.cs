@@ -372,7 +372,10 @@ public partial class Main : Node3D
         AddImplicitGround(levelRoot, worldBounds, terrainPaletteCounts, palette, debugTriangles);
 
         var playerMechSounds = PlayerMechSounds.Load(archive);
-        var playerMech = new PlayerMech(playerMechDefinition.MaximumSpeedKph, playerMechSounds);
+        var playerMech = new PlayerMech(
+            playerMechDefinition.CruisingSpeedKph,
+            playerMechDefinition.MaximumSpeedKph,
+            playerMechSounds);
         AddChild(playerMech);
 
         var bounds = new Aabb();

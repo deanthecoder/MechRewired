@@ -56,11 +56,25 @@ public partial class PlayerMech : Node3D
     private readonly AudioStreamPlayer m_footfall;
     private readonly AudioStreamPlayer m_startup;
     private readonly AudioStreamPlayer m_deploymentReport;
+    private readonly AudioStreamPlayer m_driveTransition;
+    private readonly AudioStreamWav m_startWalking;
+    private readonly AudioStreamWav m_stopWalking;
+    private readonly AudioStreamWav m_startRunning;
+    private readonly AudioStreamWav m_stopRunning;
+    private readonly double m_cruisingSpeedKph;
 
-    public PlayerMech(double maximumForwardSpeedKph, PlayerMechSounds sounds)
+    public PlayerMech(double cruisingSpeedKph, double maximumForwardSpeedKph, PlayerMechSounds sounds)
     {
         ArgumentNullException.ThrowIfNull(sounds);
+        if (cruisingSpeedKph <= 0.0 || cruisingSpeedKph >= maximumForwardSpeedKph)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(cruisingSpeedKph),
+                "Cruising speed must be positive and below maximum forward speed.");
+        }
+
         Name = "PlayerMech";
+        m_cruisingSpeedKph = cruisingSpeedKph;
         Drive = new MechDrive(new MechDriveProfile(maximumForwardSpeedKph));
         Legs = new Node3D { Name = "Legs" };
         Torso = new Node3D { Name = "Torso" };
@@ -95,10 +109,20 @@ public partial class PlayerMech : Node3D
             Name = "DeploymentReport",
             Stream = sounds.DeploymentReport
         };
+        m_startWalking = sounds.StartWalking;
+        m_stopWalking = sounds.StopWalking;
+        m_startRunning = sounds.StartRunning;
+        m_stopRunning = sounds.StopRunning;
+        m_driveTransition = new AudioStreamPlayer
+        {
+            Name = "DriveTransition",
+            VolumeDb = -4.0f
+        };
         AddChild(m_torsoMotor);
         AddChild(m_footfall);
         AddChild(m_startup);
         AddChild(m_deploymentReport);
+        AddChild(m_driveTransition);
     }
 
     public MechDrive Drive { get; }
@@ -297,9 +321,11 @@ public partial class PlayerMech : Node3D
             Key.Key9 => 9,
             _ => -1
         };
+        var previousTargetSpeedKph = Drive.TargetSpeedKph;
         if (throttleKey >= 0)
         {
             Drive.SetThrottleKey(throttleKey);
+            PlayDriveTransition(previousTargetSpeedKph);
             LogThrottleChange();
             return true;
         }
@@ -308,11 +334,13 @@ public partial class PlayerMech : Node3D
         {
             case Key.Equal:
                 Drive.IncreaseThrottle();
+                PlayDriveTransition(previousTargetSpeedKph);
                 LogThrottleChange();
                 return true;
 
             case Key.Minus:
                 Drive.DecreaseThrottle();
+                PlayDriveTransition(previousTargetSpeedKph);
                 LogThrottleChange();
                 return true;
 
@@ -333,6 +361,34 @@ public partial class PlayerMech : Node3D
             $"MechRewired: throttle {Drive.ThrottlePercent}% " +
             $"{(Drive.IsReversing ? "reverse" : "forward")} selected; " +
             $"target speed {Drive.TargetSpeedKph:F1} km/h.");
+    }
+
+    private void PlayDriveTransition(double previousTargetSpeedKph)
+    {
+        var previousSpeed = Math.Abs(previousTargetSpeedKph);
+        var selectedSpeed = Math.Abs(Drive.TargetSpeedKph);
+        if (previousSpeed < 0.001 && selectedSpeed >= 0.001)
+        {
+            m_driveTransition.Stream = m_startWalking;
+        }
+        else if (previousSpeed >= 0.001 && selectedSpeed < 0.001)
+        {
+            m_driveTransition.Stream = m_stopWalking;
+        }
+        else if (previousSpeed <= m_cruisingSpeedKph && selectedSpeed > m_cruisingSpeedKph)
+        {
+            m_driveTransition.Stream = m_startRunning;
+        }
+        else if (previousSpeed > m_cruisingSpeedKph && selectedSpeed <= m_cruisingSpeedKph)
+        {
+            m_driveTransition.Stream = m_stopRunning;
+        }
+        else
+        {
+            return;
+        }
+
+        m_driveTransition.Play();
     }
 
     private void ApplyKeyboardTorsoAim(double delta, bool isPilotCamera, bool controlHeld)
