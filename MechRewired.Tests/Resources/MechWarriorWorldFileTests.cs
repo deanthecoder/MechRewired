@@ -89,6 +89,7 @@ public sealed class MechWarriorWorldFileTests
             WriteTimeOfDayTag(writer, 1500);
             WriteLightingTag(writer, new Vector3(100.0f, 250.0f, -50.0f), 96, 1, 1500.0f);
             WriteLuminosityTableTag(writer, "FOG");
+            WriteViewDistanceTag(writer, 500.0f);
         });
 
         var world = MechWarriorWorldFile.Load(data);
@@ -99,6 +100,7 @@ public sealed class MechWarriorWorldFileTests
         Assert.That(world.Lighting.Type, Is.EqualTo(1));
         Assert.That(world.Lighting.ShadeDistance, Is.EqualTo(1500.0f));
         Assert.That(world.LuminosityTable, Is.EqualTo("FOG"));
+        Assert.That(world.ViewDistance, Is.EqualTo(500.0f));
     }
 
     [Test]
@@ -250,6 +252,14 @@ public sealed class MechWarriorWorldFileTests
         writer.Write((short)1);
         WriteFixedAscii(writer, name, 8);
         writer.Write(new byte[6]);
+    }
+
+    private static void WriteViewDistanceTag(BinaryWriter writer, float distance)
+    {
+        WriteFixedAscii(writer, "VIEW", 4);
+        writer.Write(16);
+        writer.Write(64);
+        writer.Write((int)(distance * 100.0f));
     }
 
     private static void WriteNavigationPointTag(

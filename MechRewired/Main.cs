@@ -25,12 +25,19 @@ public partial class Main : Node3D
     private const int SkyTopPaletteIndex = 224;
     private const int SkyHorizonPaletteIndex = 238;
     private const float DirectionalShadowDistance = 400.0f;
+    private const float DefaultFogDistance = 1200.0f;
+    private const float MinimumFogDistance = 300.0f;
+    private const float MaximumFogDistance = 5000.0f;
+    private const float FogDistanceStep = 100.0f;
     private const string PalettePath = "PAL/YELL_DA.COL";
     private const string LevelPath = "BWD/YELLWLD1.BWD";
     private const string PlanetPath = "BWD/YELLPLT1.BWD";
     private const string PlayerStartPath = "BWD/YELLST01.BWD";
     private const string PlayerMechPath = "MEK/TBR00STD.MEK";
     private const string LevelAreaPrefix = "YELLARE";
+
+    private Godot.Environment m_environment;
+    private float m_fogDistance = DefaultFogDistance;
 
     public override void _Ready()
     {
@@ -55,6 +62,28 @@ public partial class Main : Node3D
         {
             GD.PushError($"MechRewired cannot render the scene: {exception.Message}");
         }
+    }
+
+    public override void _UnhandledInput(InputEvent inputEvent)
+    {
+        if (inputEvent is not InputEventKey { Pressed: true, Echo: false } keyEvent)
+        {
+            return;
+        }
+
+        var adjustment = keyEvent.Keycode switch
+        {
+            Key.Bracketleft => -FogDistanceStep,
+            Key.Bracketright => FogDistanceStep,
+            _ => 0.0f
+        };
+        if (adjustment == 0.0f)
+        {
+            return;
+        }
+
+        SetFogDistance(m_fogDistance + adjustment, true);
+        GetViewport().SetInputAsHandled();
     }
 
     private static bool TryLoadGameData(
@@ -114,7 +143,7 @@ public partial class Main : Node3D
                 $"MechRewired: loaded {planetEntry.Path} (time {planet.TimeOfDay}; " +
                 $"ambient {planet.Lighting?.AmbientLevel}; light type {planet.Lighting?.Type}; " +
                 $"light at {planet.Lighting?.Position}; shade distance {planet.Lighting?.ShadeDistance:F2}; " +
-                $"luma {planet.LuminosityTable}).");
+                $"view distance {planet.ViewDistance:F2}; luma {planet.LuminosityTable}).");
 
             var playerStartEntry = archive.GetEntry(PlayerStartPath);
             var playerStartWorld = MechWarriorWorldFile.Load(archive.ReadEntry(playerStartEntry));
@@ -195,19 +224,28 @@ public partial class Main : Node3D
             UseDebanding = true
         };
         var ambientEnergy = Math.Clamp((planet.Lighting?.AmbientLevel ?? 128) / 256.0f, 0.35f, 1.0f);
+        m_environment = new Godot.Environment
+        {
+            BackgroundMode = Godot.Environment.BGMode.Sky,
+            Sky = new Sky
+            {
+                SkyMaterial = skyMaterial
+            },
+            AmbientLightSource = Godot.Environment.AmbientSource.Color,
+            AmbientLightColor = skyHorizonColor,
+            AmbientLightEnergy = ambientEnergy,
+            FogEnabled = true,
+            FogMode = Godot.Environment.FogModeEnum.Depth,
+            FogLightColor = skyHorizonColor,
+            FogLightEnergy = 1.0f,
+            FogDensity = 1.0f,
+            FogDepthCurve = 1.0f,
+            FogSkyAffect = 0.0f
+        };
+        SetFogDistance(planet.ViewDistance ?? DefaultFogDistance, false);
         var environment = new WorldEnvironment
         {
-            Environment = new Godot.Environment
-            {
-                BackgroundMode = Godot.Environment.BGMode.Sky,
-                Sky = new Sky
-                {
-                    SkyMaterial = skyMaterial
-                },
-                AmbientLightSource = Godot.Environment.AmbientSource.Color,
-                AmbientLightColor = skyHorizonColor,
-                AmbientLightEnergy = ambientEnergy
-            }
+            Environment = m_environment
         };
         AddChild(environment);
 
@@ -234,7 +272,8 @@ public partial class Main : Node3D
             $"MechRewired: rendered Pyre Light atmosphere (time {planet.TimeOfDay}; " +
             $"palette sky {SkyTopPaletteIndex}-{SkyHorizonPaletteIndex}; ambient {ambientEnergy:F2}; " +
             $"sun elevation {sunElevation:F1} degrees; 8192px 32-bit directional shadows to " +
-            $"{DirectionalShadowDistance:F0}m at 90% opacity).");
+            $"{DirectionalShadowDistance:F0}m at 90% opacity; depth fog " +
+            $"{m_environment.FogDepthBegin:F0}-{m_environment.FogDepthEnd:F0}m).");
 
         var levelRoot = new Node3D
         {
@@ -451,6 +490,24 @@ public partial class Main : Node3D
         };
         camera.LookAtFromPosition(camera.Position, target);
         AddChild(camera);
+    }
+
+    private void SetFogDistance(float distance, bool logChange)
+    {
+        m_fogDistance = Mathf.Clamp(distance, MinimumFogDistance, MaximumFogDistance);
+        if (m_environment == null)
+        {
+            return;
+        }
+
+        m_environment.FogDepthBegin = m_fogDistance * 0.25f;
+        m_environment.FogDepthEnd = m_fogDistance;
+        if (logChange)
+        {
+            GD.Print(
+                $"MechRewired: depth fog adjusted to {m_environment.FogDepthBegin:F0}-" +
+                $"{m_environment.FogDepthEnd:F0}m ([ nearer; ] farther).");
+        }
     }
 
     private static float FindDeploymentSurfaceHeight(

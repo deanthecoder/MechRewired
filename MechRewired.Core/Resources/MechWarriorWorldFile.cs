@@ -33,7 +33,8 @@ public sealed class MechWarriorWorldFile
         IReadOnlyList<MechWarriorWorldNavPoint> navPoints,
         int? timeOfDay,
         MechWarriorWorldLighting lighting,
-        string luminosityTable)
+        string luminosityTable,
+        float? viewDistance)
     {
         Includes = includes;
         Objects = objects;
@@ -42,6 +43,7 @@ public sealed class MechWarriorWorldFile
         TimeOfDay = timeOfDay;
         Lighting = lighting;
         LuminosityTable = luminosityTable;
+        ViewDistance = viewDistance;
     }
 
     public IReadOnlyList<MechWarriorWorldInclude> Includes { get; }
@@ -57,6 +59,8 @@ public sealed class MechWarriorWorldFile
     public MechWarriorWorldLighting Lighting { get; }
 
     public string LuminosityTable { get; }
+
+    public float? ViewDistance { get; }
 
     /// <summary>
     /// Decodes one BWD payload, applying an optional transform supplied by its parent include.
@@ -78,6 +82,7 @@ public sealed class MechWarriorWorldFile
         int? timeOfDay = null;
         MechWarriorWorldLighting lighting = null;
         string luminosityTable = null;
+        float? viewDistance = null;
         var blockTransform = MechWarriorWorldTransform.Identity;
         var offset = TagOffset;
         while (offset < data.Length)
@@ -159,6 +164,16 @@ public sealed class MechWarriorWorldFile
                     luminosityTable = ReadAscii(data, offset + 10, 8);
                     break;
 
+                case "VIEW":
+                    EnsureTagSize(tagName, tagSize, 16);
+                    viewDistance = ReadInt32(data, offset + 12) * TranslationScale;
+                    if (viewDistance <= 0.0f)
+                    {
+                        throw new InvalidDataException($"BWD VIEW tag has invalid distance {viewDistance:F2}.");
+                    }
+
+                    break;
+
                 case "NAVP":
                     EnsureTagSize(tagName, tagSize, 80);
                     navPoints.Add(new MechWarriorWorldNavPoint(
@@ -185,7 +200,8 @@ public sealed class MechWarriorWorldFile
             navPoints.AsReadOnly(),
             timeOfDay,
             lighting,
-            luminosityTable);
+            luminosityTable,
+            viewDistance);
     }
 
     private static MechWarriorWorldTransform ReadTransform(
