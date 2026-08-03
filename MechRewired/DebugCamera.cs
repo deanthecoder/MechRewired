@@ -154,7 +154,12 @@ public partial class DebugCamera : Camera3D
         var menuButton = new MenuButton
         {
             Text = "Debug",
-            Position = new Vector2(12.0f, 12.0f)
+            AnchorLeft = 1.0f,
+            AnchorRight = 1.0f,
+            OffsetLeft = -82.0f,
+            OffsetRight = -12.0f,
+            OffsetTop = 12.0f,
+            OffsetBottom = 43.0f
         };
         canvasLayer.AddChild(menuButton);
 

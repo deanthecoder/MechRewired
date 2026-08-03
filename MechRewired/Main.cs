@@ -25,6 +25,9 @@ public partial class Main : Node3D
     private const int SkyTopPaletteIndex = 224;
     private const int SkyHorizonPaletteIndex = 238;
     private const float DirectionalShadowDistance = 400.0f;
+    private const float FallbackSunAzimuthDegrees = 25.0f;
+    private const int GeneralIlluminationLevel = 12;
+    private const int ObjectIlluminationLevel = 8;
     private const float DefaultFogDistance = 1200.0f;
     private const float MinimumFogDistance = 300.0f;
     private const float MaximumFogDistance = 5000.0f;
@@ -32,6 +35,7 @@ public partial class Main : Node3D
     private const string PalettePath = "PAL/YELL_DA.COL";
     private const string LevelPath = "BWD/YELLWLD1.BWD";
     private const string PlanetPath = "BWD/YELLPLT1.BWD";
+    private const string ScenarioPath = "BWD/YELLSCN1.BWD";
     private const string PlayerStartPath = "BWD/YELLST01.BWD";
     private const string PlayerMechPath = "MEK/TBR00STD.MEK";
     private const string LevelAreaPrefix = "YELLARE";
@@ -48,7 +52,9 @@ public partial class Main : Node3D
                 out var modelParts,
                 out var level,
                 out var planet,
+                out var luminosityTable,
                 out var playerStart,
+                out var navigationPoints,
                 out var playerMechDefinition))
         {
             return;
@@ -56,7 +62,16 @@ public partial class Main : Node3D
 
         try
         {
-            BuildScene(archive, palette, modelParts, level, planet, playerStart, playerMechDefinition);
+            BuildScene(
+                archive,
+                palette,
+                modelParts,
+                level,
+                planet,
+                luminosityTable,
+                playerStart,
+                navigationPoints,
+                playerMechDefinition);
         }
         catch (Exception exception)
         {
@@ -92,7 +107,9 @@ public partial class Main : Node3D
         out IReadOnlyList<(MechWarriorModelPartDefinition Definition, MechWarriorModel Model)> modelParts,
         out MechWarriorLevel level,
         out MechWarriorWorldFile planet,
+        out MechWarriorLuminosityTable luminosityTable,
         out MechWarriorWorldNavPoint playerStart,
+        out IReadOnlyList<MechWarriorWorldNavPoint> navigationPoints,
         out MechWarriorMechFile playerMechDefinition)
     {
         archive = null;
@@ -100,7 +117,9 @@ public partial class Main : Node3D
         modelParts = null;
         level = null;
         planet = null;
+        luminosityTable = null;
         playerStart = null;
+        navigationPoints = null;
         playerMechDefinition = null;
         try
         {
@@ -144,6 +163,11 @@ public partial class Main : Node3D
                 $"ambient {planet.Lighting?.AmbientLevel}; light type {planet.Lighting?.Type}; " +
                 $"light at {planet.Lighting?.Position}; shade distance {planet.Lighting?.ShadeDistance:F2}; " +
                 $"view distance {planet.ViewDistance:F2}; luma {planet.LuminosityTable}).");
+            var luminosityEntry = archive.GetEntry($"LUMA/{planet.LuminosityTable}.TBL");
+            luminosityTable = MechWarriorLuminosityTable.Load(archive.ReadEntry(luminosityEntry));
+            GD.Print(
+                $"MechRewired: loaded {luminosityEntry.Path} " +
+                $"({MechWarriorLuminosityTable.LevelCount} illumination levels).");
 
             var playerStartEntry = archive.GetEntry(PlayerStartPath);
             var playerStartWorld = MechWarriorWorldFile.Load(archive.ReadEntry(playerStartEntry));
@@ -160,6 +184,8 @@ public partial class Main : Node3D
                 $"heading {playerStart.StartingAngle} degrees (group {playerStart.GroupId}; " +
                 $"radius {playerStart.Radius}; action 0x{playerStart.ActionFlags:X4}; " +
                 $"'{playerStart.Description}').");
+
+            navigationPoints = LoadMissionNavigationPoints(archive);
 
             level = MechWarriorLevel.Load(
                 archive,
@@ -199,13 +225,59 @@ public partial class Main : Node3D
         }
     }
 
+    private static IReadOnlyList<MechWarriorWorldNavPoint> LoadMissionNavigationPoints(
+        MechWarriorProjectArchive archive)
+    {
+        var scenarioEntry = archive.GetEntry(ScenarioPath);
+        var scenario = MechWarriorWorldFile.Load(archive.ReadEntry(scenarioEntry));
+        var navigationPoints = new List<MechWarriorWorldNavPoint>();
+        foreach (var include in scenario.Includes.Where(include =>
+                     include.Name.StartsWith("YELLNAV", StringComparison.OrdinalIgnoreCase)))
+        {
+            var navigationEntry = archive.GetEntry("BWD", include.ResourceIndex);
+            var navigationWorld = MechWarriorWorldFile.Load(
+                archive.ReadEntry(navigationEntry),
+                include.Transform);
+            if (navigationWorld.NavPoints.Count != 1)
+            {
+                throw new InvalidDataException(
+                    $"{navigationEntry.Path} contains {navigationWorld.NavPoints.Count} navigation points; expected one.");
+            }
+
+            var navigationPoint = navigationWorld.NavPoints[0];
+            if (!navigationPoint.Targetable || string.IsNullOrWhiteSpace(navigationPoint.Description))
+            {
+                throw new InvalidDataException(
+                    $"{navigationEntry.Path} does not contain a named, targetable navigation point.");
+            }
+
+            navigationPoints.Add(navigationPoint);
+            GD.Print(
+                $"MechRewired: loaded {navigationEntry.Path} navigation point " +
+                $"'{navigationPoint.Description}' at ({navigationPoint.Position.X:F2}, " +
+                $"{navigationPoint.Position.Y:F2}, {navigationPoint.Position.Z:F2}) " +
+                $"(radius {navigationPoint.Radius}m; action 0x{navigationPoint.ActionFlags:X4}).");
+        }
+
+        if (navigationPoints.Count == 0)
+        {
+            throw new InvalidDataException($"{scenarioEntry.Path} contains no named navigation includes.");
+        }
+
+        GD.Print(
+            $"MechRewired: loaded {navigationPoints.Count} mission navigation points from {scenarioEntry.Path}.");
+        return navigationPoints.AsReadOnly();
+    }
+
     private void BuildScene(
         MechWarriorProjectArchive archive,
         MechWarriorPalette palette,
         IReadOnlyList<(MechWarriorModelPartDefinition Definition, MechWarriorModel Model)> modelParts,
         MechWarriorLevel level,
         MechWarriorWorldFile planet,
+        MechWarriorLuminosityTable luminosityTable,
         MechWarriorWorldNavPoint playerStart,
+        IReadOnlyList<MechWarriorWorldNavPoint> navigationPoints,
         MechWarriorMechFile playerMechDefinition)
     {
         var skyTopColor = ToGodotColor(palette[SkyTopPaletteIndex]);
@@ -252,7 +324,7 @@ public partial class Main : Node3D
         var sunElevation = GetSunElevation(planet.TimeOfDay);
         var light = new DirectionalLight3D
         {
-            RotationDegrees = new Vector3(-sunElevation, -25.0f, 0.0f),
+            RotationDegrees = new Vector3(-sunElevation, FallbackSunAzimuthDegrees, 0.0f),
             LightColor = ToGodotColor(palette[17]),
             LightEnergy = 1.6f,
             ShadowEnabled = true,
@@ -271,7 +343,8 @@ public partial class Main : Node3D
         GD.Print(
             $"MechRewired: rendered Pyre Light atmosphere (time {planet.TimeOfDay}; " +
             $"palette sky {SkyTopPaletteIndex}-{SkyHorizonPaletteIndex}; ambient {ambientEnergy:F2}; " +
-            $"sun elevation {sunElevation:F1} degrees; 8192px 32-bit directional shadows to " +
+            $"sun elevation {sunElevation:F1} degrees at {FallbackSunAzimuthDegrees:F0}-degree " +
+            $"mirrored fallback azimuth; 8192px 32-bit directional shadows to " +
             $"{DirectionalShadowDistance:F0}m at 90% opacity; depth fog " +
             $"{m_environment.FogDepthBegin:F0}-{m_environment.FogDepthEnd:F0}m).");
 
@@ -310,8 +383,17 @@ public partial class Main : Node3D
                         .MaxBy(index => models[index].Polygons.Count);
                     var highestDetailModels = new[] { models[highestDetailIndex] };
                     modelCache.Add(levelObject.ModelEntry.Path, highestDetailModels);
+                    var illuminationLevel = levelObject.ModelEntry.Name.StartsWith(
+                        "T_",
+                        StringComparison.OrdinalIgnoreCase)
+                        ? GeneralIlluminationLevel
+                        : ObjectIlluminationLevel;
                     meshes = highestDetailModels
-                        .Select(model => MechWarriorModelMeshBuilder.Build(model, palette))
+                        .Select(model => MechWarriorModelMeshBuilder.Build(
+                            model,
+                            palette,
+                            luminosityTable,
+                            illuminationLevel))
                         .ToArray();
                     wireframeCache.Add(
                         levelObject.ModelEntry.Path,
@@ -406,7 +488,8 @@ public partial class Main : Node3D
         GD.Print(
             $"MechRewired: rendered Pyre Light world ({renderedInstanceCount} instances, " +
             $"{renderedActorComponentCount} active actor components, {renderedDebrisCount} ground-settled debris objects, " +
-            $"{meshCache.Count} unique models).");
+            $"{meshCache.Count} unique models; luminosity levels {GeneralIlluminationLevel} terrain / " +
+            $"{ObjectIlluminationLevel} objects).");
 
         AddImplicitGround(levelRoot, worldBounds, terrainPaletteCounts, palette, debugTriangles);
 
@@ -423,7 +506,11 @@ public partial class Main : Node3D
         var vertexCount = 0;
         foreach (var (definition, model) in modelParts)
         {
-            var renderMesh = MechWarriorModelMeshBuilder.Build(model, palette);
+            var renderMesh = MechWarriorModelMeshBuilder.Build(
+                model,
+                palette,
+                luminosityTable,
+                GeneralIlluminationLevel);
             var partPosition = MechWarriorCoordinateSystem.ToGodotPosition(definition.Translation);
             var modelInstance = new MeshInstance3D
             {
@@ -464,6 +551,29 @@ public partial class Main : Node3D
         playerMech.RotationDegrees = MechWarriorCoordinateSystem.ToGodotRotation(
             new System.Numerics.Vector3(0.0f, playerStart.StartingAngle, 0.0f));
         playerMech.Configure(bounds, debugTriangles.AsReadOnly());
+        var playerNavigation = new PlayerNavigation(
+            playerMech,
+            navigationPoints,
+            playerMechSounds.NavigationPointTone,
+            playerMechSounds.NavigationPointReports);
+        AddChild(playerNavigation);
+
+        var hudLayer = new CanvasLayer
+        {
+            Name = "PlayerHudLayer",
+            Layer = 10
+        };
+        AddChild(hudLayer);
+        var playerHud = new PlayerHud(playerMech, playerNavigation)
+        {
+            Name = "PlayerHud",
+            AnchorRight = 1.0f,
+            AnchorBottom = 1.0f,
+            GrowHorizontal = Control.GrowDirection.Both,
+            GrowVertical = Control.GrowDirection.Both,
+            MouseFilter = Control.MouseFilterEnum.Ignore
+        };
+        hudLayer.AddChild(playerHud);
 
         GD.Print(
             $"MechRewired: deployed PlayerMech Timber Wolf at MW2 " +

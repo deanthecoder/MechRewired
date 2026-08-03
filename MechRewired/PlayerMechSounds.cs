@@ -24,7 +24,9 @@ public sealed record PlayerMechSounds(
     AudioStreamWav StartWalking,
     AudioStreamWav StopWalking,
     AudioStreamWav StartRunning,
-    AudioStreamWav StopRunning)
+    AudioStreamWav StopRunning,
+    AudioStreamWav NavigationPointTone,
+    IReadOnlyList<AudioStreamWav> NavigationPointReports)
 {
     private const string TorsoMotorPath = "SNDS/TORSLOOP.SFL";
     private const string FootfallPath = "SNDS/NONFOOT.SFL";
@@ -34,6 +36,13 @@ public sealed record PlayerMechSounds(
     private const string StopWalkingPath = "SNDS/WLK2STOP.SFL";
     private const string StartRunningPath = "SNDS/WALK2RUN.SFL";
     private const string StopRunningPath = "SNDS/RUN2WLK.SFL";
+    private const string NavigationPointTonePath = "SNDS/MECNAVPT.SFL";
+    private static readonly string[] NavigationPointReportPaths =
+    [
+        "SNDS/GENEGOES.SFL",
+        "SNDS/GENEGOFS.SFL",
+        "SNDS/GENEGOGS.SFL"
+    ];
 
     public static PlayerMechSounds Load(MechWarriorProjectArchive archive)
     {
@@ -46,7 +55,15 @@ public sealed record PlayerMechSounds(
             Load(archive, StartWalkingPath, false, "stop-to-walk transition"),
             Load(archive, StopWalkingPath, false, "walk-to-stop transition"),
             Load(archive, StartRunningPath, false, "walk-to-run transition"),
-            Load(archive, StopRunningPath, false, "run-to-walk transition"));
+            Load(archive, StopRunningPath, false, "run-to-walk transition"),
+            Load(archive, NavigationPointTonePath, false, "navigation point arrival tone"),
+            NavigationPointReportPaths
+                .Select((path, index) => Load(
+                    archive,
+                    path,
+                    false,
+                    $"Pyre Light NAV {index + 1} arrival report"))
+                .ToArray());
     }
 
     private static AudioStreamWav Load(

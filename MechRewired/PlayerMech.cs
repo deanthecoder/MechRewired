@@ -20,7 +20,7 @@ public partial class PlayerMech : Node3D
 {
     public const uint ExteriorRenderLayer = 1u << 1;
 
-    private const float MaximumSlopeDegrees = 35.0f;
+    private const float MaximumSlopeDegrees = 50.0f;
     private const float MouseSensitivity = 0.002f;
     private const float MaximumTorsoYaw = Mathf.Pi / 2.0f;
     private const float MinimumTorsoPitch = -Mathf.Pi / 6.0f;
@@ -126,6 +126,10 @@ public partial class PlayerMech : Node3D
     }
 
     public MechDrive Drive { get; }
+
+    public float TorsoYawRadians => m_torsoYaw;
+
+    public float FeetElevation => Position.Y + m_modelBottomY;
 
     public Node3D Legs { get; }
 

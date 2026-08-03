@@ -28,21 +28,29 @@ public static class MechWarriorModelMeshBuilder
     /// <summary>
     /// Builds a flat-shaded render mesh from one decoded WTB model.
     /// </summary>
-    public static ArrayMesh Build(MechWarriorModel model, MechWarriorPalette palette)
+    public static ArrayMesh Build(
+        MechWarriorModel model,
+        MechWarriorPalette palette,
+        MechWarriorLuminosityTable luminosityTable,
+        int illuminationLevel)
     {
         ArgumentNullException.ThrowIfNull(model);
         ArgumentNullException.ThrowIfNull(palette);
+        ArgumentNullException.ThrowIfNull(luminosityTable);
 
         using var surfaceTool = new SurfaceTool();
         surfaceTool.Begin(Mesh.PrimitiveType.Triangles);
         surfaceTool.SetSmoothGroup(uint.MaxValue);
         foreach (var polygon in model.Polygons)
         {
+            var litColor = palette[luminosityTable.GetPaletteIndex(
+                polygon.PaletteIndex,
+                illuminationLevel)];
             for (var triangleIndex = 1; triangleIndex < polygon.VertexIndices.Count - 1; triangleIndex++)
             {
-                AddVertex(surfaceTool, model.Vertices[polygon.VertexIndices[0]], palette[polygon.PaletteIndex]);
-                AddVertex(surfaceTool, model.Vertices[polygon.VertexIndices[triangleIndex + 1]], palette[polygon.PaletteIndex]);
-                AddVertex(surfaceTool, model.Vertices[polygon.VertexIndices[triangleIndex]], palette[polygon.PaletteIndex]);
+                AddVertex(surfaceTool, model.Vertices[polygon.VertexIndices[0]], litColor);
+                AddVertex(surfaceTool, model.Vertices[polygon.VertexIndices[triangleIndex + 1]], litColor);
+                AddVertex(surfaceTool, model.Vertices[polygon.VertexIndices[triangleIndex]], litColor);
             }
         }
 
