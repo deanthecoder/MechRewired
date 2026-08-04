@@ -34,7 +34,6 @@ public partial class Main : Node3D
     private const float DefaultFogDistance = 1200.0f;
     private const float MinimumFogDistance = 300.0f;
     private const float MaximumFogDistance = 5000.0f;
-    private const float FogDistanceStep = 100.0f;
     private const string PalettePath = "PAL/YELL_DA.COL";
     private const string LevelPath = "BWD/YELLWLD1.BWD";
     private const string PlanetPath = "BWD/YELLPLT1.BWD";
@@ -51,7 +50,6 @@ public partial class Main : Node3D
 
     private Godot.Environment m_environment;
     private BattlefieldEffects m_battlefieldEffects;
-    private float m_fogDistance = DefaultFogDistance;
 
     public override void _Ready()
     {
@@ -102,23 +100,8 @@ public partial class Main : Node3D
         if (m_battlefieldEffects?.TryHandleDebugInput(keyEvent) == true)
         {
             GetViewport().SetInputAsHandled();
-            return;
         }
 #endif
-
-        var adjustment = keyEvent.Keycode switch
-        {
-            Key.Bracketleft => -FogDistanceStep,
-            Key.Bracketright => FogDistanceStep,
-            _ => 0.0f
-        };
-        if (adjustment == 0.0f)
-        {
-            return;
-        }
-
-        SetFogDistance(m_fogDistance + adjustment, true);
-        GetViewport().SetInputAsHandled();
     }
 
     private static bool TryLoadGameData(
@@ -372,7 +355,7 @@ public partial class Main : Node3D
             FogDepthCurve = 1.0f,
             FogSkyAffect = 0.0f
         };
-        SetFogDistance(planet.ViewDistance ?? DefaultFogDistance, false);
+        SetFogDistance(planet.ViewDistance ?? DefaultFogDistance);
         var environment = new WorldEnvironment
         {
             Environment = m_environment
@@ -1202,22 +1185,16 @@ public partial class Main : Node3D
         return bounds;
     }
 
-    private void SetFogDistance(float distance, bool logChange)
+    private void SetFogDistance(float distance)
     {
-        m_fogDistance = Mathf.Clamp(distance, MinimumFogDistance, MaximumFogDistance);
+        var fogDistance = Mathf.Clamp(distance, MinimumFogDistance, MaximumFogDistance);
         if (m_environment == null)
         {
             return;
         }
 
-        m_environment.FogDepthBegin = m_fogDistance * 0.25f;
-        m_environment.FogDepthEnd = m_fogDistance;
-        if (logChange)
-        {
-            GD.Print(
-                $"MechRewired: depth fog adjusted to {m_environment.FogDepthBegin:F0}-" +
-                $"{m_environment.FogDepthEnd:F0}m ([ nearer; ] farther).");
-        }
+        m_environment.FogDepthBegin = fogDistance * 0.25f;
+        m_environment.FogDepthEnd = fogDistance;
     }
 
     private static float FindDeploymentSurfaceHeight(
