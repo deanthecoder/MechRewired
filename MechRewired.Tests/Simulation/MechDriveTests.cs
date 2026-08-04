@@ -73,4 +73,26 @@ public sealed class MechDriveTests
         Assert.That(stationaryTurn, Is.EqualTo(45.0));
         Assert.That(fullSpeedTurn, Is.EqualTo(18.0).Within(0.001));
     }
+
+    [Test]
+    public void ImmediateStopClearsThrottleAndMotionButRetainsStationarySteering()
+    {
+        var drive = new MechDrive(Profile);
+        drive.SetThrottleKey(0);
+        drive.Advance(1.0, 0.0);
+        drive.ToggleDirection();
+
+        drive.StopImmediately();
+        var stoppedStep = drive.Advance(1.0, 1.0);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(drive.ThrottleKey, Is.EqualTo(1));
+            Assert.That(drive.ThrottlePercent, Is.Zero);
+            Assert.That(drive.IsReversing, Is.False);
+            Assert.That(drive.CurrentSpeedKph, Is.Zero);
+            Assert.That(stoppedStep.DistanceMeters, Is.Zero);
+            Assert.That(stoppedStep.HeadingChangeDegrees, Is.EqualTo(Profile.StationaryTurnRateDegreesPerSecond));
+        });
+    }
 }

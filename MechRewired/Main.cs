@@ -825,6 +825,7 @@ public partial class Main : Node3D
         AddChild(playerMission);
         playerMission.MissionCompleted += () =>
         {
+            playerMech.LockMovementForExtraction();
             foreach (var dropShip in missionDropShips)
             {
                 dropShip.BeginExtraction();

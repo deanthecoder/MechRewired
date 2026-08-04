@@ -77,6 +77,16 @@ public sealed class MechDrive
 
     public void ToggleDirection() => IsReversing = !IsReversing;
 
+    /// <summary>
+    /// Immediately stops translation while retaining stationary steering.
+    /// </summary>
+    public void StopImmediately()
+    {
+        ThrottleKey = 1;
+        IsReversing = false;
+        CurrentSpeedKph = 0.0;
+    }
+
     public MechDriveStep Advance(double seconds, double steering)
     {
         if (seconds < 0.0)

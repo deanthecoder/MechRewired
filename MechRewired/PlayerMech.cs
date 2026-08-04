@@ -59,6 +59,7 @@ public partial class PlayerMech : Node3D
     private bool m_sceneryBlocked;
     private SceneryObstacle m_lastBlockingObstacle;
     private bool m_aligningLegsToTorso;
+    private bool m_translationLocked;
     private readonly AudioStreamPlayer m_torsoMotor;
     private readonly AudioStreamPlayer m_footfall;
     private readonly AudioStreamPlayer m_startup;
@@ -165,6 +166,26 @@ public partial class PlayerMech : Node3D
     public event Action FireRequested;
 
     public event Action TargetRequested;
+
+    /// <summary>
+    /// Stops and locks forward/reverse travel while leaving stationary steering and aiming available.
+    /// </summary>
+    public void LockMovementForExtraction()
+    {
+        if (m_translationLocked)
+        {
+            return;
+        }
+
+        var previousTargetSpeedKph = Drive.TargetSpeedKph;
+        m_translationLocked = true;
+        Drive.StopImmediately();
+        ActualSpeedKph = 0.0f;
+        PlayDriveTransition(previousTargetSpeedKph);
+        GD.Print(
+            "MechRewired: extraction reached; PlayerMech translation locked at 0 km/h " +
+            "(steering and torso controls remain active).");
+    }
 
     public Node3D GetPartParent(string partName) => partName switch
     {
@@ -409,6 +430,12 @@ public partial class PlayerMech : Node3D
             _ => -1
         };
         var previousTargetSpeedKph = Drive.TargetSpeedKph;
+        if (m_translationLocked &&
+            (throttleKey >= 0 || key is Key.Equal or Key.Minus or Key.Backspace or Key.Quoteleft))
+        {
+            return true;
+        }
+
         if (throttleKey >= 0)
         {
             Drive.SetThrottleKey(throttleKey);
