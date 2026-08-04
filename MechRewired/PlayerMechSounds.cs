@@ -28,6 +28,7 @@ public sealed record PlayerMechSounds(
     AudioStreamWav StopRunning,
     AudioStreamWav NavigationPointTone,
     IReadOnlyList<AudioStreamWav> NavigationPointReports,
+    AudioStreamWav DisplayZoom,
     AudioStreamWav MediumLaser)
 {
     private const string TorsoMotorPath = "SNDS/TORSLOOP.SFL";
@@ -40,6 +41,7 @@ public sealed record PlayerMechSounds(
     private const string StartRunningPath = "SNDS/WALK2RUN.SFL";
     private const string StopRunningPath = "SNDS/RUN2WLK.SFL";
     private const string NavigationPointTonePath = "SNDS/MECNAVPT.SFL";
+    private const string DisplayZoomPath = "SNDS/VIEWZOOM.SFL";
     private const string MediumLaserPath = "SNDS/MECMLASR.SFL";
     private static readonly string[] NavigationPointReportPaths =
     [
@@ -69,6 +71,7 @@ public sealed record PlayerMechSounds(
                     false,
                     $"Pyre Light NAV {index + 1} arrival report"))
                 .ToArray(),
+            LoadResource(archive, DisplayZoomPath, true, "cockpit display zoom motor"),
             LoadResource(archive, MediumLaserPath, false, "medium laser fire"));
     }
 

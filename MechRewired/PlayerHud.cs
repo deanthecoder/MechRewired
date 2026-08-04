@@ -33,6 +33,7 @@ public partial class PlayerHud : Control
     private static readonly float[] RadarRanges = [500.0f, 1000.0f, 2000.0f, 4000.0f];
     private static readonly Color HudGreen = Color.FromHtml("00f000");
     private static readonly Color RadarAmber = Color.FromHtml("d7a900");
+    private static readonly Color ReachedNavigationAmber = Color.FromHtml("796000");
     private static readonly Color TerrainBlue = Color.FromHtml("1828e8");
     private static readonly Color GaugeRed = Color.FromHtml("e00000");
     private static readonly Color GaugeSideShade = new(0.08f, 0.0f, 0.0f, 0.5f);
@@ -67,8 +68,8 @@ public partial class PlayerHud : Control
     {
         GD.Print(
             $"MechRewired: pilot HUD online (radar {RadarRanges[m_radarRangeIndex] / 1000.0f:F1}km; " +
-            $"NAV '{SelectedNavigationPoint.Description}'; X zooms in, Shift+X zooms out; " +
-            $"N/Shift+N cycles NAV points).");
+            $"NAV '{SelectedNavigationPoint.Description}'; X/Shift+X adjusts radar range; " +
+            $"Z/Shift+Z adjusts display zoom; N/Shift+N cycles NAV points).");
     }
 
     public override void _Process(double delta)
@@ -135,6 +136,7 @@ public partial class PlayerHud : Control
         DrawNavigationTarget();
         DrawSpeed();
         DrawCombatReticle();
+        DrawNavigationDirectionIndicator();
         DrawObjectiveTargets();
         DrawSelectedTarget();
         DrawMissionStatus();
@@ -325,19 +327,21 @@ public partial class PlayerHud : Control
         DrawRect(panel, TargetFrame, false, LineWidth(4.0f));
 
         var iconCenter = Point(panelLeft + panelWidth * 0.5f, panelTop + panelHeight * 0.5f);
-        DrawDiamond(iconCenter, 17.0f, 3.0f);
-        DrawDiamond(iconCenter, 8.0f, 2.0f);
-
         var navigation = SelectedNavigationPoint;
+        var navigationColor = m_navigation.IsReached(m_navigation.SelectedIndex)
+            ? ReachedNavigationAmber
+            : RadarAmber;
+        DrawDiamond(iconCenter, 17.0f, 3.0f, navigationColor);
+        DrawDiamond(iconCenter, 8.0f, 2.0f, navigationColor);
         var distanceMeters = m_navigation.DistanceToSelectedMeters;
         var distanceText = distanceMeters >= 1000.0f
             ? $"{distanceMeters / 1000.0f:F2}Km"
             : $"{distanceMeters:F0}m";
-        DrawText(new Vector2(panelLeft, 675.0f), navigation.Description, RadarAmber, 25);
+        DrawText(new Vector2(panelLeft, 675.0f), navigation.Description, navigationColor, 25);
         DrawText(new Vector2(panelLeft, 706.0f), distanceText, HudGreen, 25);
     }
 
-    private void DrawDiamond(Vector2 center, float radius, float width)
+    private void DrawDiamond(Vector2 center, float radius, float width, Color? color = null)
     {
         radius *= m_scale;
         Vector2[] points =
@@ -348,7 +352,76 @@ public partial class PlayerHud : Control
             center + Vector2.Left * radius,
             center + Vector2.Up * radius
         };
-        DrawPolyline(points, RadarAmber, LineWidth(width));
+        DrawPolyline(points, color ?? RadarAmber, LineWidth(width));
+    }
+
+    private void DrawNavigationDirectionIndicator()
+    {
+        if (m_navigation.DistanceToSelectedMeters <= SelectedNavigationPoint.Radius)
+        {
+            return;
+        }
+
+        var camera = m_playerMech.CockpitCamera;
+        if (camera == null)
+        {
+            return;
+        }
+
+        var navigationPosition = MechWarriorCoordinateSystem.ToGodotPosition(
+            m_navigation.SelectedPoint.Position);
+        var center = Size * 0.5f;
+        Vector2 screenPosition;
+        if (!camera.IsPositionBehind(navigationPosition))
+        {
+            screenPosition = camera.UnprojectPosition(navigationPosition);
+        }
+        else
+        {
+            var localDirection = camera.ToLocal(navigationPosition);
+            var edgeDirection = new Vector2(localDirection.X, -localDirection.Y);
+            if (edgeDirection.LengthSquared() < 0.0001f)
+            {
+                edgeDirection = Vector2.Down;
+            }
+
+            screenPosition = center + edgeDirection.Normalized() * Size.Length();
+        }
+
+        var offset = screenPosition - center;
+        var horizontalLimit = Math.Max(Size.X * 0.5f - 42.0f * m_scale, 1.0f);
+        var verticalLimit = Math.Max(Size.Y * 0.5f - 42.0f * m_scale, 1.0f);
+        var clampScale = Math.Min(
+            1.0f,
+            Math.Min(
+                horizontalLimit / Math.Max(Mathf.Abs(offset.X), 0.001f),
+                verticalLimit / Math.Max(Mathf.Abs(offset.Y), 0.001f)));
+        var markerCenter = center + offset * clampScale;
+        var radius = 6.0f * m_scale;
+        Vector2[] diamond =
+        {
+            markerCenter + Vector2.Up * radius,
+            markerCenter + Vector2.Right * radius,
+            markerCenter + Vector2.Down * radius,
+            markerCenter + Vector2.Left * radius,
+            markerCenter + Vector2.Up * radius
+        };
+        DrawPolyline(diamond, HudGreen, LineWidth(2.0f));
+        var fontSize = Math.Max((int)(14 * m_scale), 1);
+        const string label = "NAV";
+        var labelWidth = ThemeDB.FallbackFont.GetStringSize(
+            label,
+            HorizontalAlignment.Left,
+            -1.0f,
+            fontSize).X;
+        DrawString(
+            ThemeDB.FallbackFont,
+            markerCenter + new Vector2(-labelWidth * 0.5f, -11.0f * m_scale),
+            label,
+            HorizontalAlignment.Left,
+            -1.0f,
+            fontSize,
+            HudGreen);
     }
 
     private void DrawCombatReticle()

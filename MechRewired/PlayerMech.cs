@@ -20,6 +20,10 @@ public partial class PlayerMech : Node3D
 {
     public const uint ExteriorRenderLayer = 1u << 1;
 
+    private const float DefaultDisplayFov = 80.0f;
+    private const float MinimumDisplayFov = 28.0f;
+    private const float DisplayZoomDegreesPerSecond = 35.0f;
+
     private const float MaximumSlopeDegrees = 50.0f;
     private const float MaximumUphillSpeedReduction = 0.3f;
     private const float MouseSensitivity = 0.002f;
@@ -60,11 +64,13 @@ public partial class PlayerMech : Node3D
     private SceneryObstacle m_lastBlockingObstacle;
     private bool m_aligningLegsToTorso;
     private bool m_translationLocked;
+    private bool m_displayZoomMoving;
     private readonly AudioStreamPlayer m_torsoMotor;
     private readonly AudioStreamPlayer m_footfall;
     private readonly AudioStreamPlayer m_startup;
     private readonly AudioStreamPlayer m_reactorHum;
     private readonly AudioStreamPlayer m_deploymentReport;
+    private readonly AudioStreamPlayer m_displayZoom;
     private readonly AudioStreamPlayer m_driveTransition;
     private readonly AudioStreamWav m_startWalking;
     private readonly AudioStreamWav m_stopWalking;
@@ -124,6 +130,13 @@ public partial class PlayerMech : Node3D
             Name = "DeploymentReport",
             Stream = sounds.DeploymentReport
         };
+        m_displayZoom = new AudioStreamPlayer
+        {
+            Name = "DisplayZoom",
+            Stream = sounds.DisplayZoom,
+            VolumeDb = -2.0f,
+            MaxPolyphony = 2
+        };
         m_startWalking = sounds.StartWalking;
         m_stopWalking = sounds.StopWalking;
         m_startRunning = sounds.StartRunning;
@@ -138,6 +151,7 @@ public partial class PlayerMech : Node3D
         AddChild(m_startup);
         AddChild(m_reactorHum);
         AddChild(m_deploymentReport);
+        AddChild(m_displayZoom);
         AddChild(m_driveTransition);
     }
 
@@ -218,7 +232,7 @@ public partial class PlayerMech : Node3D
             Current = true,
             Near = 0.05f,
             Far = 8000.0f,
-            Fov = 80.0f,
+            Fov = DefaultDisplayFov,
             CullMask = 1u | PlayerCockpit.RenderLayer
         };
         ViewBobMount.AddChild(CockpitCamera);
@@ -254,6 +268,7 @@ public partial class PlayerMech : Node3D
         }
 
         var isPilotCamera = CockpitCamera.Current || ExternalCamera.Current;
+        UpdateDisplayZoom((float)delta);
         var headLookHeld = Input.IsPhysicalKeyPressed(Key.Shift);
         var steering = 0.0;
         var manualSteering = false;
@@ -317,6 +332,10 @@ public partial class PlayerMech : Node3D
             case InputEventKey { Pressed: true, Echo: false } centerEvent
                 when centerEvent.Keycode is Key.Kp5 or Key.C:
                 CenterPilotView();
+                GetViewport().SetInputAsHandled();
+                break;
+
+            case InputEventKey { Keycode: Key.Z }:
                 GetViewport().SetInputAsHandled();
                 break;
 
@@ -409,6 +428,39 @@ public partial class PlayerMech : Node3D
             GD.Print(
                 $"MechRewired: PlayerMech movement constraint: slope={m_slopeBlocked}; " +
                 $"scenery={m_sceneryBlocked}; blocker {scenery}; footprint radius {m_footprintRadius:F1}m.");
+        }
+    }
+
+    private void UpdateDisplayZoom(float delta)
+    {
+        var zoomHeld = CockpitCamera.Current && Input.IsPhysicalKeyPressed(Key.Z);
+        var targetFov = Input.IsPhysicalKeyPressed(Key.Shift)
+            ? DefaultDisplayFov
+            : MinimumDisplayFov;
+        var previousFov = CockpitCamera.Fov;
+        if (zoomHeld)
+        {
+            CockpitCamera.Fov = Mathf.MoveToward(
+                previousFov,
+                targetFov,
+                DisplayZoomDegreesPerSecond * delta);
+        }
+
+        var isMoving = zoomHeld && !Mathf.IsEqualApprox(previousFov, CockpitCamera.Fov);
+        if (isMoving && !m_displayZoomMoving)
+        {
+            m_displayZoomMoving = true;
+            m_displayZoom.Play();
+        }
+        else if (!isMoving && m_displayZoomMoving)
+        {
+            m_displayZoomMoving = false;
+            m_displayZoom.Stop();
+            var magnification = Mathf.Tan(Mathf.DegToRad(DefaultDisplayFov * 0.5f)) /
+                                Mathf.Tan(Mathf.DegToRad(CockpitCamera.Fov * 0.5f));
+            GD.Print(
+                $"MechRewired: cockpit display zoom {magnification:F1}x " +
+                $"(field of view {CockpitCamera.Fov:F1} degrees).");
         }
     }
 
