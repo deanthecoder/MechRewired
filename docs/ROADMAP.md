@@ -8,72 +8,47 @@ The three principal milestones are:
 2. Walk and fight in a test battlefield.
 3. Complete one original MechWarrior 2 mission.
 
-## 1. Resource foundation — complete
+## 1. Battlefield rendering
 
-- Locate the required DOS `MW2.PRJ` file.
-- Check that it is non-empty and begins with the expected `PROJ` signature.
-- Report a useful startup error when the data is missing or invalid.
-
-Deeper archive validation is intentionally deferred until the project is otherwise complete. Individual formats will be decoded only when they unlock the next visual or playable milestone.
-
-## 2. First original image
-
-- Decode color palettes. — complete
-- Decode enough `WTB` model geometry and material data to assemble one flat-shaded BattleMech. — complete
-- Add a Godot inspection scene with an overview camera and simple lighting. — complete
-
-This phase is complete when MechRewired displays a recognizable DOS BattleMech directly from the original data.
-
-## 3. Battlefield rendering
-
-- Decode terrain geometry and mission world references. — complete
-- Establish coordinate, scale and material conventions between MW2 and Godot. — complete
-- Recreate the DOS terrain shading, skies, palette and mission colors. — complete
-- Decode textured WTB material/decal selection and its indexed XEL resources for scenery and battlefield detail. — initial player-mech material map complete; scenery remains
+- Decode textured WTB material/decal selection and its indexed XEL resources for scenery and battlefield detail. — scenery materials remain
 
 This phase is complete when a recognizable original battlefield can be explored with a debug camera.
 
-## 4. Mech piloting
+## 2. Mech piloting
 
-- Implement throttle, reverse, leg steering and torso twist. — initial rigid-body movement complete
-- Follow terrain and enforce slope limits. — initial implementation complete
-- Prevent the player mech walking through scenery and mission actors. — transformed vertical-wall triangle collision implemented, preserving open space inside irregular models; vertical clearance and sliding refinements remain
-- Add speed-driven cockpit gait and landing weight. — initial implementation complete
-- Add cockpit and external diagnostic cameras. — initial rig complete
+- Prevent the player mech walking through scenery and mission actors. — transformed vertical-wall triangle collision implemented; vertical clearance and sliding refinements remain
 - Decode the original `MW2MECH.CPI`/`VWSP` cockpit and view definitions, then replace or validate the procedural cockpit frame against them. - Not a priority.
-- Implement targeting, weapons, heat, armor and location-based damage. — initial reticle, actor targeting, laser damage and destroyed representations complete
-- Add a minimal diagnostic HUD. — navigation, movement reticle and selected-target overlay complete
+- Implement the remaining targeting and combat systems: heat, armor and location-based damage.
 
 This phase is complete when the player can pilot one mech around the battlefield and destroy a stationary target.
 
-## 5. Original mission gameplay
+## 3. Original mission gameplay
 
 - Load mech definitions and weapon configurations from original data.
 - Replace the current Pyre Light-specific resource constants with a scenario-driven mission definition that resolves the planet, battlefield, deployment, NAV sequence, enemy groups and music from the original data.
 - Decode the remaining mission metadata (`MTBL`, `TSK` and `AFFL`) and compare Pyre Light with structurally different missions before settling the runtime model. — MTBL fixed records and Pyre Light trigger/goal flags decoded; comparison, TSK and AFFL remain
-- Represent original objectives with reusable primitives: reach a NAV point or zone, destroy an entity or group, inspect a target, protect a target, eliminate all required enemies, extract, and wait for a timer or prerequisite. — destroy, inspect and extract runtime primitives complete
-- Add targetable mission actors, health and destruction transitions, inspection, weapons and damage. — initial static-actor and laser slice complete
+- Represent the remaining original objectives with reusable primitives: protect a target, eliminate all required enemies, and wait for a timer or prerequisite.
+- Add enemy mission actors, health, destruction transitions, weapons and damage.
 - Add basic friendly and hostile navigation, targeting and combat.
-- Recreate Pyre Light's mission chain: reach Nav Epsilon and engage the power plant, reach Nav Zeta and inspect the firebase, then reach Nav Eta for extraction. — initial playable objective chain implemented pending playtest; enemy opposition remains
-- Implement data-driven objective activation, reports, success and failure while keeping movement, targeting, combat and objective evaluation reusable across missions. — activation, completion and original success reports complete; failure and debrief remain
+- Recreate Pyre Light's mission chain with enemy opposition: reach Nav Epsilon and engage the power plant, reach Nav Zeta and inspect the firebase, then reach Nav Eta for extraction. — enemy opposition remains
+- Implement data-driven objective evaluation reusable across missions, including failure and debrief states. — failure and debrief remain
 
 This phase is complete when one original mission can be played from deployment to a diagnostic debrief state.
 
-## 6. Fidelity and remaster effects
+## 4. Fidelity and remaster effects
 
 - Add articulated legs and inverse kinematics.
 - Improve cockpit shadow quality, stabilize nearby building shadows and tune shadow darkness for the dusk palette.
 - Add emissive missile and weapon lighting.
-- Add particles for explosions, smoke, sparks, dust and damage feedback. — GodotExplosionVFX flipbook fire/smoke shader, elevated-smoke folding, positional fire/explosion audio and one-way 800m effect/debris cleanup implemented; dust and damage scaling remain
-- Decode placed visual effects and their `TSK` ambient audio, such as Pyre Light's `YELLSMO1.BWD`. — source-sized volumetric flame/smoke particles and positional `MECFIRE1.WAV`/`MECFIRE2.SFL` audio implemented
-- Decode and render scripted set-pieces such as a BWD-authored Wolf DropShip, its `drop` animation and `jettaxi` effect. — generic map-include discovery, original model assembly, mission-derived deployment/extraction placement, deployment take-off, extraction landing and task-referenced `jettaxi` audio implemented; fuller task animation remains
-- Add exploding structure chunks after actor destruction and impact positions are stable. — initial original `CHUNKER`/`CHUNKLET` low-gravity debris implemented; visual tuning remains
-- Add depth fog, bloom, glow, dynamic shadows and cockpit lighting.
+- Tune particles for explosions, smoke, sparks, dust and damage feedback. — dust and damage scaling remain
+- Complete fuller task animation for BWD-authored Wolf DropShip set-pieces.
+- Tune exploding structure chunks. — visual tuning remains
+- Add bloom, glow and cockpit lighting.
 - Add restrained bump or normal mapping without losing the DOS art direction.
-- Play original sound, voice and CD music resources, beginning with torso motors, footsteps and mission-start status announcements such as "Temperature nominal."
+- Add remaining original voice, weapon, fire and mission sound resources, plus CD music where appropriate.
 - Make major enhancements independently adjustable where useful.
 
-## 7. Productization
+## 5. Productization
 
 - Discover and validate original game data automatically.
 - Add friendly missing-data guidance, settings and input rebinding.
