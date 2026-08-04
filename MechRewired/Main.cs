@@ -673,7 +673,47 @@ public partial class Main : Node3D
         AddImplicitGround(levelRoot, worldBounds, terrainPaletteCounts, palette, debugTriangles);
         battlefieldEffects.ConfigureTerrain(debugTriangles.AsReadOnly());
         LoadAmbientEffects(archive, battlefieldEffects, battlefieldEffectSounds.AmbientFire);
-        var missionDropShips = LoadMissionDropShips(archive, levelRoot, palette, luminosityTable);
+        var playerRotation = MechWarriorCoordinateSystem.ToGodotRotation(
+            new System.Numerics.Vector3(0.0f, playerStart.StartingAngle, 0.0f));
+        var playerBasis = Basis.FromEuler(playerRotation * (Mathf.Pi / 180.0f));
+        var deploymentDirection = (-playerBasis.Z).Normalized();
+        var deploymentLeft = -playerBasis.X.Normalized();
+        var playerDeploymentPosition = MechWarriorCoordinateSystem.ToGodotPosition(playerStart.Position);
+        var deploymentAnchor = playerDeploymentPosition +
+                               deploymentDirection * 55.0f +
+                               deploymentLeft * 40.0f;
+        deploymentAnchor.Y = FindDeploymentSurfaceHeight(debugTriangles, deploymentAnchor);
+        var dropShipDepartureDirection = playerDeploymentPosition - deploymentAnchor;
+        dropShipDepartureDirection.Y = 0.0f;
+        dropShipDepartureDirection = dropShipDepartureDirection.Normalized();
+        var extractionResourceName = missionDefinition.Objectives
+            .LastOrDefault(objective => objective.Kind == MissionObjectiveKind.Extract)
+            ?.TargetResourceName;
+        var extractionPoint = navigationPoints.FirstOrDefault(point => string.Equals(
+                                  point.ResourceName,
+                                  extractionResourceName,
+                                  StringComparison.OrdinalIgnoreCase)) ??
+                              navigationPoints.LastOrDefault();
+        var extractionPosition = extractionPoint != null
+            ? MechWarriorCoordinateSystem.ToGodotPosition(extractionPoint.Point.Position)
+            : deploymentAnchor;
+        var extractionApproach = navigationPoints.Count > 1
+            ? (extractionPosition -
+               MechWarriorCoordinateSystem.ToGodotPosition(navigationPoints[^2].Point.Position))
+            : deploymentDirection;
+        extractionApproach.Y = 0.0f;
+        extractionApproach = extractionApproach.Normalized();
+        var extractionLeft = -extractionApproach.Cross(Vector3.Up).Normalized();
+        var extractionAnchor = extractionPosition + extractionApproach * 55.0f + extractionLeft * 40.0f;
+        extractionAnchor.Y = FindDeploymentSurfaceHeight(debugTriangles, extractionAnchor);
+        var missionDropShips = LoadMissionDropShips(
+            archive,
+            levelRoot,
+            palette,
+            luminosityTable,
+            deploymentAnchor,
+            extractionAnchor,
+            dropShipDepartureDirection);
 
         var playerMechSounds = PlayerMechSounds.Load(archive);
         var playerMech = new PlayerMech(
@@ -849,7 +889,10 @@ public partial class Main : Node3D
         MechWarriorProjectArchive archive,
         Node3D levelRoot,
         MechWarriorPalette palette,
-        MechWarriorLuminosityTable luminosityTable)
+        MechWarriorLuminosityTable luminosityTable,
+        Vector3 deploymentAnchor,
+        Vector3 extractionAnchor,
+        Vector3 deploymentDirection)
     {
         var levelEntry = archive.GetEntry(LevelPath);
         var levelWorld = MechWarriorWorldFile.Load(archive.ReadEntry(levelEntry));
@@ -857,7 +900,7 @@ public partial class Main : Node3D
         foreach (var include in levelWorld.Includes)
         {
             var setPieceEntry = archive.GetEntry("BWD", include.ResourceIndex);
-            var setPieceWorld = MechWarriorWorldFile.Load(archive.ReadEntry(setPieceEntry), include.Transform);
+            var setPieceWorld = MechWarriorWorldFile.Load(archive.ReadEntry(setPieceEntry));
             if (!setPieceWorld.Tasks.Any(task =>
                     task.Command.Split([';', ','], StringSplitOptions.TrimEntries)
                         .Any(argument => argument.Equals("drop", StringComparison.OrdinalIgnoreCase))))
@@ -865,7 +908,13 @@ public partial class Main : Node3D
                 continue;
             }
 
-            var dropShip = new MissionDropShipSetPiece(setPieceEntry.Name)
+            var dropShipSound = LoadDropShipTaskSound(archive, setPieceWorld);
+            var dropShip = new MissionDropShipSetPiece(
+                setPieceEntry.Name,
+                deploymentAnchor,
+                extractionAnchor,
+                deploymentDirection,
+                dropShipSound)
             {
                 Name = $"DropShip-{setPieceEntry.Name}"
             };
@@ -918,11 +967,30 @@ public partial class Main : Node3D
                 $"MechRewired: staged dropship {setPieceEntry.Path} from map include at " +
                 $"({include.Transform.Translation.X:F2}, {include.Transform.Translation.Y:F2}, " +
                 $"{include.Transform.Translation.Z:F2}) ({renderedObjectCount}/{setPieceWorld.Objects.Count} models; " +
-                $"tasks: {taskSummary}).");
+                $"deployment {deploymentAnchor}; extraction {extractionAnchor}; tasks: {taskSummary}).");
         }
 
         GD.Print($"MechRewired: staged {dropShips.Count} map-authored dropship set pieces.");
         return dropShips.AsReadOnly();
+    }
+
+    private static AudioStreamWav LoadDropShipTaskSound(
+        MechWarriorProjectArchive archive,
+        MechWarriorWorldFile setPieceWorld)
+    {
+        var soundName = setPieceWorld.Tasks
+            .Where(task => task.Type == 4)
+            .SelectMany(task => task.Command.Split([';', ','], StringSplitOptions.TrimEntries))
+            .FirstOrDefault(argument => archive.Entries.Any(entry =>
+                entry.DirectoryName.Equals("SNDS", StringComparison.OrdinalIgnoreCase) &&
+                entry.Name.Equals($"{argument}.WAV", StringComparison.OrdinalIgnoreCase)));
+        return string.IsNullOrWhiteSpace(soundName)
+            ? null
+            : PlayerMechSounds.LoadWaveResource(
+                archive,
+                $"SNDS/{soundName}.WAV",
+                true,
+                "map-authored dropship engine");
     }
 
     private static void LoadAmbientEffects(
@@ -1324,23 +1392,60 @@ public partial class Main : Node3D
     /// </summary>
     /// <remarks>
     /// The set piece is discovered from a BWD <c>drop</c> task rather than a
-    /// mission name. Its child models keep their original BWD placement; this
-    /// node supplies only a shared short descent on each activation.
+    /// mission name. Its child models retain their offsets around the authored
+    /// include anchor, while mission start and final-navigation data provide
+    /// the deployment and extraction anchors.
     /// </remarks>
     private sealed partial class MissionDropShipSetPiece : Node3D
     {
-        private const float DescentHeight = 36.0f;
-        private const float DescentSeconds = 3.5f;
-        private const float DeploymentVisibilitySeconds = 12.0f;
+        private const float FlightHeight = 65.0f;
+        private const float LiftSeconds = 4.0f;
+        private const float DescentSeconds = 4.0f;
+        private const float DepartureAcceleration = 30.0f;
+        private const float DepartureInitialSpeed = 18.0f;
+        private const float DepartureCullDistance = 1400.0f;
+        private const float DepartureBankDegrees = -7.0f;
+        private const float DepartureBankSeconds = 1.5f;
 
         private readonly string m_sourceName;
+        private readonly Vector3 m_deploymentAnchor;
+        private readonly Vector3 m_extractionAnchor;
+        private readonly Vector3 m_deploymentDirection;
+        private readonly Vector3 m_flightRotation;
+        private readonly AudioStreamPlayer3D m_engine;
         private float m_elapsed;
         private bool m_extracting;
         private bool m_active;
 
-        public MissionDropShipSetPiece(string sourceName)
+        public MissionDropShipSetPiece(
+            string sourceName,
+            Vector3 deploymentAnchor,
+            Vector3 extractionAnchor,
+            Vector3 deploymentDirection,
+            AudioStreamWav engineSound)
         {
             m_sourceName = sourceName;
+            m_deploymentAnchor = deploymentAnchor;
+            m_extractionAnchor = extractionAnchor;
+            m_deploymentDirection = deploymentDirection.Normalized();
+            m_flightRotation = new Vector3(
+                0.0f,
+                Mathf.RadToDeg(Mathf.Atan2(m_deploymentDirection.X, m_deploymentDirection.Z)),
+                0.0f);
+            RotationDegrees = m_flightRotation;
+            if (engineSound != null)
+            {
+                m_engine = new AudioStreamPlayer3D
+                {
+                    Name = "Engine",
+                    Stream = engineSound,
+                    UnitSize = 30.0f,
+                    MaxDistance = 1200.0f,
+                    VolumeDb = -3.0f,
+                    AttenuationModel = AudioStreamPlayer3D.AttenuationModelEnum.InverseDistance
+                };
+                AddChild(m_engine);
+            }
         }
 
         public void BeginDeployment()
@@ -1363,16 +1468,18 @@ public partial class Main : Node3D
             }
 
             m_elapsed += (float)delta;
-            var descentProgress = Math.Clamp(m_elapsed / DescentSeconds, 0.0f, 1.0f);
-            Position = Vector3.Up * Mathf.Lerp(DescentHeight, 0.0f, descentProgress);
-            if (!m_extracting && m_elapsed >= DeploymentVisibilitySeconds)
+            if (!m_extracting)
             {
-                Visible = false;
-                m_active = false;
+                UpdateDeparture();
+                return;
             }
-            else if (m_extracting && descentProgress >= 1.0f)
+
+            var descentProgress = Math.Clamp(m_elapsed / DescentSeconds, 0.0f, 1.0f);
+            Position = m_extractionAnchor + Vector3.Up * Mathf.Lerp(FlightHeight, 0.0f, descentProgress);
+            if (descentProgress >= 1.0f)
             {
                 m_active = false;
+                m_engine?.Stop();
             }
         }
 
@@ -1382,7 +1489,42 @@ public partial class Main : Node3D
             m_elapsed = 0.0f;
             m_active = true;
             Visible = true;
-            Position = Vector3.Up * DescentHeight;
+            RotationDegrees = m_flightRotation;
+            var anchor = extracting ? m_extractionAnchor : m_deploymentAnchor;
+            Position = extracting ? anchor + Vector3.Up * FlightHeight : anchor;
+            m_engine?.Play();
+        }
+
+        private void UpdateDeparture()
+        {
+            if (m_elapsed <= LiftSeconds)
+            {
+                var liftProgress = Mathf.SmoothStep(0.0f, 1.0f, m_elapsed / LiftSeconds);
+                Position = m_deploymentAnchor + Vector3.Up * (FlightHeight * liftProgress);
+                RotationDegrees = m_flightRotation;
+                return;
+            }
+
+            var flightSeconds = m_elapsed - LiftSeconds;
+            var bankProgress = Mathf.SmoothStep(
+                0.0f,
+                1.0f,
+                Math.Clamp(flightSeconds / DepartureBankSeconds, 0.0f, 1.0f));
+            RotationDegrees = m_flightRotation +
+                              new Vector3(0.0f, 0.0f, DepartureBankDegrees * bankProgress);
+            var departureDistance = DepartureInitialSpeed * flightSeconds +
+                                    0.5f * DepartureAcceleration * flightSeconds * flightSeconds;
+            Position = m_deploymentAnchor + Vector3.Up * FlightHeight +
+                       m_deploymentDirection * departureDistance;
+            if (departureDistance < DepartureCullDistance)
+            {
+                return;
+            }
+
+            Visible = false;
+            m_active = false;
+            m_engine?.Stop();
+            GD.Print($"MechRewired: deployment dropship {m_sourceName} departed beyond view range.");
         }
     }
 }

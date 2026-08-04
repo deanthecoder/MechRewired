@@ -20,6 +20,7 @@ public sealed record PlayerMechSounds(
     AudioStreamWav TorsoMotor,
     AudioStreamWav Footfall,
     AudioStreamWav Startup,
+    AudioStreamWav ReactorHum,
     AudioStreamWav DeploymentReport,
     AudioStreamWav StartWalking,
     AudioStreamWav StopWalking,
@@ -32,6 +33,7 @@ public sealed record PlayerMechSounds(
     private const string TorsoMotorPath = "SNDS/TORSLOOP.SFL";
     private const string FootfallPath = "SNDS/NONFOOT.SFL";
     private const string StartupPath = "SNDS/NONPSTRT.SFL";
+    private const string ReactorHumPath = "SNDS/MECHUMXX.WAV";
     private const string DeploymentReportPath = "SNDS/YELL00BS.SFL";
     private const string StartWalkingPath = "SNDS/STOP2WLK.SFL";
     private const string StopWalkingPath = "SNDS/WLK2STOP.SFL";
@@ -53,6 +55,7 @@ public sealed record PlayerMechSounds(
             LoadResource(archive, TorsoMotorPath, true, "torso motor"),
             LoadResource(archive, FootfallPath, false, "footfall"),
             LoadResource(archive, StartupPath, false, "mech startup"),
+            LoadWaveResource(archive, ReactorHumPath, true, "mech reactor hum"),
             LoadResource(archive, DeploymentReportPath, false, "Pyre Light deployment report"),
             LoadResource(archive, StartWalkingPath, false, "stop-to-walk transition"),
             LoadResource(archive, StopWalkingPath, false, "walk-to-stop transition"),
@@ -80,6 +83,37 @@ public sealed record PlayerMechSounds(
         var stream = CreateStream(sound, loop);
         GD.Print(
             $"MechRewired: loaded {entry.Path} ({MechWarriorSoundFile.SampleRate:N0} Hz mono; " +
+            $"{sound.Duration.TotalSeconds:F2} seconds; {purpose}{(loop ? ", looped" : string.Empty)}).");
+        return stream;
+    }
+
+    internal static AudioStreamWav LoadWaveResource(
+        MechWarriorProjectArchive archive,
+        string resourcePath,
+        bool loop,
+        string purpose)
+    {
+        var entry = archive.GetEntry(resourcePath);
+        var sound = MechWarriorWaveFile.Load(archive.ReadEntry(entry));
+        var samples = sound.BitsPerSample == 8
+            ? sound.Samples.Select(sample => unchecked((byte)(sample - 128))).ToArray()
+            : sound.Samples;
+        var stream = new AudioStreamWav
+        {
+            Data = samples,
+            Format = sound.BitsPerSample == 8
+                ? AudioStreamWav.FormatEnum.Format8Bits
+                : AudioStreamWav.FormatEnum.Format16Bits,
+            MixRate = sound.SampleRate,
+            Stereo = false,
+            LoopMode = loop
+                ? AudioStreamWav.LoopModeEnum.Forward
+                : AudioStreamWav.LoopModeEnum.Disabled,
+            LoopBegin = 0,
+            LoopEnd = samples.Length / (sound.BitsPerSample / 8)
+        };
+        GD.Print(
+            $"MechRewired: loaded {entry.Path} ({sound.SampleRate:N0} Hz mono; " +
             $"{sound.Duration.TotalSeconds:F2} seconds; {purpose}{(loop ? ", looped" : string.Empty)}).");
         return stream;
     }

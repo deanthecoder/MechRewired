@@ -62,6 +62,7 @@ public partial class PlayerMech : Node3D
     private readonly AudioStreamPlayer m_torsoMotor;
     private readonly AudioStreamPlayer m_footfall;
     private readonly AudioStreamPlayer m_startup;
+    private readonly AudioStreamPlayer m_reactorHum;
     private readonly AudioStreamPlayer m_deploymentReport;
     private readonly AudioStreamPlayer m_driveTransition;
     private readonly AudioStreamWav m_startWalking;
@@ -111,6 +112,12 @@ public partial class PlayerMech : Node3D
             Stream = sounds.Startup,
             VolumeDb = -3.0f
         };
+        m_reactorHum = new AudioStreamPlayer
+        {
+            Name = "ReactorHum",
+            Stream = sounds.ReactorHum,
+            VolumeDb = -12.0f
+        };
         m_deploymentReport = new AudioStreamPlayer
         {
             Name = "DeploymentReport",
@@ -128,6 +135,7 @@ public partial class PlayerMech : Node3D
         AddChild(m_torsoMotor);
         AddChild(m_footfall);
         AddChild(m_startup);
+        AddChild(m_reactorHum);
         AddChild(m_deploymentReport);
         AddChild(m_driveTransition);
     }
@@ -208,6 +216,7 @@ public partial class PlayerMech : Node3D
         ExternalCamera.Position = cameraPosition;
         ExternalCamera.LookAt(ToGlobal(target));
         m_startup.Play();
+        m_reactorHum.Play();
         m_deploymentReport.Play();
 
         GD.Print(

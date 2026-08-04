@@ -25,7 +25,11 @@ public sealed record BattlefieldEffectSounds(
         ArgumentNullException.ThrowIfNull(archive);
         var ambientFire = new Dictionary<string, AudioStreamWav>(StringComparer.OrdinalIgnoreCase)
         {
-            ["mecfire1"] = LoadWaveResource(archive, "SNDS/MECFIRE1.WAV", true, "ambient fire"),
+            ["mecfire1"] = PlayerMechSounds.LoadWaveResource(
+                archive,
+                "SNDS/MECFIRE1.WAV",
+                true,
+                "ambient fire"),
             ["mecfire2"] = PlayerMechSounds.LoadResource(
                 archive,
                 "SNDS/MECFIRE2.SFL",
@@ -40,34 +44,4 @@ public sealed record BattlefieldEffectSounds(
         return new BattlefieldEffectSounds(ambientFire, explosions);
     }
 
-    private static AudioStreamWav LoadWaveResource(
-        MechWarriorProjectArchive archive,
-        string resourcePath,
-        bool loop,
-        string purpose)
-    {
-        var entry = archive.GetEntry(resourcePath);
-        var sound = MechWarriorWaveFile.Load(archive.ReadEntry(entry));
-        var samples = sound.BitsPerSample == 8
-            ? sound.Samples.Select(sample => unchecked((byte)(sample - 128))).ToArray()
-            : sound.Samples;
-        var stream = new AudioStreamWav
-        {
-            Data = samples,
-            Format = sound.BitsPerSample == 8
-                ? AudioStreamWav.FormatEnum.Format8Bits
-                : AudioStreamWav.FormatEnum.Format16Bits,
-            MixRate = sound.SampleRate,
-            Stereo = false,
-            LoopMode = loop
-                ? AudioStreamWav.LoopModeEnum.Forward
-                : AudioStreamWav.LoopModeEnum.Disabled,
-            LoopBegin = 0,
-            LoopEnd = samples.Length / (sound.BitsPerSample / 8)
-        };
-        GD.Print(
-            $"MechRewired: loaded {entry.Path} ({sound.SampleRate:N0} Hz mono; " +
-            $"{sound.Duration.TotalSeconds:F2} seconds; {purpose}{(loop ? ", looped" : string.Empty)}).");
-        return stream;
-    }
 }
