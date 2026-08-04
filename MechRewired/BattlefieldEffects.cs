@@ -21,6 +21,8 @@ namespace MechRewired;
 public partial class BattlefieldEffects : Node3D
 {
     public const float EffectPersistenceRadius = 800.0f;
+    private const float FullDetailEffectDistance = 250.0f;
+    private const float MinimumAmbientAmountRatio = 0.12f;
 
     private static bool s_vfxTexturesLogged;
 
@@ -28,6 +30,17 @@ public partial class BattlefieldEffects : Node3D
     private readonly List<TunableEmitter> m_tunableEmitters = [];
     private readonly List<AmbientEffectState> m_ambientEffects = [];
     private readonly List<Node3D> m_distanceBoundEffects = [];
+    private ShaderMaterial m_fireVisualMaterial;
+    private ShaderMaterial m_smokeVisualMaterial;
+    private StandardMaterial3D m_sparkVisualMaterial;
+    private QuadMesh m_particleQuadMesh;
+    private BoxMesh m_sparkMesh;
+    private GradientTexture1D m_fireColorRamp;
+    private GradientTexture1D m_ambientFireColorRamp;
+    private GradientTexture1D m_ambientSmokeColorRamp;
+    private GradientTexture1D m_ambientSmokeInitialColorRamp;
+    private GradientTexture1D m_smokeColorRamp;
+    private GradientTexture1D m_smokeInitialColorRamp;
     private IReadOnlyList<DebugTriangle> m_terrainTriangles = Array.Empty<DebugTriangle>();
     private Node3D m_observer;
     private DebugVfxParameter m_selectedDebugParameter;
@@ -114,6 +127,7 @@ public partial class BattlefieldEffects : Node3D
             return;
         }
 
+        var activatedAmbientEffect = false;
         foreach (var ambientEffect in m_ambientEffects)
         {
             if (ambientEffect.IsCulled)
@@ -122,10 +136,12 @@ public partial class BattlefieldEffects : Node3D
             }
 
             var isWithinRange = IsWithinEffectPersistenceRange(ambientEffect.Volume.GetCenter());
-            if (ambientEffect.Instance == null && isWithinRange)
+            if (ambientEffect.Instance == null && isWithinRange && !activatedAmbientEffect)
             {
                 ambientEffect.Instance = CreateAmbientEffect(ambientEffect);
+                UpdateAmbientDetail(ambientEffect.Instance, ambientEffect.Volume.GetCenter());
                 AddChild(ambientEffect.Instance);
+                activatedAmbientEffect = true;
                 GD.Print($"MechRewired: activated ambient {ambientEffect.KindName} '{ambientEffect.SourceName}' within {EffectPersistenceRadius:F0}m.");
             }
             else if (ambientEffect.Instance != null && !isWithinRange)
@@ -134,6 +150,10 @@ public partial class BattlefieldEffects : Node3D
                 ambientEffect.Instance = null;
                 ambientEffect.IsCulled = true;
                 GD.Print($"MechRewired: culled ambient {ambientEffect.KindName} '{ambientEffect.SourceName}' beyond {EffectPersistenceRadius:F0}m.");
+            }
+            else if (ambientEffect.Instance != null)
+            {
+                UpdateAmbientDetail(ambientEffect.Instance, ambientEffect.Volume.GetCenter());
             }
         }
 
@@ -186,6 +206,23 @@ public partial class BattlefieldEffects : Node3D
     private bool IsWithinEffectPersistenceRange(Vector3 position) =>
         IsInstanceValid(m_observer) &&
         m_observer.GlobalPosition.DistanceSquaredTo(position) <= EffectPersistenceRadius * EffectPersistenceRadius;
+
+    private void UpdateAmbientDetail(EffectInstance effect, Vector3 position)
+    {
+        var distance = m_observer.GlobalPosition.DistanceTo(position);
+        var amountRatio = Mathf.Lerp(
+            1.0f,
+            MinimumAmbientAmountRatio,
+            Mathf.Clamp(
+                (distance - FullDetailEffectDistance) /
+                (EffectPersistenceRadius - FullDetailEffectDistance),
+                0.0f,
+                1.0f));
+        foreach (var particles in effect.GetChildren().OfType<GpuParticles3D>())
+        {
+            particles.AmountRatio = amountRatio;
+        }
+    }
 
     public void SpawnDestruction(BattlefieldActor actor, Vector3 hitPosition)
     {
@@ -315,7 +352,7 @@ public partial class BattlefieldEffects : Node3D
             DampingMax = 1.0f,
             ScaleMin = size * 0.45f,
             ScaleMax = size,
-            ColorRamp = CreateColorRamp(
+            ColorRamp = m_fireColorRamp ??= CreateColorRamp(
                 (0.0f, new Color(1.0f, 0.98f, 0.72f, 1.0f)),
                 (0.22f, new Color(1.0f, 0.62f, 0.08f, 0.95f)),
                 (0.68f, new Color(0.9f, 0.08f, 0.005f, 0.7f)),
@@ -343,7 +380,7 @@ public partial class BattlefieldEffects : Node3D
             DampingMax = 0.45f,
             ScaleMin = width * 0.035f,
             ScaleMax = width * 0.11f,
-            ColorRamp = CreateColorRamp(
+            ColorRamp = m_ambientFireColorRamp ??= CreateColorRamp(
                 (0.0f, new Color(1.0f, 0.98f, 0.7f, 1.0f)),
                 (0.25f, new Color(1.0f, 0.52f, 0.03f, 0.98f)),
                 (0.72f, new Color(0.85f, 0.04f, 0.002f, 0.78f)),
@@ -387,12 +424,12 @@ public partial class BattlefieldEffects : Node3D
             DampingMax = 0.35f,
             ScaleMin = width * 0.06f,
             ScaleMax = width * 0.18f,
-            ColorRamp = CreateColorRamp(
+            ColorRamp = m_ambientSmokeColorRamp ??= CreateColorRamp(
                 (0.0f, new Color(0.12f, 0.11f, 0.1f, 0.0f)),
                 (0.1f, new Color(0.14f, 0.13f, 0.12f, 0.82f)),
                 (0.6f, new Color(0.35f, 0.34f, 0.32f, 0.62f)),
                 (1.0f, new Color(0.62f, 0.61f, 0.58f, 0.0f))),
-            ColorInitialRamp = CreateColorRamp(
+            ColorInitialRamp = m_ambientSmokeInitialColorRamp ??= CreateColorRamp(
                 (0.0f, new Color(0.65f, 0.62f, 0.58f, 1.0f)),
                 (1.0f, Colors.White)),
             TurbulenceEnabled = true,
@@ -427,12 +464,12 @@ public partial class BattlefieldEffects : Node3D
             DampingMax = 0.55f,
             ScaleMin = size * 0.35f,
             ScaleMax = size * 1.65f,
-            ColorRamp = CreateColorRamp(
+            ColorRamp = m_smokeColorRamp ??= CreateColorRamp(
                 (0.0f, new Color(0.08f, 0.07f, 0.06f, 0.0f)),
                 (0.12f, new Color(0.1f, 0.09f, 0.08f, 0.88f)),
                 (0.62f, new Color(0.25f, 0.24f, 0.22f, 0.58f)),
                 (1.0f, new Color(0.42f, 0.41f, 0.39f, 0.0f))),
-            ColorInitialRamp = CreateColorRamp(
+            ColorInitialRamp = m_smokeInitialColorRamp ??= CreateColorRamp(
                 (0.0f, new Color(0.65f, 0.58f, 0.5f, 1.0f)),
                 (1.0f, new Color(1.0f, 1.0f, 1.0f, 1.0f))),
             TurbulenceEnabled = true,
@@ -521,7 +558,7 @@ public partial class BattlefieldEffects : Node3D
     {
         var process = particles.ProcessMaterial as ParticleProcessMaterial ??
                       throw new InvalidOperationException("An ambient particle emitter requires ParticleProcessMaterial.");
-        m_tunableEmitters.Add(new TunableEmitter(
+        var emitter = new TunableEmitter(
             particles,
             geometry,
             particles.Amount,
@@ -531,8 +568,9 @@ public partial class BattlefieldEffects : Node3D
             process.Gravity,
             process.ScaleMin,
             process.ScaleMax,
-            process.Spread));
-        ApplyDebugTuning();
+            process.Spread);
+        m_tunableEmitters.Add(emitter);
+        ApplyDebugTuning(emitter, false);
     }
 
     private void AdjustDebugParameter(float adjustment)
@@ -593,30 +631,38 @@ public partial class BattlefieldEffects : Node3D
                 continue;
             }
 
-            var process = (ParticleProcessMaterial)emitter.Particles.ProcessMaterial;
-            var isFire = emitter.Geometry == ParticleGeometry.Fire;
-            var density = isFire ? m_fireDensity : m_smokeDensity;
-            var size = isFire ? m_fireSize : m_smokeSize;
-            var rise = isFire ? m_fireRise : m_smokeRise;
-            var lifetime = isFire ? 1.0f : m_smokeLifetime;
+            ApplyDebugTuning(emitter, true);
+        }
+    }
 
-            emitter.Particles.Amount = Math.Max(1, (int)MathF.Round(emitter.BaseAmount * density));
-            emitter.Particles.Lifetime = emitter.BaseLifetime * lifetime;
-            process.InitialVelocityMin = emitter.BaseVelocityMin * rise;
-            process.InitialVelocityMax = emitter.BaseVelocityMax * rise;
-            process.Gravity = new Vector3(
-                emitter.BaseGravity.X,
-                emitter.BaseGravity.Y * rise,
-                emitter.BaseGravity.Z);
-            process.ScaleMin = emitter.BaseScaleMin * size;
-            process.ScaleMax = emitter.BaseScaleMax * size;
-            process.Spread = emitter.BaseSpread;
+    private void ApplyDebugTuning(TunableEmitter emitter, bool restart)
+    {
+        var process = (ParticleProcessMaterial)emitter.Particles.ProcessMaterial;
+        var isFire = emitter.Geometry == ParticleGeometry.Fire;
+        var density = isFire ? m_fireDensity : m_smokeDensity;
+        var size = isFire ? m_fireSize : m_smokeSize;
+        var rise = isFire ? m_fireRise : m_smokeRise;
+        var lifetime = isFire ? 1.0f : m_smokeLifetime;
 
-            if (emitter.Particles.MaterialOverride is ShaderMaterial material)
-            {
-                material.SetShaderParameter("emission_strength", isFire ? 0.55f * m_fireBrightness : 0.04f);
-            }
+        emitter.Particles.Amount = Math.Max(1, (int)MathF.Round(emitter.BaseAmount * density));
+        emitter.Particles.Lifetime = emitter.BaseLifetime * lifetime;
+        process.InitialVelocityMin = emitter.BaseVelocityMin * rise;
+        process.InitialVelocityMax = emitter.BaseVelocityMax * rise;
+        process.Gravity = new Vector3(
+            emitter.BaseGravity.X,
+            emitter.BaseGravity.Y * rise,
+            emitter.BaseGravity.Z);
+        process.ScaleMin = emitter.BaseScaleMin * size;
+        process.ScaleMax = emitter.BaseScaleMax * size;
+        process.Spread = emitter.BaseSpread;
 
+        if (emitter.Particles.MaterialOverride is ShaderMaterial material)
+        {
+            material.SetShaderParameter("emission_strength", isFire ? 0.55f * m_fireBrightness : 0.04f);
+        }
+
+        if (restart)
+        {
             emitter.Particles.Restart();
         }
     }
@@ -651,26 +697,30 @@ public partial class BattlefieldEffects : Node3D
         ParticleGeometry? geometry = null)
     {
         var particleGeometry = geometry ?? (additive ? ParticleGeometry.Fire : ParticleGeometry.Smoke);
-        Godot.Material visualMaterial = particleGeometry == ParticleGeometry.Spark
-            ? new StandardMaterial3D
+        Godot.Material visualMaterial = particleGeometry switch
+        {
+            ParticleGeometry.Fire => m_fireVisualMaterial ??= CreateParticleShaderMaterial(false),
+            ParticleGeometry.Smoke => m_smokeVisualMaterial ??= CreateParticleShaderMaterial(true),
+            ParticleGeometry.Spark => m_sparkVisualMaterial ??= new StandardMaterial3D
             {
                 Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
                 BlendMode = BaseMaterial3D.BlendModeEnum.Add,
                 ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
                 VertexColorUseAsAlbedo = true
-            }
-            : CreateParticleShaderMaterial(particleGeometry == ParticleGeometry.Smoke);
+            },
+            _ => throw new ArgumentOutOfRangeException(nameof(geometry))
+        };
         PrimitiveMesh mesh = particleGeometry switch
         {
             // The linked GodotExplosionVFX atlas is a high-resolution 8x8
             // flipbook.  Use it on camera-facing quads rather than stacking
             // opaque spheres: the sprite carries the fine smoke breakup and
             // the shader supplies the source project's ramp/normal treatment.
-            ParticleGeometry.Fire or ParticleGeometry.Smoke => new QuadMesh
+            ParticleGeometry.Fire or ParticleGeometry.Smoke => m_particleQuadMesh ??= new QuadMesh
             {
                 Size = new Vector2(1.0f, 1.0f)
             },
-            ParticleGeometry.Spark => new BoxMesh
+            ParticleGeometry.Spark => m_sparkMesh ??= new BoxMesh
             {
                 Size = new Vector3(0.18f, 1.0f, 0.18f)
             },
