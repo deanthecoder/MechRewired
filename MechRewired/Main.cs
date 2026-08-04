@@ -909,6 +909,7 @@ public partial class Main : Node3D
             }
 
             var dropShipSound = LoadDropShipTaskSound(archive, setPieceWorld);
+            var animatedColors = LoadDropShipColorTasks(setPieceWorld, palette);
             var dropShip = new MissionDropShipSetPiece(
                 setPieceEntry.Name,
                 deploymentAnchor,
@@ -919,6 +920,8 @@ public partial class Main : Node3D
                 Name = $"DropShip-{setPieceEntry.Name}"
             };
             var renderedObjectCount = 0;
+            var assemblyBounds = new Aabb();
+            var hasAssemblyBounds = false;
             foreach (var worldObject in setPieceWorld.Objects)
             {
                 var modelEntry = archive.GetEntry("POLY", worldObject.ModelResourceIndex);
@@ -933,15 +936,34 @@ public partial class Main : Node3D
                         RotationDegrees = MechWarriorCoordinateSystem.ToGodotRotation(worldObject.Transform.RotationDegrees),
                         Scale = MechWarriorCoordinateSystem.ToGodotScale(worldObject.Transform.Scale)
                     };
-                    objectRoot.AddChild(new MeshInstance3D
+                    var renderMesh = MechWarriorModelMeshBuilder.Build(
+                        highestDetailModel,
+                        palette,
+                        luminosityTable,
+                        ObjectIlluminationLevel);
+                    MakeMeshDoubleSided(renderMesh);
+                    var meshInstance = new MeshInstance3D
                     {
-                        Mesh = MechWarriorModelMeshBuilder.Build(
-                            highestDetailModel,
-                            palette,
-                            luminosityTable,
-                            ObjectIlluminationLevel),
+                        Mesh = renderMesh,
                         CastShadow = GeometryInstance3D.ShadowCastingSetting.DoubleSided
-                    });
+                    };
+                    objectRoot.AddChild(meshInstance);
+                    var objectBounds = objectRoot.Transform * renderMesh.GetAabb();
+                    assemblyBounds = hasAssemblyBounds ? assemblyBounds.Merge(objectBounds) : objectBounds;
+                    hasAssemblyBounds = true;
+                    if (animatedColors.TryGetValue(worldObject.Id, out var colors))
+                    {
+                        var light = new OmniLight3D
+                        {
+                            Name = "EngineFlameLight",
+                            LightColor = colors[0],
+                            LightEnergy = 4.0f,
+                            OmniRange = 28.0f,
+                            ShadowEnabled = false
+                        };
+                        objectRoot.AddChild(light);
+                        dropShip.ConfigureAnimatedColor(meshInstance, light, colors);
+                    }
                     dropShip.AddChild(objectRoot);
                     renderedObjectCount++;
                 }
@@ -959,6 +981,7 @@ public partial class Main : Node3D
                 continue;
             }
 
+            dropShip.ConfigureAssemblyBounds(assemblyBounds);
             levelRoot.AddChild(dropShip);
             dropShip.BeginDeployment();
             dropShips.Add(dropShip);
@@ -972,6 +995,51 @@ public partial class Main : Node3D
 
         GD.Print($"MechRewired: staged {dropShips.Count} map-authored dropship set pieces.");
         return dropShips.AsReadOnly();
+    }
+
+    private static void MakeMeshDoubleSided(ArrayMesh mesh)
+    {
+        for (var surfaceIndex = 0; surfaceIndex < mesh.GetSurfaceCount(); surfaceIndex++)
+        {
+            if (mesh.SurfaceGetMaterial(surfaceIndex) is BaseMaterial3D material)
+            {
+                material.CullMode = BaseMaterial3D.CullModeEnum.Disabled;
+            }
+        }
+    }
+
+    private static IReadOnlyDictionary<int, Color[]> LoadDropShipColorTasks(
+        MechWarriorWorldFile setPieceWorld,
+        MechWarriorPalette palette)
+    {
+        var colors = new Dictionary<int, Color[]>();
+        foreach (var task in setPieceWorld.Tasks.Where(task => task.Type == 1))
+        {
+            var arguments = task.Command.Split([';', ','], StringSplitOptions.TrimEntries);
+            if (arguments.Length < 2 || !int.TryParse(arguments[0], out var objectId))
+            {
+                continue;
+            }
+
+            var paletteIndices = arguments[1..]
+                .Select(argument => byte.TryParse(argument, out var index) ? index : (byte?)null)
+                .Where(index => index.HasValue)
+                .Select(index => index.Value)
+                .ToArray();
+            if (paletteIndices.Length == 0)
+            {
+                continue;
+            }
+
+            colors[objectId] = paletteIndices
+                .Select(index => ToGodotColor(palette[index]))
+                .ToArray();
+            GD.Print(
+                $"MechRewired: decoded dropship object {objectId} color animation " +
+                $"({string.Join(", ", paletteIndices)}).");
+        }
+
+        return colors;
     }
 
     private static AudioStreamWav LoadDropShipTaskSound(
@@ -1400,12 +1468,17 @@ public partial class Main : Node3D
     {
         private const float FlightHeight = 65.0f;
         private const float LiftSeconds = 4.0f;
-        private const float DescentSeconds = 4.0f;
         private const float DepartureAcceleration = 30.0f;
         private const float DepartureInitialSpeed = 18.0f;
         private const float DepartureCullDistance = 1400.0f;
         private const float DepartureBankDegrees = -7.0f;
         private const float DepartureBankSeconds = 1.5f;
+        private const float ExtractionApproachDistance = 1600.0f;
+        private const float ExtractionApproachHeight = 300.0f;
+        private const float ExtractionFinalHeight = 80.0f;
+        private const float ExtractionApproachSpeed = 110.0f;
+        private const float ExtractionDescentSpeed = 10.0f;
+        private const float ColorFrameSeconds = 0.09f;
 
         private readonly string m_sourceName;
         private readonly Vector3 m_deploymentAnchor;
@@ -1413,7 +1486,14 @@ public partial class Main : Node3D
         private readonly Vector3 m_deploymentDirection;
         private readonly Vector3 m_flightRotation;
         private readonly AudioStreamPlayer3D m_engine;
+        private readonly List<(
+            MeshInstance3D Mesh,
+            Light3D Light,
+            StandardMaterial3D Material,
+            Color[] Colors)> m_animatedColors = [];
         private float m_elapsed;
+        private float m_colorElapsed;
+        private float m_landingOffset;
         private bool m_extracting;
         private bool m_active;
 
@@ -1460,6 +1540,41 @@ public partial class Main : Node3D
             GD.Print($"MechRewired: started map-authored extraction dropship {m_sourceName}.");
         }
 
+        public void ConfigureAssemblyBounds(Aabb bounds)
+        {
+            m_landingOffset = Math.Max(0.0f, -bounds.Position.Y) + 0.15f;
+            GD.Print(
+                $"MechRewired: dropship {m_sourceName} landing offset {m_landingOffset:F2}m " +
+                $"from assembly bounds {bounds}.");
+        }
+
+        public void ConfigureAnimatedColor(
+            MeshInstance3D meshInstance,
+            Light3D light,
+            Color[] colors)
+        {
+            ArgumentNullException.ThrowIfNull(meshInstance);
+            ArgumentNullException.ThrowIfNull(light);
+            ArgumentNullException.ThrowIfNull(colors);
+            if (colors.Length == 0)
+            {
+                return;
+            }
+
+            var material = new StandardMaterial3D
+            {
+                AlbedoColor = colors[0],
+                EmissionEnabled = true,
+                Emission = colors[0],
+                EmissionEnergyMultiplier = 3.5f,
+                ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+                CullMode = BaseMaterial3D.CullModeEnum.Disabled
+            };
+            meshInstance.MaterialOverride = material;
+            meshInstance.CastShadow = GeometryInstance3D.ShadowCastingSetting.Off;
+            m_animatedColors.Add((meshInstance, light, material, colors));
+        }
+
         public override void _Process(double delta)
         {
             if (!m_active)
@@ -1468,19 +1583,14 @@ public partial class Main : Node3D
             }
 
             m_elapsed += (float)delta;
+            UpdateAnimatedColors((float)delta);
             if (!m_extracting)
             {
                 UpdateDeparture();
                 return;
             }
 
-            var descentProgress = Math.Clamp(m_elapsed / DescentSeconds, 0.0f, 1.0f);
-            Position = m_extractionAnchor + Vector3.Up * Mathf.Lerp(FlightHeight, 0.0f, descentProgress);
-            if (descentProgress >= 1.0f)
-            {
-                m_active = false;
-                m_engine?.Stop();
-            }
+            UpdateExtraction();
         }
 
         private void Activate(bool extracting)
@@ -1489,18 +1599,64 @@ public partial class Main : Node3D
             m_elapsed = 0.0f;
             m_active = true;
             Visible = true;
+            SetEngineFlamesVisible(true);
             RotationDegrees = m_flightRotation;
-            var anchor = extracting ? m_extractionAnchor : m_deploymentAnchor;
-            Position = extracting ? anchor + Vector3.Up * FlightHeight : anchor;
+            var anchor = GetLandingPosition(extracting ? m_extractionAnchor : m_deploymentAnchor);
+            Position = extracting
+                ? anchor - m_deploymentDirection * ExtractionApproachDistance +
+                  Vector3.Up * ExtractionApproachHeight
+                : anchor;
             m_engine?.Play();
+        }
+
+        private void UpdateExtraction()
+        {
+            var approachSeconds = ExtractionApproachDistance / ExtractionApproachSpeed;
+            var landingPosition = GetLandingPosition(m_extractionAnchor);
+            if (m_elapsed <= approachSeconds)
+            {
+                var approachProgress = m_elapsed / approachSeconds;
+                Position = landingPosition -
+                           m_deploymentDirection * ExtractionApproachDistance * (1.0f - approachProgress) +
+                           Vector3.Up * Mathf.Lerp(
+                               ExtractionApproachHeight,
+                               ExtractionFinalHeight,
+                               approachProgress);
+                return;
+            }
+
+            var descentSeconds = (m_elapsed - approachSeconds);
+            var height = Math.Max(0.0f, ExtractionFinalHeight - descentSeconds * ExtractionDescentSpeed);
+            Position = landingPosition + Vector3.Up * height;
+            if (height > 0.0f)
+            {
+                return;
+            }
+
+            m_active = false;
+            m_engine?.Stop();
+            SetEngineFlamesVisible(false);
+            GD.Print($"MechRewired: extraction dropship {m_sourceName} landed.");
+        }
+
+        private void UpdateAnimatedColors(float delta)
+        {
+            m_colorElapsed += delta;
+            foreach (var (_, _, material, colors) in m_animatedColors)
+            {
+                var index = (int)(m_colorElapsed / ColorFrameSeconds) % colors.Length;
+                material.AlbedoColor = colors[index];
+                material.Emission = colors[index];
+            }
         }
 
         private void UpdateDeparture()
         {
+            var landingPosition = GetLandingPosition(m_deploymentAnchor);
             if (m_elapsed <= LiftSeconds)
             {
                 var liftProgress = Mathf.SmoothStep(0.0f, 1.0f, m_elapsed / LiftSeconds);
-                Position = m_deploymentAnchor + Vector3.Up * (FlightHeight * liftProgress);
+                Position = landingPosition + Vector3.Up * (FlightHeight * liftProgress);
                 RotationDegrees = m_flightRotation;
                 return;
             }
@@ -1514,7 +1670,7 @@ public partial class Main : Node3D
                               new Vector3(0.0f, 0.0f, DepartureBankDegrees * bankProgress);
             var departureDistance = DepartureInitialSpeed * flightSeconds +
                                     0.5f * DepartureAcceleration * flightSeconds * flightSeconds;
-            Position = m_deploymentAnchor + Vector3.Up * FlightHeight +
+            Position = landingPosition + Vector3.Up * FlightHeight +
                        m_deploymentDirection * departureDistance;
             if (departureDistance < DepartureCullDistance)
             {
@@ -1525,6 +1681,18 @@ public partial class Main : Node3D
             m_active = false;
             m_engine?.Stop();
             GD.Print($"MechRewired: deployment dropship {m_sourceName} departed beyond view range.");
+        }
+
+        private Vector3 GetLandingPosition(Vector3 groundAnchor) =>
+            groundAnchor + Vector3.Up * m_landingOffset;
+
+        private void SetEngineFlamesVisible(bool visible)
+        {
+            foreach (var (mesh, light, _, _) in m_animatedColors)
+            {
+                mesh.Visible = visible;
+                light.Visible = visible;
+            }
         }
     }
 }

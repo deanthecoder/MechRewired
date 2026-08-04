@@ -143,33 +143,25 @@ public static class SceneryCollision
         IEnumerable<SceneryWallTriangle> walls)
     {
         const float tolerance = 0.0001f;
-        foreach (var wall in walls)
-        {
-            var vertices = new[] { wall.A, wall.B, wall.C, wall.A };
-            for (var index = 0; index < 3; index++)
+        var edges = walls
+            .SelectMany(wall => new[]
             {
-                var edgeStart = vertices[index];
-                var edgeEnd = vertices[index + 1];
-                var startDistance = DistanceToSegment(start, edgeStart, edgeEnd);
-                var endDistance = DistanceToSegment(end, edgeStart, edgeEnd);
-                if (startDistance <= radius + tolerance)
-                {
-                    if (endDistance + tolerance < startDistance)
-                    {
-                        return true;
-                    }
-
-                    continue;
-                }
-
-                if (DistanceBetweenSegments(start, end, edgeStart, edgeEnd) <= radius + tolerance)
-                {
-                    return true;
-                }
-            }
+                (Start: wall.A, End: wall.B),
+                (Start: wall.B, End: wall.C),
+                (Start: wall.C, End: wall.A)
+            })
+            .ToArray();
+        var startDistance = edges.Min(edge => DistanceToSegment(start, edge.Start, edge.End));
+        var endDistance = edges.Min(edge => DistanceToSegment(end, edge.Start, edge.End));
+        if (startDistance <= radius + tolerance)
+        {
+            // When a legacy placement or a wide mech footprint already overlaps a corner,
+            // permit movement that maintains or increases clearance from the obstacle as a whole.
+            return endDistance + tolerance < startDistance;
         }
 
-        return false;
+        return edges.Any(edge =>
+            DistanceBetweenSegments(start, end, edge.Start, edge.End) <= radius + tolerance);
     }
 
     private static float DistanceBetweenSegments(Vector2 a, Vector2 b, Vector2 c, Vector2 d)

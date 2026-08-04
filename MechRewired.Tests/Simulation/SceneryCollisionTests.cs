@@ -168,4 +168,60 @@ public sealed class SceneryCollisionTests
 
         Assert.That(blocked, Is.False);
     }
+
+    [Test]
+    public void WideMechCanMoveAwayFromAnAuthoredWallCorner()
+    {
+        var building = new SceneryObstacle(
+            "Building",
+            Vector2.Zero,
+            new Vector2(25.0f, 5.0f),
+            [
+                new SceneryWallTriangle(
+                    new Vector2(0.0f, 0.0f),
+                    new Vector2(25.0f, 0.0f),
+                    new Vector2(25.0f, 5.0f)),
+                new SceneryWallTriangle(
+                    new Vector2(0.0f, 0.0f),
+                    new Vector2(25.0f, 5.0f),
+                    new Vector2(0.0f, 5.0f))
+            ]);
+
+        var blocked = SceneryCollision.TryFindBlockingObstacle(
+            new Vector2(27.29f, 5.75f),
+            new Vector2(27.69f, 5.75f),
+            3.2f,
+            [building],
+            out _);
+
+        Assert.That(blocked, Is.False);
+    }
+
+    [Test]
+    public void WideMechCannotMoveDeeperIntoAnAuthoredWallCorner()
+    {
+        var building = new SceneryObstacle(
+            "Building",
+            Vector2.Zero,
+            new Vector2(25.0f, 5.0f),
+            [
+                new SceneryWallTriangle(
+                    new Vector2(0.0f, 0.0f),
+                    new Vector2(25.0f, 0.0f),
+                    new Vector2(25.0f, 5.0f)),
+                new SceneryWallTriangle(
+                    new Vector2(0.0f, 0.0f),
+                    new Vector2(25.0f, 5.0f),
+                    new Vector2(0.0f, 5.0f))
+            ]);
+
+        var blocked = SceneryCollision.TryFindBlockingObstacle(
+            new Vector2(27.29f, 5.75f),
+            new Vector2(26.89f, 5.75f),
+            3.2f,
+            [building],
+            out _);
+
+        Assert.That(blocked, Is.True);
+    }
 }
