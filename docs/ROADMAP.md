@@ -64,9 +64,9 @@ This phase is complete when one original mission can be played from deployment t
 - Add articulated legs and inverse kinematics.
 - Improve cockpit shadow quality, stabilize nearby building shadows and tune shadow darkness for the dusk palette.
 - Add emissive missile and weapon lighting.
-- Add particles for explosions, smoke, sparks, dust and damage feedback. — GodotExplosionVFX flipbook fire/smoke shader, elevated-smoke folding, positional fire/explosion audio and two-minute destruction plumes implemented; dust and damage scaling remain
+- Add particles for explosions, smoke, sparks, dust and damage feedback. — GodotExplosionVFX flipbook fire/smoke shader, elevated-smoke folding, positional fire/explosion audio and one-way 800m effect/debris cleanup implemented; dust and damage scaling remain
 - Decode placed visual effects and their `TSK` ambient audio, such as Pyre Light's `YELLSMO1.BWD`. — source-sized volumetric flame/smoke particles and positional `MECFIRE1.WAV`/`MECFIRE2.SFL` audio implemented
-- Decode and render scripted set-pieces such as Pyre Light's `YELLDRP1.BWD` Wolf DropShip, its `drop` animation and `jettaxi` effect.
+- Decode and render scripted set-pieces such as a BWD-authored Wolf DropShip, its `drop` animation and `jettaxi` effect. — initial generic map-include discovery, original model assembly, placement and deployment/extraction descent implemented; task animation and audio remain
 - Add exploding structure chunks after actor destruction and impact positions are stable. — initial original `CHUNKER`/`CHUNKLET` low-gravity debris implemented; visual tuning remains
 - Add depth fog, bloom, glow, dynamic shadows and cockpit lighting.
 - Add restrained bump or normal mapping without losing the DOS art direction.

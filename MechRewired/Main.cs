@@ -673,6 +673,7 @@ public partial class Main : Node3D
         AddImplicitGround(levelRoot, worldBounds, terrainPaletteCounts, palette, debugTriangles);
         battlefieldEffects.ConfigureTerrain(debugTriangles.AsReadOnly());
         LoadAmbientEffects(archive, battlefieldEffects, battlefieldEffectSounds.AmbientFire);
+        var missionDropShips = LoadMissionDropShips(archive, levelRoot, palette, luminosityTable);
 
         var playerMechSounds = PlayerMechSounds.Load(archive);
         var playerMech = new PlayerMech(
@@ -766,6 +767,11 @@ public partial class Main : Node3D
             bounds,
             debugTriangles.AsReadOnly(),
             () => GetSceneryObstacles(staticSceneryObstacles, battlefieldActors));
+        battlefieldEffects.ConfigureObserver(playerMech);
+        foreach (var battlefieldActor in battlefieldActors)
+        {
+            battlefieldActor.ConfigureEffectPersistence(playerMech);
+        }
         GD.Print(
             $"MechRewired: configured {staticSceneryObstacles.Count} static and " +
             $"{battlefieldActors.Length} actor scenery obstacles.");
@@ -777,6 +783,13 @@ public partial class Main : Node3D
         AddChild(playerNavigation);
         var playerMission = new PlayerMission(archive, missionDefinition);
         AddChild(playerMission);
+        playerMission.MissionCompleted += () =>
+        {
+            foreach (var dropShip in missionDropShips)
+            {
+                dropShip.BeginExtraction();
+            }
+        };
         playerNavigation.NavigationPointReached += index => playerMission.Apply(new MissionEvent(
             MissionEventKind.NavigationPointReached,
             navigationPoints[index].ResourceName));
@@ -830,6 +843,86 @@ public partial class Main : Node3D
         };
         camera.LookAtFromPosition(camera.Position, target);
         AddChild(camera);
+    }
+
+    private static IReadOnlyList<MissionDropShipSetPiece> LoadMissionDropShips(
+        MechWarriorProjectArchive archive,
+        Node3D levelRoot,
+        MechWarriorPalette palette,
+        MechWarriorLuminosityTable luminosityTable)
+    {
+        var levelEntry = archive.GetEntry(LevelPath);
+        var levelWorld = MechWarriorWorldFile.Load(archive.ReadEntry(levelEntry));
+        var dropShips = new List<MissionDropShipSetPiece>();
+        foreach (var include in levelWorld.Includes)
+        {
+            var setPieceEntry = archive.GetEntry("BWD", include.ResourceIndex);
+            var setPieceWorld = MechWarriorWorldFile.Load(archive.ReadEntry(setPieceEntry), include.Transform);
+            if (!setPieceWorld.Tasks.Any(task =>
+                    task.Command.Split([';', ','], StringSplitOptions.TrimEntries)
+                        .Any(argument => argument.Equals("drop", StringComparison.OrdinalIgnoreCase))))
+            {
+                continue;
+            }
+
+            var dropShip = new MissionDropShipSetPiece(setPieceEntry.Name)
+            {
+                Name = $"DropShip-{setPieceEntry.Name}"
+            };
+            var renderedObjectCount = 0;
+            foreach (var worldObject in setPieceWorld.Objects)
+            {
+                var modelEntry = archive.GetEntry("POLY", worldObject.ModelResourceIndex);
+                try
+                {
+                    var models = MechWarriorModel.LoadAll(archive.ReadEntry(modelEntry));
+                    var highestDetailModel = models.MaxBy(model => model.Polygons.Count);
+                    var objectRoot = new Node3D
+                    {
+                        Name = modelEntry.Name,
+                        Position = MechWarriorCoordinateSystem.ToGodotPosition(worldObject.Transform.Translation),
+                        RotationDegrees = MechWarriorCoordinateSystem.ToGodotRotation(worldObject.Transform.RotationDegrees),
+                        Scale = MechWarriorCoordinateSystem.ToGodotScale(worldObject.Transform.Scale)
+                    };
+                    objectRoot.AddChild(new MeshInstance3D
+                    {
+                        Mesh = MechWarriorModelMeshBuilder.Build(
+                            highestDetailModel,
+                            palette,
+                            luminosityTable,
+                            ObjectIlluminationLevel),
+                        CastShadow = GeometryInstance3D.ShadowCastingSetting.DoubleSided
+                    });
+                    dropShip.AddChild(objectRoot);
+                    renderedObjectCount++;
+                }
+                catch (InvalidDataException exception)
+                {
+                    GD.PushWarning(
+                        $"MechRewired: skipped unsupported dropship model {modelEntry.Path} object {worldObject.Id}: " +
+                        exception.Message);
+                }
+            }
+
+            if (renderedObjectCount == 0)
+            {
+                dropShip.QueueFree();
+                continue;
+            }
+
+            levelRoot.AddChild(dropShip);
+            dropShip.BeginDeployment();
+            dropShips.Add(dropShip);
+            var taskSummary = string.Join("; ", setPieceWorld.Tasks.Select(task => task.Command));
+            GD.Print(
+                $"MechRewired: staged dropship {setPieceEntry.Path} from map include at " +
+                $"({include.Transform.Translation.X:F2}, {include.Transform.Translation.Y:F2}, " +
+                $"{include.Transform.Translation.Z:F2}) ({renderedObjectCount}/{setPieceWorld.Objects.Count} models; " +
+                $"tasks: {taskSummary}).");
+        }
+
+        GD.Print($"MechRewired: staged {dropShips.Count} map-authored dropship set pieces.");
+        return dropShips.AsReadOnly();
     }
 
     private static void LoadAmbientEffects(
@@ -1224,5 +1317,72 @@ public partial class Main : Node3D
             $"MechRewired: added implicit ground plane at Y={ImplicitGroundHeight:F2} " +
             $"({size.X:F0} × {size.Y:F0}, " +
             $"palette index {paletteIndex}).");
+    }
+
+    /// <summary>
+    /// Presents map-authored dropship geometry for deployment and extraction.
+    /// </summary>
+    /// <remarks>
+    /// The set piece is discovered from a BWD <c>drop</c> task rather than a
+    /// mission name. Its child models keep their original BWD placement; this
+    /// node supplies only a shared short descent on each activation.
+    /// </remarks>
+    private sealed partial class MissionDropShipSetPiece : Node3D
+    {
+        private const float DescentHeight = 36.0f;
+        private const float DescentSeconds = 3.5f;
+        private const float DeploymentVisibilitySeconds = 12.0f;
+
+        private readonly string m_sourceName;
+        private float m_elapsed;
+        private bool m_extracting;
+        private bool m_active;
+
+        public MissionDropShipSetPiece(string sourceName)
+        {
+            m_sourceName = sourceName;
+        }
+
+        public void BeginDeployment()
+        {
+            Activate(false);
+            GD.Print($"MechRewired: started map-authored deployment dropship {m_sourceName}.");
+        }
+
+        public void BeginExtraction()
+        {
+            Activate(true);
+            GD.Print($"MechRewired: started map-authored extraction dropship {m_sourceName}.");
+        }
+
+        public override void _Process(double delta)
+        {
+            if (!m_active)
+            {
+                return;
+            }
+
+            m_elapsed += (float)delta;
+            var descentProgress = Math.Clamp(m_elapsed / DescentSeconds, 0.0f, 1.0f);
+            Position = Vector3.Up * Mathf.Lerp(DescentHeight, 0.0f, descentProgress);
+            if (!m_extracting && m_elapsed >= DeploymentVisibilitySeconds)
+            {
+                Visible = false;
+                m_active = false;
+            }
+            else if (m_extracting && descentProgress >= 1.0f)
+            {
+                m_active = false;
+            }
+        }
+
+        private void Activate(bool extracting)
+        {
+            m_extracting = extracting;
+            m_elapsed = 0.0f;
+            m_active = true;
+            Visible = true;
+            Position = Vector3.Up * DescentHeight;
+        }
     }
 }

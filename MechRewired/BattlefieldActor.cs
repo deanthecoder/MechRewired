@@ -24,13 +24,13 @@ public partial class BattlefieldActor : Node3D
 {
     private const float DebrisGravity = 4.5f;
     private const float MaximumDebrisLifetime = 12.0f;
-    private const float DebrisVisibilitySeconds = 30.0f;
 
     private readonly List<Node3D> m_activeRepresentations = new();
     private readonly List<Node3D> m_destroyedRepresentations = new();
     private readonly IReadOnlyList<ArrayMesh> m_explosionDebrisMeshes;
     private readonly List<DebrisState> m_debris = new();
     private IReadOnlyList<DebugTriangle> m_terrainTriangles = Array.Empty<DebugTriangle>();
+    private Node3D m_effectObserver;
     private SceneryObstacle m_activeObstacle;
     private SceneryObstacle m_destroyedObstacle;
 
@@ -116,18 +116,20 @@ public partial class BattlefieldActor : Node3D
 
     public override void _PhysicsProcess(double delta)
     {
+        if (m_debris.Count > 0 && !IsWithinEffectPersistenceRange())
+        {
+            ClearExplosionDebris();
+            GD.Print(
+                $"MechRewired: culled explosion debris for {Description} beyond " +
+                $"{BattlefieldEffects.EffectPersistenceRadius:F0}m.");
+            return;
+        }
+
         var elapsed = (float)delta;
         for (var index = m_debris.Count - 1; index >= 0; index--)
         {
             var debris = m_debris[index];
             debris.Age += elapsed;
-            if (debris.Age >= DebrisVisibilitySeconds)
-            {
-                debris.Representation.QueueFree();
-                m_debris.RemoveAt(index);
-                continue;
-            }
-
             if (debris.Settled)
             {
                 continue;
@@ -191,6 +193,16 @@ public partial class BattlefieldActor : Node3D
         m_destroyedObstacle = destroyedObstacle;
     }
 
+    /// <summary>
+    /// Configures one-way cleanup of temporary explosion debris when the
+    /// player leaves the actor's local battlefield area.
+    /// </summary>
+    public void ConfigureEffectPersistence(Node3D observer)
+    {
+        ArgumentNullException.ThrowIfNull(observer);
+        m_effectObserver = observer;
+    }
+
     public void ApplyDamage(
         int damage,
         Vector3 hitPosition,
@@ -223,7 +235,16 @@ public partial class BattlefieldActor : Node3D
             representation.Visible = true;
         }
 
-        LaunchExplosionDebris(hitPosition, explosionBounds, sceneTriangles);
+        if (IsWithinEffectPersistenceRange(explosionBounds.GetCenter()))
+        {
+            LaunchExplosionDebris(hitPosition, explosionBounds, sceneTriangles);
+        }
+        else
+        {
+            GD.Print(
+                $"MechRewired: skipped distant explosion debris for {Description} beyond " +
+                $"{BattlefieldEffects.EffectPersistenceRadius:F0}m.");
+        }
         GD.Print($"MechRewired: destroyed {Description} in BWD/{SourceResourceName}.BWD.");
         Destroyed?.Invoke(this, hitPosition);
     }
@@ -286,6 +307,25 @@ public partial class BattlefieldActor : Node3D
         GD.Print(
             $"MechRewired: launched {m_debris.Count} original MW2 explosion chunks from " +
             $"{Description} with low-gravity debris physics.");
+    }
+
+    private bool IsWithinEffectPersistenceRange() =>
+        !GodotObject.IsInstanceValid(m_effectObserver) ||
+        IsWithinEffectPersistenceRange(DestructionBounds.GetCenter());
+
+    private bool IsWithinEffectPersistenceRange(Vector3 position) =>
+        !GodotObject.IsInstanceValid(m_effectObserver) ||
+        m_effectObserver.GlobalPosition.DistanceSquaredTo(position) <=
+        BattlefieldEffects.EffectPersistenceRadius * BattlefieldEffects.EffectPersistenceRadius;
+
+    private void ClearExplosionDebris()
+    {
+        foreach (var debris in m_debris)
+        {
+            debris.Representation.QueueFree();
+        }
+
+        m_debris.Clear();
     }
 
     private bool TryGetTerrainHeight(Vector3 position, out float height)

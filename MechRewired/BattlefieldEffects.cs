@@ -20,14 +20,16 @@ namespace MechRewired;
 /// </remarks>
 public partial class BattlefieldEffects : Node3D
 {
-    private const float DestructionSmokeEmissionSeconds = 113.0f;
-    private const float DestructionEffectSeconds = 120.0f;
+    public const float EffectPersistenceRadius = 800.0f;
 
     private static bool s_vfxTexturesLogged;
 
     private readonly IReadOnlyList<AudioStreamWav> m_explosionSounds;
     private readonly List<TunableEmitter> m_tunableEmitters = [];
+    private readonly List<AmbientEffectState> m_ambientEffects = [];
+    private readonly List<Node3D> m_distanceBoundEffects = [];
     private IReadOnlyList<DebugTriangle> m_terrainTriangles = Array.Empty<DebugTriangle>();
+    private Node3D m_observer;
     private DebugVfxParameter m_selectedDebugParameter;
     private float m_fireDensity = 2.5f;
     private float m_fireSize = 4.75f;
@@ -53,27 +55,28 @@ public partial class BattlefieldEffects : Node3D
             .ToArray();
     }
 
+    /// <summary>
+    /// Sets the player-position source used for one-way visual-effect cleanup.
+    /// </summary>
+    public void ConfigureObserver(Node3D observer)
+    {
+        ArgumentNullException.ThrowIfNull(observer);
+        m_observer = observer;
+        UpdateDistanceBoundEffects();
+    }
+
     public void AddAmbientFire(
         Aabb authoredVolume,
         float authoredGroundHeight,
         string sourceName,
         AudioStreamWav ambientSound)
     {
-        var volume = AlignToTerrain(authoredVolume, authoredGroundHeight);
-        var position = new Vector3(volume.GetCenter().X, volume.Position.Y, volume.GetCenter().Z);
-        var effect = new EffectInstance(true)
-        {
-            Name = $"AmbientFire-{sourceName}",
-            Position = position
-        };
-        AddChild(effect);
-        effect.AddChild(CreateAmbientFireParticles(volume.Size.X, volume.Size.Y));
-        effect.AddChild(CreateAmbientSmokeParticles(volume.Size.X * 0.7f, volume.Size.Y * 1.3f));
-        effect.AddChild(CreateFireLight(volume.Size.X * 0.65f, 14.0f + volume.Size.X * 0.12f));
-        if (ambientSound != null)
-        {
-            effect.AddChild(CreatePositionalAudio("AmbientFireSound", ambientSound, 30.0f, 550.0f, -3.0f));
-        }
+        m_ambientEffects.Add(new AmbientEffectState(
+            true,
+            AlignToTerrain(authoredVolume, authoredGroundHeight),
+            sourceName,
+            ambientSound));
+        UpdateDistanceBoundEffects();
     }
 
     public void AddAmbientSmoke(
@@ -82,19 +85,12 @@ public partial class BattlefieldEffects : Node3D
         string sourceName,
         AudioStreamWav ambientSound)
     {
-        var volume = AlignToTerrain(authoredVolume, authoredGroundHeight);
-        var position = new Vector3(volume.GetCenter().X, volume.Position.Y, volume.GetCenter().Z);
-        var effect = new EffectInstance(true)
-        {
-            Name = $"AmbientSmoke-{sourceName}",
-            Position = position
-        };
-        AddChild(effect);
-        effect.AddChild(CreateAmbientSmokeParticles(volume.Size.X, volume.Size.Y));
-        if (ambientSound != null)
-        {
-            effect.AddChild(CreatePositionalAudio("AmbientFireSound", ambientSound, 30.0f, 550.0f, -3.0f));
-        }
+        m_ambientEffects.Add(new AmbientEffectState(
+            false,
+            AlignToTerrain(authoredVolume, authoredGroundHeight),
+            sourceName,
+            ambientSound));
+        UpdateDistanceBoundEffects();
     }
 
     private Aabb AlignToTerrain(Aabb volume, float authoredGroundHeight)
@@ -105,9 +101,101 @@ public partial class BattlefieldEffects : Node3D
         return volume;
     }
 
+    public override void _Process(double delta)
+    {
+        _ = delta;
+        UpdateDistanceBoundEffects();
+    }
+
+    private void UpdateDistanceBoundEffects()
+    {
+        if (!IsInstanceValid(m_observer))
+        {
+            return;
+        }
+
+        foreach (var ambientEffect in m_ambientEffects)
+        {
+            if (ambientEffect.IsCulled)
+            {
+                continue;
+            }
+
+            var isWithinRange = IsWithinEffectPersistenceRange(ambientEffect.Volume.GetCenter());
+            if (ambientEffect.Instance == null && isWithinRange)
+            {
+                ambientEffect.Instance = CreateAmbientEffect(ambientEffect);
+                AddChild(ambientEffect.Instance);
+                GD.Print($"MechRewired: activated ambient {ambientEffect.KindName} '{ambientEffect.SourceName}' within {EffectPersistenceRadius:F0}m.");
+            }
+            else if (ambientEffect.Instance != null && !isWithinRange)
+            {
+                ambientEffect.Instance.QueueFree();
+                ambientEffect.Instance = null;
+                ambientEffect.IsCulled = true;
+                GD.Print($"MechRewired: culled ambient {ambientEffect.KindName} '{ambientEffect.SourceName}' beyond {EffectPersistenceRadius:F0}m.");
+            }
+        }
+
+        for (var index = m_distanceBoundEffects.Count - 1; index >= 0; index--)
+        {
+            var effect = m_distanceBoundEffects[index];
+            if (!IsInstanceValid(effect))
+            {
+                m_distanceBoundEffects.RemoveAt(index);
+                continue;
+            }
+
+            if (!IsWithinEffectPersistenceRange(effect.GlobalPosition))
+            {
+                effect.QueueFree();
+                m_distanceBoundEffects.RemoveAt(index);
+                GD.Print($"MechRewired: culled transient battlefield effect beyond {EffectPersistenceRadius:F0}m.");
+            }
+        }
+    }
+
+    private EffectInstance CreateAmbientEffect(AmbientEffectState definition)
+    {
+        var volume = definition.Volume;
+        var position = new Vector3(volume.GetCenter().X, volume.Position.Y, volume.GetCenter().Z);
+        var effect = new EffectInstance(true)
+        {
+            Name = $"Ambient{definition.KindName}-{definition.SourceName}",
+            Position = position
+        };
+        if (definition.IsFire)
+        {
+            effect.AddChild(CreateAmbientFireParticles(volume.Size.X, volume.Size.Y));
+            effect.AddChild(CreateAmbientSmokeParticles(volume.Size.X * 0.7f, volume.Size.Y * 1.3f));
+            effect.AddChild(CreateFireLight(volume.Size.X * 0.65f, 14.0f + volume.Size.X * 0.12f));
+        }
+        else
+        {
+            effect.AddChild(CreateAmbientSmokeParticles(volume.Size.X, volume.Size.Y));
+        }
+
+        if (definition.AmbientSound != null)
+        {
+            effect.AddChild(CreatePositionalAudio("AmbientFireSound", definition.AmbientSound, 30.0f, 550.0f, -3.0f));
+        }
+
+        return effect;
+    }
+
+    private bool IsWithinEffectPersistenceRange(Vector3 position) =>
+        IsInstanceValid(m_observer) &&
+        m_observer.GlobalPosition.DistanceSquaredTo(position) <= EffectPersistenceRadius * EffectPersistenceRadius;
+
     public void SpawnDestruction(BattlefieldActor actor, Vector3 hitPosition)
     {
         ArgumentNullException.ThrowIfNull(actor);
+        if (!IsWithinEffectPersistenceRange(hitPosition))
+        {
+            GD.Print($"MechRewired: skipped distant destruction effect for {actor.Description} beyond {EffectPersistenceRadius:F0}m.");
+            return;
+        }
+
         var bounds = actor.DestructionBounds;
         var plumePosition = GetDestructionSmokeOrigin(actor, bounds);
 
@@ -117,6 +205,7 @@ public partial class BattlefieldEffects : Node3D
             Position = plumePosition
         };
         AddChild(effect);
+        m_distanceBoundEffects.Add(effect);
 
         var localHit = hitPosition - plumePosition;
         var explosion = CreateFire(true, 40, 1.05f, Math.Clamp(bounds.Size.Length() * 0.12f, 2.5f, 7.0f));
@@ -155,12 +244,18 @@ public partial class BattlefieldEffects : Node3D
     /// </summary>
     public void SpawnWeaponImpact(Vector3 hitPosition)
     {
+        if (!IsWithinEffectPersistenceRange(hitPosition))
+        {
+            return;
+        }
+
         var effect = new ImpactEffect
         {
             Name = "WeaponImpact",
             Position = hitPosition
         };
         AddChild(effect);
+        m_distanceBoundEffects.Add(effect);
 
         var size = Math.Clamp(0.24f * m_fireSize, 0.55f, 1.8f);
         var amount = Math.Clamp((int)MathF.Round(7.0f * m_fireDensity), 8, 28);
@@ -489,8 +584,15 @@ public partial class BattlefieldEffects : Node3D
 
     private void ApplyDebugTuning()
     {
-        foreach (var emitter in m_tunableEmitters)
+        for (var index = m_tunableEmitters.Count - 1; index >= 0; index--)
         {
+            var emitter = m_tunableEmitters[index];
+            if (!GodotObject.IsInstanceValid(emitter.Particles))
+            {
+                m_tunableEmitters.RemoveAt(index);
+                continue;
+            }
+
             var process = (ParticleProcessMaterial)emitter.Particles.ProcessMaterial;
             var isFire = emitter.Geometry == ParticleGeometry.Fire;
             var density = isFire ? m_fireDensity : m_smokeDensity;
@@ -764,6 +866,31 @@ public partial class BattlefieldEffects : Node3D
             AttenuationModel = AudioStreamPlayer3D.AttenuationModelEnum.InverseDistance
         };
 
+    private sealed class AmbientEffectState
+    {
+        public AmbientEffectState(bool isFire, Aabb volume, string sourceName, AudioStreamWav ambientSound)
+        {
+            IsFire = isFire;
+            Volume = volume;
+            SourceName = sourceName;
+            AmbientSound = ambientSound;
+        }
+
+        public bool IsFire { get; }
+
+        public Aabb Volume { get; }
+
+        public string SourceName { get; }
+
+        public AudioStreamWav AmbientSound { get; }
+
+        public EffectInstance Instance { get; set; }
+
+        public bool IsCulled { get; set; }
+
+        public string KindName => IsFire ? "fire" : "smoke";
+    }
+
     private enum ParticleGeometry
     {
         Fire,
@@ -842,15 +969,6 @@ public partial class BattlefieldEffects : Node3D
                 ExplosionLight.LightEnergy = Math.Max(0.0f, 22.0f * (1.0f - m_age / 0.9f));
             }
 
-            if (m_age >= DestructionSmokeEmissionSeconds && LingeringSmoke?.Emitting == true)
-            {
-                LingeringSmoke.Emitting = false;
-            }
-
-            if (m_age >= DestructionEffectSeconds)
-            {
-                QueueFree();
-            }
         }
     }
 }

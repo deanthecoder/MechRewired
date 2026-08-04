@@ -84,6 +84,7 @@ public partial class PlayerMission : Node
             StatusMessage = "MISSION COMPLETE";
             m_statusMessageRemaining = StatusMessageSeconds;
             GD.Print("MechRewired: all required mission objectives complete.");
+            MissionCompleted?.Invoke();
             if (m_successReport != null)
             {
                 var timer = GetTree().CreateTimer(SuccessReportDelaySeconds);
@@ -97,6 +98,11 @@ public partial class PlayerMission : Node
     }
 
     public string StatusMessage { get; private set; } = string.Empty;
+
+    /// <summary>
+    /// Raised once when all required data-driven mission objectives complete.
+    /// </summary>
+    public event Action MissionCompleted;
 
     public bool IsActiveObjectiveTarget(BattlefieldActor actor)
     {
