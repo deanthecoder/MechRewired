@@ -11,6 +11,7 @@
 using Godot;
 using MechRewired.Missions;
 using MechRewired.Resources;
+using MechRewired.Simulation;
 
 namespace MechRewired;
 
@@ -49,6 +50,7 @@ public partial class Main : Node3D
     ];
 
     private Godot.Environment m_environment;
+    private BattlefieldEffects m_battlefieldEffects;
     private float m_fogDistance = DefaultFogDistance;
 
     public override void _Ready()
@@ -95,6 +97,14 @@ public partial class Main : Node3D
         {
             return;
         }
+
+#if DEBUG
+        if (m_battlefieldEffects?.TryHandleDebugInput(keyEvent) == true)
+        {
+            GetViewport().SetInputAsHandled();
+            return;
+        }
+#endif
 
         var adjustment = keyEvent.Keycode switch
         {
@@ -426,12 +436,20 @@ public partial class Main : Node3D
         var battlefieldActors = level.Actors
             .Select(actor => new BattlefieldActor(actor, explosionDebrisMeshes))
             .ToArray();
+        var battlefieldEffectSounds = BattlefieldEffectSounds.Load(archive);
+        var battlefieldEffects = new BattlefieldEffects(battlefieldEffectSounds.Explosions)
+        {
+            Name = "BattlefieldEffects"
+        };
+        AddChild(battlefieldEffects);
+        m_battlefieldEffects = battlefieldEffects;
         var actorComponents = new Dictionary<
             (string SourcePath, int ObjectId),
             (BattlefieldActor Actor, bool Destroyed)>();
         foreach (var battlefieldActor in battlefieldActors)
         {
             actorRoot.AddChild(battlefieldActor);
+            battlefieldActor.Destroyed += battlefieldEffects.SpawnDestruction;
             foreach (var component in battlefieldActor.Definition.Components)
             {
                 actorComponents.Add(
@@ -458,6 +476,10 @@ public partial class Main : Node3D
         var renderedActorComponentCount = 0;
         var renderedDebrisCount = 0;
         var settledActors = new HashSet<BattlefieldActor>();
+        var staticSceneryObstacles = new List<SceneryObstacle>();
+        var collisionWallsByObject = new Dictionary<
+            (string SourcePath, int ObjectId),
+            IReadOnlyList<SceneryWallTriangle>>();
         var renderedObjects = level.StaticObjects
             .Concat(level.Actors.SelectMany(actor => actor.Components))
             .Concat(level.Actors.SelectMany(actor => actor.DestroyedComponents));
@@ -580,6 +602,19 @@ public partial class Main : Node3D
                 wireframeInstance.AddToGroup(DebugCamera.WireframeMeshGroup);
             }
 
+            var collisionWalls = BuildSceneryWalls(
+                objectRoot.GlobalTransform,
+                modelCache[levelObject.ModelEntry.Path]);
+            collisionWallsByObject[(levelObject.SourceEntry.Path, levelObject.Id)] = collisionWalls;
+            if (levelObject.Kind == MechWarriorLevelObjectKind.Scenery &&
+                TryCreateSceneryObstacle(
+                    $"{levelObject.ModelEntry.Name} object {levelObject.Id}",
+                    collisionWalls,
+                    out var sceneryObstacle))
+            {
+                staticSceneryObstacles.Add(sceneryObstacle);
+            }
+
             if (!isDestroyedRepresentation)
             {
                 AddDebugTriangles(
@@ -607,12 +642,37 @@ public partial class Main : Node3D
             hasWorldBounds = true;
         }
 
+        foreach (var battlefieldActor in battlefieldActors)
+        {
+            var activeWalls = battlefieldActor.Definition.Components
+                .SelectMany(component => collisionWallsByObject.GetValueOrDefault(
+                    (component.SourceEntry.Path, component.Id),
+                    Array.Empty<SceneryWallTriangle>()))
+                .ToArray();
+            var destroyedWalls = battlefieldActor.Definition.DestroyedComponents
+                .SelectMany(component => collisionWallsByObject.GetValueOrDefault(
+                    (component.SourceEntry.Path, component.Id),
+                    Array.Empty<SceneryWallTriangle>()))
+                .ToArray();
+            TryCreateSceneryObstacle(
+                $"{battlefieldActor.Description} object {battlefieldActor.Definition.ObjectId}",
+                activeWalls,
+                out var activeObstacle);
+            TryCreateSceneryObstacle(
+                $"{battlefieldActor.Description} wreckage {battlefieldActor.Definition.ObjectId}",
+                destroyedWalls,
+                out var destroyedObstacle);
+            battlefieldActor.ConfigureSceneryObstacles(activeObstacle, destroyedObstacle);
+        }
+
         GD.Print(
             $"MechRewired: rendered Pyre Light world ({renderedInstanceCount} instances, " +
             $"{renderedActorComponentCount} active actor components, {renderedDebrisCount} ground-settled debris objects, " +
             $"{meshCache.Count} unique models; luminosity levels {GeneralIlluminationLevel} terrain / " +
             $"{ObjectIlluminationLevel} objects).");
         AddImplicitGround(levelRoot, worldBounds, terrainPaletteCounts, palette, debugTriangles);
+        battlefieldEffects.ConfigureTerrain(debugTriangles.AsReadOnly());
+        LoadAmbientEffects(archive, battlefieldEffects, battlefieldEffectSounds.AmbientFire);
 
         var playerMechSounds = PlayerMechSounds.Load(archive);
         var playerMech = new PlayerMech(
@@ -702,7 +762,13 @@ public partial class Main : Node3D
             deploymentPosition.Z);
         playerMech.RotationDegrees = MechWarriorCoordinateSystem.ToGodotRotation(
             new System.Numerics.Vector3(0.0f, playerStart.StartingAngle, 0.0f));
-        playerMech.Configure(bounds, debugTriangles.AsReadOnly());
+        playerMech.Configure(
+            bounds,
+            debugTriangles.AsReadOnly(),
+            () => GetSceneryObstacles(staticSceneryObstacles, battlefieldActors));
+        GD.Print(
+            $"MechRewired: configured {staticSceneryObstacles.Count} static and " +
+            $"{battlefieldActors.Length} actor scenery obstacles.");
         var playerNavigation = new PlayerNavigation(
             playerMech,
             navigationPoints,
@@ -719,7 +785,8 @@ public partial class Main : Node3D
             playerMission,
             debugTriangles.AsReadOnly(),
             battlefieldActors,
-            playerMechSounds.MediumLaser);
+            playerMechSounds.MediumLaser,
+            battlefieldEffects);
         AddChild(playerTargeting);
 
         var hudLayer = new CanvasLayer
@@ -763,6 +830,146 @@ public partial class Main : Node3D
         };
         camera.LookAtFromPosition(camera.Position, target);
         AddChild(camera);
+    }
+
+    private static void LoadAmbientEffects(
+        MechWarriorProjectArchive archive,
+        BattlefieldEffects battlefieldEffects,
+        IReadOnlyDictionary<string, AudioStreamWav> ambientSounds)
+    {
+        var levelEntry = archive.GetEntry(LevelPath);
+        var levelWorld = MechWarriorWorldFile.Load(archive.ReadEntry(levelEntry));
+        var totalLoadedCount = 0;
+        foreach (var include in levelWorld.Includes)
+        {
+            var effectsEntry = archive.GetEntry("BWD", include.ResourceIndex);
+            var effectsWorld = MechWarriorWorldFile.Load(archive.ReadEntry(effectsEntry), include.Transform);
+            var flameObjects = effectsWorld.Objects
+                .Where(effectObject => effectObject.ObjectType == 0x10)
+                .ToArray();
+            if (flameObjects.Length == 0)
+            {
+                continue;
+            }
+
+            var soundNamesByObject = new Dictionary<int, string>();
+            foreach (var task in effectsWorld.Tasks.Where(task => task.Type == 4))
+            {
+                var semicolon = task.Command.IndexOf(';');
+                var arguments = semicolon >= 0
+                    ? task.Command[(semicolon + 1)..].Split(',', StringSplitOptions.TrimEntries)
+                    : Array.Empty<string>();
+                if (semicolon > 0 &&
+                    int.TryParse(task.Command.AsSpan(0, semicolon), out var soundObjectId) &&
+                    arguments.Length >= 2)
+                {
+                    soundNamesByObject[soundObjectId] = arguments[1];
+                }
+            }
+
+            var effectDefinitions = flameObjects
+                .Select(effectObject =>
+                {
+                    var modelEntry = archive.GetEntry("POLY", effectObject.ModelResourceIndex);
+                    var effectModel = MechWarriorModel.LoadAll(archive.ReadEntry(modelEntry))[0];
+                    return (
+                        Object: effectObject,
+                        ModelEntry: modelEntry,
+                        Bounds: GetEffectWorldBounds(effectObject, effectModel));
+                })
+                .ToArray();
+            var fireDefinitions = effectDefinitions
+                .Where(effect => !effect.ModelEntry.Name.StartsWith("SMO", StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            var renderedCount = 0;
+            foreach (var effect in effectDefinitions)
+            {
+                var effectObject = effect.Object;
+                var modelEntry = effect.ModelEntry;
+                var effectBounds = effect.Bounds;
+                if (modelEntry.Name.StartsWith("SMO", StringComparison.OrdinalIgnoreCase) &&
+                    fireDefinitions.Any(fire => IsElevatedSmokeAboveFire(effectBounds, fire.Bounds)))
+                {
+                    GD.Print(
+                        $"MechRewired: folded elevated {modelEntry.Name} object {effectObject.Id} " +
+                        "into its lower fire emitter.");
+                    continue;
+                }
+
+                var heightOffset = effectObject.Transform.Translation.Y - include.Transform.Translation.Y;
+                var ambientSound = soundNamesByObject.TryGetValue(effectObject.Id, out var soundName) &&
+                                   ambientSounds.TryGetValue(soundName, out var mappedSound)
+                    ? mappedSound
+                    : null;
+                if (modelEntry.Name.StartsWith("SMO", StringComparison.OrdinalIgnoreCase))
+                {
+                    battlefieldEffects.AddAmbientSmoke(
+                        effectBounds,
+                        include.Transform.Translation.Y,
+                        $"{effectsEntry.Name}-{effectObject.Id}",
+                        ambientSound);
+                }
+                else
+                {
+                    battlefieldEffects.AddAmbientFire(
+                        effectBounds,
+                        include.Transform.Translation.Y,
+                        $"{effectsEntry.Name}-{effectObject.Id}",
+                        ambientSound);
+                }
+
+                GD.Print(
+                    $"MechRewired: placed {modelEntry.Name} effect from {effectsEntry.Path} " +
+                    $"object {effectObject.Id} (relative {effectObject.RelativeToId}; scale " +
+                    $"{effectObject.Transform.Scale.X:F2}, {effectObject.Transform.Scale.Y:F2}, " +
+                    $"{effectObject.Transform.Scale.Z:F2}; visual size " +
+                    $"{effectBounds.Size.X:F1} x {effectBounds.Size.Y:F1} x {effectBounds.Size.Z:F1}m; " +
+                    $"height offset {heightOffset:F2}m) at " +
+                    $"({effectObject.Transform.Translation.X:F2}, {effectObject.Transform.Translation.Y:F2}, " +
+                    $"{effectObject.Transform.Translation.Z:F2}).");
+                totalLoadedCount++;
+                renderedCount++;
+            }
+
+            GD.Print(
+                $"MechRewired: loaded {renderedCount}/{flameObjects.Length} scaled fire-and-smoke objects from " +
+                $"{effectsEntry.Path} ({effectsWorld.Tasks.Count} ambient-audio tasks).");
+        }
+
+        GD.Print($"MechRewired: loaded {totalLoadedCount} authored battlefield effect objects.");
+    }
+
+    private static bool IsElevatedSmokeAboveFire(Aabb smoke, Aabb fire)
+    {
+        var horizontalDistance = new Vector2(
+            smoke.GetCenter().X - fire.GetCenter().X,
+            smoke.GetCenter().Z - fire.GetCenter().Z).Length();
+        return horizontalDistance <= Math.Max(smoke.Size.X, fire.Size.X) * 0.65f &&
+               smoke.GetCenter().Y > fire.GetCenter().Y + fire.Size.Y * 0.12f;
+    }
+
+    private static Aabb GetEffectWorldBounds(
+        MechWarriorWorldObject effectObject,
+        MechWarriorModel model)
+    {
+        var position = MechWarriorCoordinateSystem.ToGodotPosition(effectObject.Transform.Translation);
+        var scale = MechWarriorCoordinateSystem.ToGodotScale(effectObject.Transform.Scale);
+        var rotation = MechWarriorCoordinateSystem.ToGodotRotation(effectObject.Transform.RotationDegrees);
+        var basis = Basis.FromEuler(rotation * (Mathf.Pi / 180.0f)).Scaled(scale);
+        var transform = new Transform3D(basis, position);
+        var hasBounds = false;
+        var bounds = new Aabb();
+        foreach (var vertex in model.Vertices)
+        {
+            var transformed = transform *
+                (MechWarriorCoordinateSystem.ToGodotPosition(vertex.Position) *
+                 MechWarriorModelMeshBuilder.SourceUnitScale);
+            var point = new Aabb(transformed, Vector3.Zero);
+            bounds = hasBounds ? bounds.Merge(point) : point;
+            hasBounds = true;
+        }
+
+        return bounds;
     }
 
     private void SetFogDistance(float distance, bool logChange)
@@ -848,6 +1055,77 @@ public partial class Main : Node3D
                 $"BWD/{actor.SourceResourceName}.BWD " +
                 $"onto rendered terrain by {adjustment:F2}m.");
         }
+    }
+
+    private static IReadOnlyList<SceneryObstacle> GetSceneryObstacles(
+        IReadOnlyList<SceneryObstacle> staticObstacles,
+        IEnumerable<BattlefieldActor> actors)
+    {
+        var obstacles = new List<SceneryObstacle>(staticObstacles);
+        foreach (var actor in actors)
+        {
+            if (actor.SceneryObstacle == null)
+            {
+                continue;
+            }
+
+            obstacles.Add(actor.SceneryObstacle);
+        }
+
+        return obstacles;
+    }
+
+    private static bool TryCreateSceneryObstacle(
+        string name,
+        IReadOnlyList<SceneryWallTriangle> walls,
+        out SceneryObstacle obstacle)
+    {
+        if (walls.Count == 0)
+        {
+            obstacle = null;
+            return false;
+        }
+
+        var points = walls.SelectMany(wall => new[] { wall.A, wall.B, wall.C }).ToArray();
+        obstacle = new SceneryObstacle(
+            name,
+            new System.Numerics.Vector2(points.Min(point => point.X), points.Min(point => point.Y)),
+            new System.Numerics.Vector2(points.Max(point => point.X), points.Max(point => point.Y)),
+            walls);
+        return true;
+    }
+
+    private static IReadOnlyList<SceneryWallTriangle> BuildSceneryWalls(
+        Transform3D transform,
+        IReadOnlyList<MechWarriorModel> models)
+    {
+        const float maximumFloorNormal = 0.8f;
+        var walls = new List<SceneryWallTriangle>();
+        foreach (var model in models)
+        {
+            foreach (var polygon in model.Polygons)
+            {
+                for (var triangleIndex = 1; triangleIndex < polygon.VertexIndices.Count - 1; triangleIndex++)
+                {
+                    var first = TransformVertex(transform, model.Vertices[polygon.VertexIndices[0]]);
+                    var second = TransformVertex(transform, model.Vertices[polygon.VertexIndices[triangleIndex]]);
+                    var third = TransformVertex(transform, model.Vertices[polygon.VertexIndices[triangleIndex + 1]]);
+                    var normal = (second - first).Cross(third - first);
+                    if (normal.LengthSquared() <= 0.000001f ||
+                        Mathf.Abs(normal.Normalized().Y) > maximumFloorNormal)
+                    {
+                        continue;
+                    }
+
+                    walls.Add(new SceneryWallTriangle(
+                        new System.Numerics.Vector2(first.X, first.Z),
+                        new System.Numerics.Vector2(second.X, second.Z),
+                        new System.Numerics.Vector2(third.X, third.Z)));
+                }
+            }
+        }
+
+        return walls.AsReadOnly();
     }
 
     private static Color ToGodotColor(DTC.Core.Rgb color) =>

@@ -49,7 +49,7 @@ public partial class DebugCamera : Camera3D
         GD.Print(
             "MechRewired: debug camera ready (click to capture; WASD move; Q/E descend/ascend; " +
             "Shift boosts; F1 wireframe; F2 unshaded; F3 logs camera/cockpit; F4 cycles cameras; " +
-            "Escape releases).");
+            "F5 VFX parameter; F6/F7 VFX adjust; F8 VFX reset; F9 VFX log; Escape releases).");
     }
 
     public override void _Process(double delta)

@@ -6,6 +6,10 @@
 
 MechRewired is an independent engine written in C# with Godot. Its first target is the in-mission experience of the original DOS release of *MechWarrior 2: 31st Century Combat*.
 
+![Timber Wolf cockpit overlooking the battlefield](img/Cockpit.png)
+
+![Chemical Plant objective at Nav Epsilon](img/ChemPlant.png)
+
 The immediate goal is intentionally narrow: load original game data, enter a battlefield, pilot a BattleMech, target enemies, manage heat and weapons, and complete a mission. Intro videos, menus, the mech lab and campaign presentation come later.
 
 ## Project status
@@ -22,6 +26,8 @@ The first vertical slice will establish:
 - One completable mission with basic friendly and hostile AI.
 
 The remaster will preserve the DOS version's stark geometry, colors and atmosphere while adding modern lighting, particles, depth fog, bloom, shadows and material detail.
+
+Battlefield fire and smoke use an adapted GPU flipbook shader and smoke atlas from [GodotExplosionVFX](https://github.com/memo1918/GodotExplosionVFX); the required MIT attribution is in [THIRD_PARTY_LICENSES.md](docs/THIRD_PARTY_LICENSES.md).
 
 See the [development roadmap](docs/ROADMAP.md) for the planned sequence of playable milestones.
 
@@ -87,6 +93,7 @@ The camera and battlefield inspection controls are:
 - Press <kbd>F1</kbd> to toggle wireframe rendering or <kbd>F2</kbd> to toggle unshaded rendering.
 - Press <kbd>F3</kbd> to log the active camera's MW2-space transform, its nearest rendered-triangle ray hit, the current cockpit dimensions and the PlayerMech movement state.
 - The on-screen **Debug** menu provides the same rendering diagnostics when function keys are unavailable.
+- In debug builds, <kbd>F5</kbd> cycles the live fire/smoke VFX parameter, <kbd>F6</kbd>/<kbd>F7</kbd> decreases/increases it, <kbd>F8</kbd> restores the default preset and <kbd>F9</kbd> logs it. Hold <kbd>Shift</kbd> with <kbd>F6</kbd>/<kbd>F7</kbd> for 5× steps.
 
 ## VR
 

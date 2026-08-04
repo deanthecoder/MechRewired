@@ -10,6 +10,7 @@
 
 using Godot;
 using MechRewired.Resources;
+using MechRewired.Simulation;
 
 namespace MechRewired;
 
@@ -30,6 +31,8 @@ public partial class BattlefieldActor : Node3D
     private readonly IReadOnlyList<ArrayMesh> m_explosionDebrisMeshes;
     private readonly List<DebrisState> m_debris = new();
     private IReadOnlyList<DebugTriangle> m_terrainTriangles = Array.Empty<DebugTriangle>();
+    private SceneryObstacle m_activeObstacle;
+    private SceneryObstacle m_destroyedObstacle;
 
     public BattlefieldActor(
         MechWarriorLevelActor definition,
@@ -78,6 +81,8 @@ public partial class BattlefieldActor : Node3D
 
     public bool IsDestroyed { get; private set; }
 
+    public Aabb DestructionBounds { get; private set; }
+
     public Aabb WorldBounds
     {
         get
@@ -105,7 +110,9 @@ public partial class BattlefieldActor : Node3D
 
     public Vector3 TargetPosition => WorldBounds.GetCenter();
 
-    public event Action<BattlefieldActor> Destroyed;
+    public SceneryObstacle SceneryObstacle => IsDestroyed ? m_destroyedObstacle : m_activeObstacle;
+
+    public event Action<BattlefieldActor, Vector3> Destroyed;
 
     public override void _PhysicsProcess(double delta)
     {
@@ -176,6 +183,14 @@ public partial class BattlefieldActor : Node3D
         (destroyed ? m_destroyedRepresentations : m_activeRepresentations).Add(representation);
     }
 
+    public void ConfigureSceneryObstacles(
+        SceneryObstacle activeObstacle,
+        SceneryObstacle destroyedObstacle)
+    {
+        m_activeObstacle = activeObstacle;
+        m_destroyedObstacle = destroyedObstacle;
+    }
+
     public void ApplyDamage(
         int damage,
         Vector3 hitPosition,
@@ -196,6 +211,7 @@ public partial class BattlefieldActor : Node3D
         }
 
         var explosionBounds = WorldBounds;
+        DestructionBounds = explosionBounds;
         IsDestroyed = true;
         foreach (var representation in m_activeRepresentations)
         {
@@ -209,7 +225,7 @@ public partial class BattlefieldActor : Node3D
 
         LaunchExplosionDebris(hitPosition, explosionBounds, sceneTriangles);
         GD.Print($"MechRewired: destroyed {Description} in BWD/{SourceResourceName}.BWD.");
-        Destroyed?.Invoke(this);
+        Destroyed?.Invoke(this, hitPosition);
     }
 
     private void LaunchExplosionDebris(

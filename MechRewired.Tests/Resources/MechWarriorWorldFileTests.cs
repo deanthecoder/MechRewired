@@ -129,6 +129,19 @@ public sealed class MechWarriorWorldFileTests
     }
 
     [Test]
+    public void LoadReadsScriptedObjectTask()
+    {
+        var data = WriteWorld(writer => WriteTaskTag(writer, 4, 0x20, "4;400,mecfire1,1"));
+
+        var world = MechWarriorWorldFile.Load(data);
+
+        Assert.That(world.Tasks, Has.Count.EqualTo(1));
+        Assert.That(world.Tasks[0].Type, Is.EqualTo(4));
+        Assert.That(world.Tasks[0].Flags, Is.EqualTo(0x20));
+        Assert.That(world.Tasks[0].Command, Is.EqualTo("4;400,mecfire1,1"));
+    }
+
+    [Test]
     public void LoadRejectsATagThatExtendsPastTheResource()
     {
         var data = WriteWorld(writer =>
@@ -284,6 +297,17 @@ public sealed class MechWarriorWorldFileTests
         writer.Write(actionFlags);
         WriteFixedAscii(writer, description, 21);
         writer.Write(new byte[23]);
+    }
+
+    private static void WriteTaskTag(BinaryWriter writer, int type, ushort flags, string command)
+    {
+        var commandBytes = Encoding.ASCII.GetBytes(command);
+        WriteFixedAscii(writer, "TSK", 4);
+        writer.Write(15 + commandBytes.Length);
+        writer.Write(type);
+        writer.Write(flags);
+        writer.Write(commandBytes);
+        writer.Write((byte)0);
     }
 
     private static void WriteVector(BinaryWriter writer, Vector3 vector, float scale)

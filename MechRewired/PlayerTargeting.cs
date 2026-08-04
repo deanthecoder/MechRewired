@@ -31,6 +31,7 @@ public partial class PlayerTargeting : Node
     private readonly IReadOnlyList<BattlefieldActor> m_actors;
     private readonly IReadOnlyDictionary<(string SourcePath, int ObjectId), BattlefieldActor> m_actorsByObject;
     private readonly AudioStreamPlayer m_laserSound;
+    private readonly BattlefieldEffects m_battlefieldEffects;
     private int m_nextLaserSide = -1;
 
     public PlayerTargeting(
@@ -38,13 +39,15 @@ public partial class PlayerTargeting : Node
         PlayerMission playerMission,
         IReadOnlyList<DebugTriangle> sceneTriangles,
         IReadOnlyList<BattlefieldActor> actors,
-        AudioStreamWav laserSound)
+        AudioStreamWav laserSound,
+        BattlefieldEffects battlefieldEffects)
     {
         ArgumentNullException.ThrowIfNull(playerMech);
         ArgumentNullException.ThrowIfNull(playerMission);
         ArgumentNullException.ThrowIfNull(sceneTriangles);
         ArgumentNullException.ThrowIfNull(actors);
         ArgumentNullException.ThrowIfNull(laserSound);
+        ArgumentNullException.ThrowIfNull(battlefieldEffects);
         Name = "PlayerTargeting";
         m_playerMech = playerMech;
         m_playerMission = playerMission;
@@ -62,6 +65,7 @@ public partial class PlayerTargeting : Node
 
         m_actorsByObject = actorsByObject;
         m_sceneTriangles = sceneTriangles;
+        m_battlefieldEffects = battlefieldEffects;
         m_laserSound = new AudioStreamPlayer
         {
             Name = "LaserSound",
@@ -139,6 +143,7 @@ public partial class PlayerTargeting : Node
             {
                 if (actor.IsDamageable)
                 {
+                    m_battlefieldEffects.SpawnWeaponImpact(hitPosition);
                     actor.ApplyDamage(LaserDamage, hitPosition, m_sceneTriangles);
                 }
                 else
@@ -196,7 +201,7 @@ public partial class PlayerTargeting : Node
         return true;
     }
 
-    private void OnActorDestroyed(BattlefieldActor actor)
+    private void OnActorDestroyed(BattlefieldActor actor, Vector3 hitPosition)
     {
         if (ReferenceEquals(ObjectiveActor, actor))
         {
@@ -248,7 +253,7 @@ public partial class PlayerTargeting : Node
             .FirstOrDefault();
         if (ObjectiveActor != null)
         {
-            ObjectiveAimPosition = FindVisibleAimPosition(ObjectiveActor);
+            ObjectiveAimPosition = GetPolygonCentroidAnchor(ObjectiveActor);
             var modelNames = string.Join(", ", ObjectiveActor.Definition.Components
                 .Select(component => component.ModelEntry.Name));
             var distance = ObjectiveActor.TargetPosition.DistanceTo(m_playerMech.GlobalPosition);
@@ -262,53 +267,42 @@ public partial class PlayerTargeting : Node
         }
     }
 
-    private Vector3 FindVisibleAimPosition(BattlefieldActor actor)
+    /// <summary>
+    /// Gets the objective HUD anchor by giving every source polygon equal weight.
+    /// </summary>
+    /// <remarks>
+    /// Debug triangles retain their source polygon identity, allowing triangulated polygons to
+    /// contribute one centroid rather than gaining extra weight from their triangle count.
+    /// This is intentionally independent of occlusion: the objective marker describes the
+    /// object itself, rather than the nearest currently visible face.
+    /// </remarks>
+    private Vector3 GetPolygonCentroidAnchor(BattlefieldActor actor)
     {
-        var cameraPosition = m_playerMech.CockpitCamera.GlobalPosition;
-        var visibleTriangles = m_sceneTriangles.Where(triangle =>
-                !m_actorsByObject.TryGetValue(
-                    (triangle.SourceResourcePath, triangle.ObjectId),
-                    out var triangleActor) ||
-                !triangleActor.IsDestroyed)
-            .ToArray();
-        var actorTriangles = visibleTriangles
+        var polygonCentroids = m_sceneTriangles
             .Where(triangle =>
                 m_actorsByObject.TryGetValue(
                     (triangle.SourceResourcePath, triangle.ObjectId),
                     out var triangleActor) &&
                 ReferenceEquals(triangleActor, actor))
-            .Select(triangle => new
+            .GroupBy(triangle => (
+                triangle.SourceResourcePath,
+                triangle.ObjectId,
+                triangle.ModelIndex,
+                triangle.PolygonIndex))
+            .Select(polygon =>
             {
-                Triangle = triangle,
-                Center = (triangle.A + triangle.B + triangle.C) / 3.0f
+                var vertices = polygon
+                    .SelectMany(triangle => new[] { triangle.A, triangle.B, triangle.C })
+                    .Distinct()
+                    .ToArray();
+                return vertices.Aggregate(Vector3.Zero, (sum, vertex) => sum + vertex) /
+                       vertices.Length;
             })
-            .OrderBy(candidate => candidate.Center.DistanceSquaredTo(cameraPosition))
             .ToArray();
-        foreach (var candidate in actorTriangles)
-        {
-            var offset = candidate.Center - cameraPosition;
-            var distance = offset.Length();
-            if (distance <= 0.001f ||
-                !DebugTriangleRaycaster.TryFindNearest(
-                    visibleTriangles,
-                    cameraPosition,
-                    offset / distance,
-                    out var hitTriangle,
-                    out var hitDistance) ||
-                hitDistance > distance + 0.05f ||
-                !m_actorsByObject.TryGetValue(
-                    (hitTriangle.SourceResourcePath, hitTriangle.ObjectId),
-                    out var hitActor) ||
-                !ReferenceEquals(hitActor, actor))
-            {
-                continue;
-            }
 
-            return cameraPosition + offset.Normalized() * hitDistance;
-        }
-
-        return actorTriangles.Length > 0
-            ? actorTriangles[0].Center
+        return polygonCentroids.Length > 0
+            ? polygonCentroids.Aggregate(Vector3.Zero, (sum, centroid) => sum + centroid) /
+              polygonCentroids.Length
             : actor.TargetPosition;
     }
 }

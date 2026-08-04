@@ -43,7 +43,9 @@ public partial class PlayerMech : Node3D
     private const float LegAlignmentTolerance = 0.005f;
 
     private IReadOnlyList<DebugTriangle> m_terrainTriangles = Array.Empty<DebugTriangle>();
+    private Func<IReadOnlyList<SceneryObstacle>> m_sceneryObstacleProvider = () => Array.Empty<SceneryObstacle>();
     private float m_modelBottomY;
+    private float m_footprintRadius;
     private float m_torsoYaw;
     private float m_torsoPitch;
     private float m_targetTorsoYaw;
@@ -54,6 +56,8 @@ public partial class PlayerMech : Node3D
     private bool m_gaitActive;
     private int m_footfallCount;
     private bool m_slopeBlocked;
+    private bool m_sceneryBlocked;
+    private SceneryObstacle m_lastBlockingObstacle;
     private bool m_aligningLegsToTorso;
     private readonly AudioStreamPlayer m_torsoMotor;
     private readonly AudioStreamPlayer m_footfall;
@@ -160,14 +164,20 @@ public partial class PlayerMech : Node3D
         _ => Legs
     };
 
-    public void Configure(Aabb modelBounds, IReadOnlyList<DebugTriangle> sceneTriangles)
+    public void Configure(
+        Aabb modelBounds,
+        IReadOnlyList<DebugTriangle> sceneTriangles,
+        Func<IReadOnlyList<SceneryObstacle>> sceneryObstacleProvider)
     {
+        ArgumentNullException.ThrowIfNull(sceneryObstacleProvider);
         m_modelBottomY = modelBounds.Position.Y;
+        m_footprintRadius = Mathf.Max(modelBounds.Size.X, modelBounds.Size.Z) * 0.35f;
         m_terrainTriangles = sceneTriangles
             .Where(triangle =>
                 triangle.ResourcePath == "IMPLICIT/GROUND" ||
                 triangle.ResourcePath.StartsWith("POLY/T_", StringComparison.Ordinal))
             .ToArray();
+        m_sceneryObstacleProvider = sceneryObstacleProvider;
         var cockpitHeight = modelBounds.Position.Y + modelBounds.Size.Y - 0.8f;
         var cockpitFront = modelBounds.Position.Z - 0.15f;
         CockpitMount.Position = new Vector3(0.0f, cockpitHeight, cockpitFront);
@@ -361,6 +371,16 @@ public partial class PlayerMech : Node3D
             $"target {Drive.TargetSpeedKph:F1} km/h; torso yaw {Mathf.RadToDeg(m_torsoYaw):F1} degrees, " +
             $"pitch {Mathf.RadToDeg(m_torsoPitch):F1} degrees (target " +
             $"{Mathf.RadToDeg(m_targetTorsoYaw):F1}, {Mathf.RadToDeg(m_targetTorsoPitch):F1}).");
+        if (m_slopeBlocked || m_sceneryBlocked)
+        {
+            var scenery = m_lastBlockingObstacle == null
+                ? "none"
+                : $"'{m_lastBlockingObstacle.Name}' ({m_lastBlockingObstacle.Walls.Count} wall triangles; " +
+                  $"bounds {m_lastBlockingObstacle.Minimum} to {m_lastBlockingObstacle.Maximum})";
+            GD.Print(
+                $"MechRewired: PlayerMech movement constraint: slope={m_slopeBlocked}; " +
+                $"scenery={m_sceneryBlocked}; blocker {scenery}; footprint radius {m_footprintRadius:F1}m.");
+        }
     }
 
     private bool TryHandleDriveKey(Key key)
@@ -581,6 +601,25 @@ public partial class PlayerMech : Node3D
             return 0.0f;
         }
 
+        var obstacles = m_sceneryObstacleProvider();
+        if (SceneryCollision.TryResolveOverlap(
+                new System.Numerics.Vector2(Position.X, Position.Z),
+                m_footprintRadius,
+                obstacles,
+                out var resolvedPosition,
+                out var overlappingObstacle))
+        {
+            var depenetratedPosition = new Vector3(resolvedPosition.X, Position.Y, resolvedPosition.Y);
+            if (TryGetSurface(depenetratedPosition, out var resolvedSurfaceHeight, out _))
+            {
+                depenetratedPosition.Y = resolvedSurfaceHeight - m_modelBottomY;
+                Position = depenetratedPosition;
+                GD.Print(
+                    $"MechRewired: moved PlayerMech out of overlapping scenery " +
+                    $"'{overlappingObstacle.Name}'.");
+            }
+        }
+
         var candidate = Position - GlobalBasis.Z * distanceMeters;
         if (!TryGetSurface(candidate, out var surfaceHeight, out var slopeDegrees))
         {
@@ -614,7 +653,28 @@ public partial class PlayerMech : Node3D
             return 0.0f;
         }
 
+        if (SceneryCollision.TryFindBlockingObstacle(
+                new System.Numerics.Vector2(Position.X, Position.Z),
+                new System.Numerics.Vector2(candidate.X, candidate.Z),
+                m_footprintRadius,
+                obstacles,
+                out var blockingObstacle))
+        {
+            if (!m_sceneryBlocked)
+            {
+                GD.Print(
+                    $"MechRewired: PlayerMech movement blocked by scenery '{blockingObstacle.Name}' " +
+                    $"(footprint radius {m_footprintRadius:F1}m).");
+            }
+
+            m_sceneryBlocked = true;
+            m_lastBlockingObstacle = blockingObstacle;
+            return 0.0f;
+        }
+
         m_slopeBlocked = false;
+        m_sceneryBlocked = false;
+        m_lastBlockingObstacle = null;
         candidate.Y = surfaceHeight - m_modelBottomY;
         Position = candidate;
         return appliedDistance;

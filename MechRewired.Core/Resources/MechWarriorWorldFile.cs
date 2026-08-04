@@ -32,6 +32,7 @@ public sealed class MechWarriorWorldFile
         IReadOnlyList<MechWarriorWorldEntity> entities,
         IReadOnlyList<MechWarriorWorldNavPoint> navPoints,
         IReadOnlyList<MechWarriorMissionTable> missionTables,
+        IReadOnlyList<MechWarriorWorldTask> tasks,
         int? timeOfDay,
         MechWarriorWorldLighting lighting,
         string luminosityTable,
@@ -42,6 +43,7 @@ public sealed class MechWarriorWorldFile
         Entities = entities;
         NavPoints = navPoints;
         MissionTables = missionTables;
+        Tasks = tasks;
         TimeOfDay = timeOfDay;
         Lighting = lighting;
         LuminosityTable = luminosityTable;
@@ -57,6 +59,8 @@ public sealed class MechWarriorWorldFile
     public IReadOnlyList<MechWarriorWorldNavPoint> NavPoints { get; }
 
     public IReadOnlyList<MechWarriorMissionTable> MissionTables { get; }
+
+    public IReadOnlyList<MechWarriorWorldTask> Tasks { get; }
 
     public int? TimeOfDay { get; }
 
@@ -83,6 +87,7 @@ public sealed class MechWarriorWorldFile
         var entities = new List<MechWarriorWorldEntity>();
         var navPoints = new List<MechWarriorWorldNavPoint>();
         var missionTables = new List<MechWarriorMissionTable>();
+        var tasks = new List<MechWarriorWorldTask>();
         var localTransforms = new Dictionary<int, MechWarriorWorldTransform>();
         int? timeOfDay = null;
         MechWarriorWorldLighting lighting = null;
@@ -197,6 +202,14 @@ public sealed class MechWarriorWorldFile
                 case "MTBL":
                     missionTables.Add(MechWarriorMissionTable.Load(data.Slice(offset + 8, tagSize - 8)));
                     break;
+
+                case "TSK":
+                    EnsureTagSize(tagName, tagSize, 15);
+                    tasks.Add(new MechWarriorWorldTask(
+                        ReadInt32(data, offset + 8),
+                        ReadUInt16(data, offset + 12),
+                        ReadAscii(data, offset + 14, tagSize - 14)));
+                    break;
             }
 
             offset += tagSize;
@@ -208,6 +221,7 @@ public sealed class MechWarriorWorldFile
             entities.AsReadOnly(),
             navPoints.AsReadOnly(),
             missionTables.AsReadOnly(),
+            tasks.AsReadOnly(),
             timeOfDay,
             lighting,
             luminosityTable,

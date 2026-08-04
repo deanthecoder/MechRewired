@@ -37,6 +37,7 @@ This phase is complete when a recognizable original battlefield can be explored 
 
 - Implement throttle, reverse, leg steering and torso twist. — initial rigid-body movement complete
 - Follow terrain and enforce slope limits. — initial implementation complete
+- Prevent the player mech walking through scenery and mission actors. — transformed vertical-wall triangle collision implemented, preserving open space inside irregular models; vertical clearance and sliding refinements remain
 - Add speed-driven cockpit gait and landing weight. — initial implementation complete
 - Add cockpit and external diagnostic cameras. — initial rig complete
 - Decode the original `MW2MECH.CPI`/`VWSP` cockpit and view definitions, then replace or validate the procedural cockpit frame against them. - Not a priority.
@@ -63,8 +64,9 @@ This phase is complete when one original mission can be played from deployment t
 - Add articulated legs and inverse kinematics.
 - Improve cockpit shadow quality, stabilize nearby building shadows and tune shadow darkness for the dusk palette.
 - Add emissive missile and weapon lighting.
-- Add particles for explosions, smoke, sparks, dust and damage feedback.
-- Decode placed `TSK` effect emitters such as Pyre Light's `YELLSMO1.BWD`, including its original fire sound references.
+- Add particles for explosions, smoke, sparks, dust and damage feedback. — GodotExplosionVFX flipbook fire/smoke shader, elevated-smoke folding, positional fire/explosion audio and two-minute destruction plumes implemented; dust and damage scaling remain
+- Decode placed visual effects and their `TSK` ambient audio, such as Pyre Light's `YELLSMO1.BWD`. — source-sized volumetric flame/smoke particles and positional `MECFIRE1.WAV`/`MECFIRE2.SFL` audio implemented
+- Decode and render scripted set-pieces such as Pyre Light's `YELLDRP1.BWD` Wolf DropShip, its `drop` animation and `jettaxi` effect.
 - Add exploding structure chunks after actor destruction and impact positions are stable. — initial original `CHUNKER`/`CHUNKLET` low-gravity debris implemented; visual tuning remains
 - Add depth fog, bloom, glow, dynamic shadows and cockpit lighting.
 - Add restrained bump or normal mapping without losing the DOS art direction.
