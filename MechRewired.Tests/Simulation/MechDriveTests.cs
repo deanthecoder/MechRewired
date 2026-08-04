@@ -75,14 +75,25 @@ public sealed class MechDriveTests
     }
 
     [Test]
-    public void ImmediateStopClearsThrottleAndMotionButRetainsStationarySteering()
+    public void SelectedStopBrakesToRestAndRetainsSteering()
     {
         var drive = new MechDrive(Profile);
         drive.SetThrottleKey(0);
-        drive.Advance(1.0, 0.0);
+        for (var second = 0; second < 5; second++)
+        {
+            drive.Advance(1.0, 0.0);
+        }
+
+        var speedBeforeStop = drive.CurrentSpeedKph;
         drive.ToggleDirection();
 
-        drive.StopImmediately();
+        drive.SelectStop();
+        var brakingStep = drive.Advance(1.0, 1.0);
+        for (var second = 0; second < 10; second++)
+        {
+            drive.Advance(1.0, 1.0);
+        }
+
         var stoppedStep = drive.Advance(1.0, 1.0);
 
         Assert.Multiple(() =>
@@ -90,6 +101,8 @@ public sealed class MechDriveTests
             Assert.That(drive.ThrottleKey, Is.EqualTo(1));
             Assert.That(drive.ThrottlePercent, Is.Zero);
             Assert.That(drive.IsReversing, Is.False);
+            Assert.That(brakingStep.DistanceMeters, Is.GreaterThan(0.0));
+            Assert.That(drive.CurrentSpeedKph, Is.LessThan(speedBeforeStop));
             Assert.That(drive.CurrentSpeedKph, Is.Zero);
             Assert.That(stoppedStep.DistanceMeters, Is.Zero);
             Assert.That(stoppedStep.HeadingChangeDegrees, Is.EqualTo(Profile.StationaryTurnRateDegreesPerSecond));

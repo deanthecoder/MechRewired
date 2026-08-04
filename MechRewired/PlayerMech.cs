@@ -179,11 +179,10 @@ public partial class PlayerMech : Node3D
 
         var previousTargetSpeedKph = Drive.TargetSpeedKph;
         m_translationLocked = true;
-        Drive.StopImmediately();
-        ActualSpeedKph = 0.0f;
+        Drive.SelectStop();
         PlayDriveTransition(previousTargetSpeedKph);
         GD.Print(
-            "MechRewired: extraction reached; PlayerMech translation locked at 0 km/h " +
+            "MechRewired: extraction reached; PlayerMech braking to 0 km/h with translation controls locked " +
             "(steering and torso controls remain active).");
     }
 
