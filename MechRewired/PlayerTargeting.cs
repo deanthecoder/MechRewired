@@ -29,6 +29,7 @@ public partial class PlayerTargeting : Node
     private readonly PlayerMission m_playerMission;
     private readonly IReadOnlyList<DebugTriangle> m_sceneTriangles;
     private readonly IReadOnlyList<BattlefieldActor> m_actors;
+    private readonly IReadOnlyList<EnemyMech> m_enemyMechs;
     private readonly IReadOnlyDictionary<(string SourcePath, int ObjectId), BattlefieldActor> m_actorsByObject;
     private readonly AudioStreamPlayer m_laserSound;
     private readonly BattlefieldEffects m_battlefieldEffects;
@@ -39,6 +40,7 @@ public partial class PlayerTargeting : Node
         PlayerMission playerMission,
         IReadOnlyList<DebugTriangle> sceneTriangles,
         IReadOnlyList<BattlefieldActor> actors,
+        IReadOnlyList<EnemyMech> enemyMechs,
         AudioStreamWav laserSound,
         BattlefieldEffects battlefieldEffects)
     {
@@ -46,12 +48,14 @@ public partial class PlayerTargeting : Node
         ArgumentNullException.ThrowIfNull(playerMission);
         ArgumentNullException.ThrowIfNull(sceneTriangles);
         ArgumentNullException.ThrowIfNull(actors);
+        ArgumentNullException.ThrowIfNull(enemyMechs);
         ArgumentNullException.ThrowIfNull(laserSound);
         ArgumentNullException.ThrowIfNull(battlefieldEffects);
         Name = "PlayerTargeting";
         m_playerMech = playerMech;
         m_playerMission = playerMission;
         m_actors = actors;
+        m_enemyMechs = enemyMechs;
         var actorsByObject = new Dictionary<(string SourcePath, int ObjectId), BattlefieldActor>();
         foreach (var actor in actors)
         {
@@ -64,6 +68,11 @@ public partial class PlayerTargeting : Node
         }
 
         m_actorsByObject = actorsByObject;
+        foreach (var enemyMech in enemyMechs)
+        {
+            enemyMech.Destroyed += OnEnemyDestroyed;
+        }
+
         m_sceneTriangles = sceneTriangles;
         m_battlefieldEffects = battlefieldEffects;
         m_laserSound = new AudioStreamPlayer
@@ -80,7 +89,11 @@ public partial class PlayerTargeting : Node
 
     public BattlefieldActor SelectedActor { get; private set; }
 
+    public EnemyMech SelectedEnemy { get; private set; }
+
     public IReadOnlyList<BattlefieldActor> Actors => m_actors;
+
+    public IReadOnlyList<EnemyMech> EnemyMechs => m_enemyMechs;
 
     public BattlefieldActor ObjectiveActor { get; private set; }
 
@@ -89,7 +102,8 @@ public partial class PlayerTargeting : Node
     public override void _Ready()
     {
         GD.Print(
-            $"MechRewired: targeting online ({m_actors.Count} battlefield actors; " +
+            $"MechRewired: targeting online ({m_actors.Count} battlefield actors, " +
+            $"{m_enemyMechs.Count} hostile mechs; " +
             $"medium laser {LaserDamage} damage, alternating cockpit-aligned mounts, " +
             $"{LaserRange:F0}m range).");
     }
@@ -102,21 +116,34 @@ public partial class PlayerTargeting : Node
 
     public void SelectUnderReticle()
     {
-        if (!TryRaycast(out var actor, out _, out _) || actor == null)
+        if (!TryRaycast(out var actor, out var enemyMech, out _, out _))
         {
             SelectedActor = null;
+            SelectedEnemy = null;
             GD.Print("MechRewired: targeting reticle found no targetable actor.");
             return;
         }
 
-        if (!IsSelectable(actor))
+        if (enemyMech != null)
         {
             SelectedActor = null;
+            SelectedEnemy = enemyMech;
+            GD.Print(
+                $"MechRewired: targeted hostile {enemyMech.Description} " +
+                $"({enemyMech.Health}/{enemyMech.MaximumHealth} whole-mech health).");
+            return;
+        }
+
+        if (actor == null || !IsSelectable(actor))
+        {
+            SelectedActor = null;
+            SelectedEnemy = null;
             GD.Print("MechRewired: targeting reticle found no named targetable actor.");
             return;
         }
 
         SelectedActor = actor;
+        SelectedEnemy = null;
         GD.Print(
             $"MechRewired: targeted {actor.Description} in BWD/{actor.SourceResourceName}.BWD " +
             $"({actor.Health}/{actor.MaximumHealth} health).");
@@ -136,10 +163,17 @@ public partial class PlayerTargeting : Node
                     torsoBasis.Z * 1.2f;
         m_nextLaserSide *= -1;
         var end = aimOrigin + direction * LaserRange;
-        if (TryRaycast(out var actor, out _, out var hitPosition))
+        if (TryRaycast(out var actor, out var enemyMech, out _, out var hitPosition))
         {
             end = hitPosition;
-            if (actor != null)
+            if (enemyMech != null)
+            {
+                m_battlefieldEffects.SpawnWeaponImpact(hitPosition);
+                enemyMech.ApplyDamage(LaserDamage, hitPosition);
+                SelectedEnemy = enemyMech.IsDestroyed ? null : enemyMech;
+                SelectedActor = null;
+            }
+            else if (actor != null)
             {
                 if (actor.IsDamageable)
                 {
@@ -171,6 +205,7 @@ public partial class PlayerTargeting : Node
 
     private bool TryRaycast(
         out BattlefieldActor actor,
+        out EnemyMech enemyMech,
         out float distance,
         out Vector3 hitPosition)
     {
@@ -181,24 +216,91 @@ public partial class PlayerTargeting : Node
                 (triangle.SourceResourcePath, triangle.ObjectId),
                 out var candidate) ||
             !candidate.IsDestroyed);
-        if (!DebugTriangleRaycaster.TryFindNearest(
+        var hitStatic = DebugTriangleRaycaster.TryFindNearest(
                 candidates,
                 origin,
                 direction,
                 out var triangle,
-                out distance) ||
-            distance > LaserRange)
+                out var staticDistance) &&
+            staticDistance <= LaserRange;
+        enemyMech = null;
+        var enemyDistance = float.PositiveInfinity;
+        foreach (var candidate in m_enemyMechs.Where(candidate => !candidate.IsDestroyed))
+        {
+            if (TryIntersectAabb(origin, direction, candidate.WorldBounds, out var candidateDistance) &&
+                candidateDistance <= LaserRange &&
+                candidateDistance < enemyDistance)
+            {
+                enemyMech = candidate;
+                enemyDistance = candidateDistance;
+            }
+        }
+
+        if (enemyMech != null && (!hitStatic || enemyDistance < staticDistance))
         {
             actor = null;
+            distance = enemyDistance;
+            hitPosition = origin + direction * distance;
+            return true;
+        }
+
+        if (!hitStatic)
+        {
+            actor = null;
+            enemyMech = null;
+            distance = float.PositiveInfinity;
             hitPosition = default;
             return false;
         }
 
+        distance = staticDistance;
         m_actorsByObject.TryGetValue(
             (triangle.SourceResourcePath, triangle.ObjectId),
             out actor);
         hitPosition = origin + direction * distance;
         return true;
+    }
+
+    private static bool TryIntersectAabb(Vector3 origin, Vector3 direction, Aabb bounds, out float distance)
+    {
+        var minimumDistance = 0.0f;
+        var maximumDistance = float.PositiveInfinity;
+        for (var axis = 0; axis < 3; axis++)
+        {
+            var axisOrigin = origin[axis];
+            var axisDirection = direction[axis];
+            var minimum = bounds.Position[axis];
+            var maximum = bounds.End[axis];
+            if (Mathf.Abs(axisDirection) < 0.000001f)
+            {
+                if (axisOrigin < minimum || axisOrigin > maximum)
+                {
+                    distance = 0.0f;
+                    return false;
+                }
+
+                continue;
+            }
+
+            var inverseDirection = 1.0f / axisDirection;
+            var near = (minimum - axisOrigin) * inverseDirection;
+            var far = (maximum - axisOrigin) * inverseDirection;
+            if (near > far)
+            {
+                (near, far) = (far, near);
+            }
+
+            minimumDistance = Math.Max(minimumDistance, near);
+            maximumDistance = Math.Min(maximumDistance, far);
+            if (maximumDistance < minimumDistance)
+            {
+                distance = 0.0f;
+                return false;
+            }
+        }
+
+        distance = minimumDistance;
+        return maximumDistance >= 0.0f;
     }
 
     private void OnActorDestroyed(BattlefieldActor actor, Vector3 hitPosition)
@@ -222,6 +324,14 @@ public partial class PlayerTargeting : Node
             m_playerMission.Apply(new MissionEvent(
                 MissionEventKind.TargetDestroyed,
                 actor.SourceResourceName));
+        }
+    }
+
+    private void OnEnemyDestroyed(EnemyMech enemyMech)
+    {
+        if (ReferenceEquals(SelectedEnemy, enemyMech))
+        {
+            SelectedEnemy = null;
         }
     }
 

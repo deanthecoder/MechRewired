@@ -142,6 +142,71 @@ public sealed class MechWarriorWorldFileTests
     }
 
     [Test]
+    public void LoadReadsGamePieceSpecification()
+    {
+        var data = WriteWorld(writer => WriteGamePieceSpecificationTag(
+            writer,
+            mechResourceIndex: 80,
+            chassisResourceIndex: 31,
+            groupId: 4,
+            authority: 1,
+            control: 2,
+            gunnerySkill: 4,
+            rubberbandRange: 500,
+            sleepRange: 600,
+            targetRange: 700,
+            pilotSkill: 3,
+            actionFlags: 0x0400,
+            targetingMode: 6,
+            chassisName: "nova",
+            configurationName: "nva03std",
+            displayName: "Falcon Nova",
+            pilotName: "St.Cpt.Haines"));
+
+        var world = MechWarriorWorldFile.Load(data);
+
+        Assert.That(world.GamePieceSpecifications, Has.Count.EqualTo(1));
+        var specification = world.GamePieceSpecifications[0];
+        Assert.That(specification.MechResourceIndex, Is.EqualTo(80));
+        Assert.That(specification.ChassisResourceIndex, Is.EqualTo(31));
+        Assert.That(specification.GroupId, Is.EqualTo(4));
+        Assert.That(specification.Authority, Is.EqualTo(1));
+        Assert.That(specification.Control, Is.EqualTo(2));
+        Assert.That(specification.GunnerySkill, Is.EqualTo(4));
+        Assert.That(specification.RubberbandRange, Is.EqualTo(500));
+        Assert.That(specification.SleepRange, Is.EqualTo(600));
+        Assert.That(specification.TargetRange, Is.EqualTo(700));
+        Assert.That(specification.PilotSkill, Is.EqualTo(3));
+        Assert.That(specification.ActionFlags, Is.EqualTo(0x0400));
+        Assert.That(specification.TargetingMode, Is.EqualTo(6));
+        Assert.That(specification.ChassisName, Is.EqualTo("nova"));
+        Assert.That(specification.ConfigurationName, Is.EqualTo("nva03std"));
+        Assert.That(specification.DisplayName, Is.EqualTo("Falcon Nova"));
+        Assert.That(specification.PilotName, Is.EqualTo("St.Cpt.Haines"));
+    }
+
+    [Test]
+    public void LoadReadsMissionStars()
+    {
+        var data = WriteWorld(writer => WriteStarTag(
+            writer,
+            (7, MechWarriorMissionDisposition.Friendly, "WolfStar"),
+            (12, MechWarriorMissionDisposition.Hostile, "Falcons")));
+
+        var world = MechWarriorWorldFile.Load(data);
+
+        Assert.That(world.Stars, Has.Count.EqualTo(2));
+        Assert.That(world.Stars[0].GroupId, Is.EqualTo(0));
+        Assert.That(world.Stars[0].AllianceId, Is.EqualTo(7));
+        Assert.That(world.Stars[0].Disposition, Is.EqualTo(MechWarriorMissionDisposition.Friendly));
+        Assert.That(world.Stars[0].FormationName, Is.EqualTo("WolfStar"));
+        Assert.That(world.Stars[1].GroupId, Is.EqualTo(1));
+        Assert.That(world.Stars[1].AllianceId, Is.EqualTo(12));
+        Assert.That(world.Stars[1].Disposition, Is.EqualTo(MechWarriorMissionDisposition.Hostile));
+        Assert.That(world.Stars[1].FormationName, Is.EqualTo("Falcons"));
+    }
+
+    [Test]
     public void LoadRejectsATagThatExtendsPastTheResource()
     {
         var data = WriteWorld(writer =>
@@ -308,6 +373,63 @@ public sealed class MechWarriorWorldFileTests
         writer.Write(flags);
         writer.Write(commandBytes);
         writer.Write((byte)0);
+    }
+
+    private static void WriteGamePieceSpecificationTag(
+        BinaryWriter writer,
+        short mechResourceIndex,
+        short chassisResourceIndex,
+        byte groupId,
+        byte authority,
+        ushort control,
+        ushort gunnerySkill,
+        ushort rubberbandRange,
+        ushort sleepRange,
+        ushort targetRange,
+        ushort pilotSkill,
+        ushort actionFlags,
+        byte targetingMode,
+        string chassisName,
+        string configurationName,
+        string displayName,
+        string pilotName)
+    {
+        WriteFixedAscii(writer, "GPS", 4);
+        writer.Write(100);
+        writer.Write(mechResourceIndex);
+        writer.Write(chassisResourceIndex);
+        writer.Write(groupId);
+        writer.Write(authority);
+        writer.Write(control);
+        writer.Write(gunnerySkill);
+        writer.Write(rubberbandRange);
+        writer.Write(sleepRange);
+        writer.Write(targetRange);
+        writer.Write(pilotSkill);
+        writer.Write(new byte[6]);
+        writer.Write(actionFlags);
+        writer.Write(new byte[1]);
+        writer.Write(targetingMode);
+        WriteFixedAscii(writer, chassisName, 9);
+        WriteFixedAscii(writer, configurationName, 9);
+        WriteFixedAscii(writer, displayName, 22);
+        WriteFixedAscii(writer, pilotName, 22);
+        writer.Write(new byte[2]);
+    }
+
+    private static void WriteStarTag(
+        BinaryWriter writer,
+        params (int AllianceId, MechWarriorMissionDisposition Disposition, string FormationName)[] stars)
+    {
+        WriteFixedAscii(writer, "STAR", 4);
+        writer.Write(8 + stars.Length * 24);
+        foreach (var star in stars)
+        {
+            writer.Write(star.AllianceId);
+            writer.Write((int)star.Disposition);
+            WriteFixedAscii(writer, star.FormationName, 8);
+            writer.Write(new byte[8]);
+        }
     }
 
     private static void WriteVector(BinaryWriter writer, Vector3 vector, float scale)

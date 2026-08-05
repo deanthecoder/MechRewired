@@ -140,6 +140,7 @@ public partial class PlayerHud : Control
         DrawObjectiveTargets();
         DrawSelectedTarget();
         DrawMissionStatus();
+        DrawPlayerDamageStatus();
     }
 
     private MechWarriorWorldNavPoint SelectedNavigationPoint =>
@@ -173,6 +174,27 @@ public partial class PlayerHud : Control
         for (var index = 0; index < m_navigation.NavigationPoints.Count; index++)
         {
             DrawNavigationPoint(center, playerPosition, index);
+        }
+
+        DrawEnemyMechs(center, playerPosition);
+    }
+
+    private void DrawEnemyMechs(Vector2 center, Vector2 playerPosition)
+    {
+        var radarRange = RadarRanges[m_radarRangeIndex];
+        foreach (var enemyMech in m_targeting.EnemyMechs.Where(enemyMech => !enemyMech.IsDestroyed))
+        {
+            var localPosition = m_playerMech.ToLocal(enemyMech.TargetPosition);
+            var point = playerPosition + new Vector2(
+                localPosition.X / radarRange * RadarRadius,
+                localPosition.Z / radarRange * RadarRadius) * m_scale;
+            var fromCenter = point - center;
+            if (fromCenter.Length() > RadarRadius * m_scale)
+            {
+                continue;
+            }
+
+            DrawCircle(point, 2.8f * m_scale, GaugeRed);
         }
     }
 
@@ -440,29 +462,33 @@ public partial class PlayerHud : Control
     private void DrawSelectedTarget()
     {
         var actor = m_targeting.SelectedActor;
+        var enemyMech = m_targeting.SelectedEnemy;
         var camera = m_playerMech.CockpitCamera;
-        if (actor == null ||
+        var targetPosition = enemyMech?.TargetPosition ?? actor?.TargetPosition ?? default;
+        if ((actor == null && enemyMech == null) ||
             ReferenceEquals(actor, m_targeting.ObjectiveActor) ||
             camera == null ||
-            camera.IsPositionBehind(actor.TargetPosition))
+            camera.IsPositionBehind(targetPosition))
         {
             return;
         }
 
-        var targetRect = GetScreenRect(camera, actor).Grow(5.0f * m_scale);
+        var bounds = enemyMech?.WorldBounds ?? actor.WorldBounds;
+        var description = enemyMech?.Description ?? actor.Description;
+        var targetRect = GetScreenRect(camera, bounds).Grow(5.0f * m_scale);
         DrawTargetCorners(targetRect, RadarAmber);
         var center = targetRect.GetCenter();
         var radius = Math.Max(targetRect.Size.X, targetRect.Size.Y) * 0.5f;
         var fontSize = Math.Max((int)(18 * m_scale), 1);
         var labelWidth = ThemeDB.FallbackFont.GetStringSize(
-            actor.Description,
+            description,
             HorizontalAlignment.Left,
             -1.0f,
             fontSize).X;
         DrawString(
             ThemeDB.FallbackFont,
             center + new Vector2(-labelWidth * 0.5f, radius + 22.0f * m_scale),
-            actor.Description,
+            description,
             HorizontalAlignment.Left,
             -1.0f,
             fontSize,
@@ -513,9 +539,8 @@ public partial class PlayerHud : Control
         }
     }
 
-    private Rect2 GetScreenRect(Camera3D camera, BattlefieldActor actor)
+    private Rect2 GetScreenRect(Camera3D camera, Aabb bounds)
     {
-        var bounds = actor.WorldBounds;
         var minimum = new Vector2(float.PositiveInfinity, float.PositiveInfinity);
         var maximum = new Vector2(float.NegativeInfinity, float.NegativeInfinity);
         for (var x = 0; x <= 1; x++)
@@ -570,6 +595,14 @@ public partial class PlayerHud : Control
         }
 
         DrawCenteredText(640.0f, 105.0f, m_mission.StatusMessage, HudGreen, 24);
+    }
+
+    private void DrawPlayerDamageStatus()
+    {
+        if (m_playerMech.IsDestroyed)
+        {
+            DrawCenteredText(640.0f, 155.0f, "MECH DESTROYED", GaugeRed, 30);
+        }
     }
 
     private void DrawSpeed()

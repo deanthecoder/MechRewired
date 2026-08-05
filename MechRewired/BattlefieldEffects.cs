@@ -23,6 +23,8 @@ public partial class BattlefieldEffects : Node3D
     public const float EffectPersistenceRadius = 800.0f;
     private const float FullDetailEffectDistance = 250.0f;
     private const float MinimumAmbientAmountRatio = 0.12f;
+    private const int WeaponImpactPoolSize = 24;
+    private const int DestructionPoolSize = 12;
 
     private static bool s_vfxTexturesLogged;
 
@@ -30,6 +32,8 @@ public partial class BattlefieldEffects : Node3D
     private readonly List<TunableEmitter> m_tunableEmitters = [];
     private readonly List<AmbientEffectState> m_ambientEffects = [];
     private readonly List<Node3D> m_distanceBoundEffects = [];
+    private readonly List<ImpactEffect> m_weaponImpactPool = [];
+    private readonly List<EffectInstance> m_destructionPool = [];
     private ShaderMaterial m_fireVisualMaterial;
     private ShaderMaterial m_smokeVisualMaterial;
     private StandardMaterial3D m_sparkVisualMaterial;
@@ -59,6 +63,14 @@ public partial class BattlefieldEffects : Node3D
         m_explosionSounds = explosionSounds;
     }
 
+    public override void _Ready()
+    {
+        CreateEffectPools();
+        GD.Print(
+            $"MechRewired: preallocated battlefield VFX pools " +
+            $"({WeaponImpactPoolSize} weapon impacts, {DestructionPoolSize} destruction effects).");
+    }
+
     public void ConfigureTerrain(IReadOnlyList<DebugTriangle> sceneTriangles)
     {
         ArgumentNullException.ThrowIfNull(sceneTriangles);
@@ -78,18 +90,82 @@ public partial class BattlefieldEffects : Node3D
         UpdateDistanceBoundEffects();
     }
 
+    private void CreateEffectPools()
+    {
+        for (var index = 0; index < WeaponImpactPoolSize; index++)
+        {
+            var particles = CreateFire(true, 28, 0.52f, 1.0f);
+            particles.Emitting = false;
+            var light = CreateFireLight(4.5f, 4.0f);
+            light.Visible = false;
+            var effect = new ImpactEffect(particles, light)
+            {
+                Name = $"WeaponImpactPool{index}",
+                Visible = false,
+                ProcessMode = ProcessModeEnum.Disabled
+            };
+            effect.AddChild(particles);
+            effect.AddChild(light);
+            AddChild(effect);
+            m_weaponImpactPool.Add(effect);
+        }
+
+        for (var index = 0; index < DestructionPoolSize; index++)
+        {
+            var effect = new EffectInstance(false, true)
+            {
+                Name = $"DestructionPool{index}",
+                Visible = false,
+                ProcessMode = ProcessModeEnum.Disabled,
+                ExplosionFire = CreateFire(true, 40, 1.05f, 3.0f),
+                ExplosionSmoke = CreateSmoke(true, 34, 4.5f, 2.5f),
+                Sparks = CreateSparks(0.2f),
+                LingeringSmoke = CreateSmoke(false, 76, 7.0f, 2.2f),
+                ExplosionLight = CreateFireLight(7.0f, 22.0f)
+            };
+            effect.ExplosionFire.Emitting = false;
+            effect.ExplosionSmoke.Emitting = false;
+            effect.Sparks.Emitting = false;
+            effect.LingeringSmoke.Emitting = false;
+            effect.ExplosionLight.Visible = false;
+            effect.AddChild(effect.ExplosionFire);
+            effect.AddChild(effect.ExplosionSmoke);
+            effect.AddChild(effect.Sparks);
+            effect.AddChild(effect.LingeringSmoke);
+            effect.AddChild(effect.ExplosionLight);
+            if (m_explosionSounds.Count > 0)
+            {
+                effect.ExplosionAudio = CreatePositionalAudio(
+                    "ExplosionSound",
+                    m_explosionSounds[0],
+                    24.0f,
+                    700.0f,
+                    1.0f);
+                effect.ExplosionAudio.Autoplay = false;
+                effect.AddChild(effect.ExplosionAudio);
+            }
+
+            AddChild(effect);
+            m_destructionPool.Add(effect);
+        }
+    }
+
     public void AddAmbientFire(
-        Aabb authoredVolume,
+        Aabb authoredFireVolume,
+        Aabb authoredPlumeVolume,
         float authoredGroundHeight,
         string sourceName,
         AudioStreamWav ambientSound)
     {
-        m_ambientEffects.Add(new AmbientEffectState(
+        var fireVolume = AlignToTerrain(authoredFireVolume, authoredGroundHeight);
+        var plumeVolume = AlignToTerrain(authoredPlumeVolume, authoredGroundHeight);
+        AddAmbientEffect(new AmbientEffectState(
             true,
-            AlignToTerrain(authoredVolume, authoredGroundHeight),
+            MergeBounds(fireVolume, plumeVolume),
             sourceName,
-            ambientSound));
-        UpdateDistanceBoundEffects();
+            ambientSound,
+            fireVolume,
+            plumeVolume));
     }
 
     public void AddAmbientSmoke(
@@ -98,11 +174,31 @@ public partial class BattlefieldEffects : Node3D
         string sourceName,
         AudioStreamWav ambientSound)
     {
-        m_ambientEffects.Add(new AmbientEffectState(
+        AddAmbientEffect(new AmbientEffectState(
             false,
             AlignToTerrain(authoredVolume, authoredGroundHeight),
             sourceName,
             ambientSound));
+    }
+
+    private void AddAmbientEffect(AmbientEffectState definition)
+    {
+        definition.Instance = CreateAmbientEffect(definition);
+        definition.Instance.Visible = false;
+        definition.Instance.ProcessMode = ProcessModeEnum.Disabled;
+        foreach (var particles in definition.Instance.GetChildren().OfType<GpuParticles3D>())
+        {
+            particles.Emitting = false;
+        }
+
+        foreach (var audio in definition.Instance.GetChildren().OfType<AudioStreamPlayer3D>())
+        {
+            audio.Autoplay = false;
+            audio.Stop();
+        }
+
+        AddChild(definition.Instance);
+        m_ambientEffects.Add(definition);
         UpdateDistanceBoundEffects();
     }
 
@@ -112,6 +208,13 @@ public partial class BattlefieldEffects : Node3D
         var terrainHeight = FindTerrainHeight(center, authoredGroundHeight);
         volume.Position += Vector3.Up * (terrainHeight - authoredGroundHeight);
         return volume;
+    }
+
+    private static Aabb MergeBounds(Aabb first, Aabb second)
+    {
+        var minimum = first.Position.Min(second.Position);
+        var maximum = first.End.Max(second.End);
+        return new Aabb(minimum, maximum - minimum);
     }
 
     public override void _Process(double delta)
@@ -136,22 +239,20 @@ public partial class BattlefieldEffects : Node3D
             }
 
             var isWithinRange = IsWithinEffectPersistenceRange(ambientEffect.Volume.GetCenter());
-            if (ambientEffect.Instance == null && isWithinRange && !activatedAmbientEffect)
+            if (!ambientEffect.IsActive && isWithinRange && !activatedAmbientEffect)
             {
-                ambientEffect.Instance = CreateAmbientEffect(ambientEffect);
+                ActivateAmbientEffect(ambientEffect);
                 UpdateAmbientDetail(ambientEffect.Instance, ambientEffect.Volume.GetCenter());
-                AddChild(ambientEffect.Instance);
                 activatedAmbientEffect = true;
                 GD.Print($"MechRewired: activated ambient {ambientEffect.KindName} '{ambientEffect.SourceName}' within {EffectPersistenceRadius:F0}m.");
             }
-            else if (ambientEffect.Instance != null && !isWithinRange)
+            else if (ambientEffect.IsActive && !isWithinRange)
             {
-                ambientEffect.Instance.QueueFree();
-                ambientEffect.Instance = null;
+                DeactivateAmbientEffect(ambientEffect);
                 ambientEffect.IsCulled = true;
                 GD.Print($"MechRewired: culled ambient {ambientEffect.KindName} '{ambientEffect.SourceName}' beyond {EffectPersistenceRadius:F0}m.");
             }
-            else if (ambientEffect.Instance != null)
+            else if (ambientEffect.IsActive)
             {
                 UpdateAmbientDetail(ambientEffect.Instance, ambientEffect.Volume.GetCenter());
             }
@@ -160,6 +261,12 @@ public partial class BattlefieldEffects : Node3D
         for (var index = m_distanceBoundEffects.Count - 1; index >= 0; index--)
         {
             var effect = m_distanceBoundEffects[index];
+            if (effect is IPooledEffect { IsActive: false })
+            {
+                m_distanceBoundEffects.RemoveAt(index);
+                continue;
+            }
+
             if (!IsInstanceValid(effect))
             {
                 m_distanceBoundEffects.RemoveAt(index);
@@ -168,17 +275,64 @@ public partial class BattlefieldEffects : Node3D
 
             if (!IsWithinEffectPersistenceRange(effect.GlobalPosition))
             {
-                effect.QueueFree();
+                if (effect is IPooledEffect pooledEffect)
+                {
+                    pooledEffect.Deactivate();
+                }
+                else
+                {
+                    effect.QueueFree();
+                }
+
                 m_distanceBoundEffects.RemoveAt(index);
                 GD.Print($"MechRewired: culled transient battlefield effect beyond {EffectPersistenceRadius:F0}m.");
             }
         }
     }
 
+    private static void ActivateAmbientEffect(AmbientEffectState definition)
+    {
+        definition.IsActive = true;
+        definition.Instance.Visible = true;
+        definition.Instance.ProcessMode = ProcessModeEnum.Inherit;
+        foreach (var particles in definition.Instance.GetChildren().OfType<GpuParticles3D>())
+        {
+            particles.Emitting = true;
+            particles.Restart();
+        }
+
+        foreach (var audio in definition.Instance.GetChildren().OfType<AudioStreamPlayer3D>())
+        {
+            audio.Play();
+        }
+    }
+
+    private static void DeactivateAmbientEffect(AmbientEffectState definition)
+    {
+        definition.IsActive = false;
+        foreach (var particles in definition.Instance.GetChildren().OfType<GpuParticles3D>())
+        {
+            particles.Emitting = false;
+        }
+
+        foreach (var audio in definition.Instance.GetChildren().OfType<AudioStreamPlayer3D>())
+        {
+            audio.Stop();
+        }
+
+        definition.Instance.Visible = false;
+        definition.Instance.ProcessMode = ProcessModeEnum.Disabled;
+    }
+
     private EffectInstance CreateAmbientEffect(AmbientEffectState definition)
     {
         var volume = definition.Volume;
-        var position = new Vector3(volume.GetCenter().X, volume.Position.Y, volume.GetCenter().Z);
+        var fireVolume = definition.FireVolume ?? volume;
+        var plumeVolume = definition.PlumeVolume ?? volume;
+        var position = new Vector3(
+            fireVolume.GetCenter().X,
+            fireVolume.Position.Y,
+            fireVolume.GetCenter().Z);
         var effect = new EffectInstance(true)
         {
             Name = $"Ambient{definition.KindName}-{definition.SourceName}",
@@ -186,9 +340,18 @@ public partial class BattlefieldEffects : Node3D
         };
         if (definition.IsFire)
         {
-            effect.AddChild(CreateAmbientFireParticles(volume.Size.X, volume.Size.Y));
-            effect.AddChild(CreateAmbientSmokeParticles(volume.Size.X * 0.7f, volume.Size.Y * 1.3f));
-            effect.AddChild(CreateFireLight(volume.Size.X * 0.65f, 14.0f + volume.Size.X * 0.12f));
+            effect.AddChild(CreateAmbientFireParticles(fireVolume.Size.X, fireVolume.Size.Y));
+            var smoke = CreateAmbientSmokeParticles(
+                Math.Max(fireVolume.Size.X * 0.7f, plumeVolume.Size.X),
+                Math.Max(fireVolume.Size.Y * 1.3f, plumeVolume.Size.Y));
+            smoke.Position = new Vector3(
+                plumeVolume.GetCenter().X - position.X,
+                0.0f,
+                plumeVolume.GetCenter().Z - position.Z);
+            effect.AddChild(smoke);
+            effect.AddChild(CreateFireLight(
+                fireVolume.Size.X * 0.65f,
+                14.0f + fireVolume.Size.X * 0.12f));
         }
         else
         {
@@ -227,53 +390,68 @@ public partial class BattlefieldEffects : Node3D
     public void SpawnDestruction(BattlefieldActor actor, Vector3 hitPosition)
     {
         ArgumentNullException.ThrowIfNull(actor);
+        SpawnDestruction(
+            actor.Name,
+            actor.Definition.ObjectId,
+            actor.DestructionBounds,
+            GetDestructionSmokeOrigin(actor, actor.DestructionBounds),
+            hitPosition);
+    }
+
+    /// <summary>
+    /// Spawns destruction effects for a dynamic combat actor such as an enemy mech.
+    /// </summary>
+    public void SpawnDestruction(string actorName, int soundVariant, Aabb bounds, Vector3 hitPosition)
+    {
+        var plumePosition = bounds.GetCenter();
+        plumePosition.Y = FindTerrainHeight(plumePosition, bounds.Position.Y);
+        SpawnDestruction(actorName, soundVariant, bounds, plumePosition, hitPosition);
+    }
+
+    private void SpawnDestruction(
+        string actorName,
+        int soundVariant,
+        Aabb bounds,
+        Vector3 plumePosition,
+        Vector3 hitPosition)
+    {
         if (!IsWithinEffectPersistenceRange(hitPosition))
         {
-            GD.Print($"MechRewired: skipped distant destruction effect for {actor.Description} beyond {EffectPersistenceRadius:F0}m.");
+            GD.Print($"MechRewired: skipped distant destruction effect for {actorName} beyond {EffectPersistenceRadius:F0}m.");
             return;
         }
 
-        var bounds = actor.DestructionBounds;
-        var plumePosition = GetDestructionSmokeOrigin(actor, bounds);
-
-        var effect = new EffectInstance(false)
-        {
-            Name = $"Destruction-{actor.Name}",
-            Position = plumePosition
-        };
-        AddChild(effect);
-        m_distanceBoundEffects.Add(effect);
-
+        var effect = AcquireDestructionEffect();
+        effect.Name = $"Destruction-{actorName}";
         var localHit = hitPosition - plumePosition;
-        var explosion = CreateFire(true, 40, 1.05f, Math.Clamp(bounds.Size.Length() * 0.12f, 2.5f, 7.0f));
-        explosion.Position = localHit;
-        effect.AddChild(explosion);
-        var light = CreateFireLight(Math.Clamp(bounds.Size.Length() * 0.45f, 5.0f, 13.0f), 22.0f);
-        light.Position = localHit;
-        effect.AddChild(light);
-        effect.ExplosionLight = light;
-        if (m_explosionSounds.Count > 0)
-        {
-            var sound = m_explosionSounds[Math.Abs(actor.Definition.ObjectId) % m_explosionSounds.Count];
-            var audio = CreatePositionalAudio("ExplosionSound", sound, 24.0f, 700.0f, 1.0f);
-            audio.Position = localHit;
-            effect.AddChild(audio);
-        }
-
-        var explosionSmoke = CreateSmoke(
+        var boundsLength = bounds.Size.Length();
+        ConfigureFire(
+            effect.ExplosionFire,
+            40,
+            1.05f,
+            Math.Clamp(boundsLength * 0.12f, 2.5f, 7.0f));
+        ConfigureSmoke(
+            effect.ExplosionSmoke,
             true,
             34,
             4.5f,
-            Math.Clamp(bounds.Size.Length() * 0.1f, 1.8f, 4.0f));
-        explosionSmoke.Position = localHit;
-        effect.AddChild(explosionSmoke);
-        var sparks = CreateSparks(Math.Clamp(bounds.Size.Length() * 0.03f, 0.12f, 0.3f));
-        sparks.Position = localHit;
-        effect.AddChild(sparks);
+            Math.Clamp(boundsLength * 0.1f, 1.8f, 4.0f));
+        ConfigureSparks(effect.Sparks, Math.Clamp(boundsLength * 0.03f, 0.12f, 0.3f));
+        ConfigureSmoke(
+            effect.LingeringSmoke,
+            false,
+            76,
+            7.0f,
+            Math.Clamp(boundsLength * 0.08f, 1.5f, 3.5f));
+        effect.ExplosionLight.OmniRange = Math.Clamp(boundsLength * 0.45f, 5.0f, 13.0f);
+        effect.ExplosionLight.LightEnergy = 22.0f;
+        if (effect.ExplosionAudio != null && m_explosionSounds.Count > 0)
+        {
+            effect.ExplosionAudio.Stream = m_explosionSounds[Math.Abs(soundVariant) % m_explosionSounds.Count];
+        }
 
-        var smoke = CreateSmoke(false, 76, 7.0f, Math.Clamp(bounds.Size.Length() * 0.08f, 1.5f, 3.5f));
-        effect.AddChild(smoke);
-        effect.LingeringSmoke = smoke;
+        effect.Activate(plumePosition, localHit);
+        m_distanceBoundEffects.Add(effect);
     }
 
     /// <summary>
@@ -286,28 +464,92 @@ public partial class BattlefieldEffects : Node3D
             return;
         }
 
-        var effect = new ImpactEffect
-        {
-            Name = "WeaponImpact",
-            Position = hitPosition
-        };
-        AddChild(effect);
-        m_distanceBoundEffects.Add(effect);
-
+        var effect = AcquireWeaponImpactEffect();
         var size = Math.Clamp(0.24f * m_fireSize, 0.55f, 1.8f);
         var amount = Math.Clamp((int)MathF.Round(7.0f * m_fireDensity), 8, 28);
-        var burst = CreateFire(true, amount, 0.52f, size);
-        var process = (ParticleProcessMaterial)burst.ProcessMaterial;
+        ConfigureFire(effect.Particles, amount, 0.52f, size);
+        var process = (ParticleProcessMaterial)effect.Particles.ProcessMaterial;
         process.InitialVelocityMin *= Math.Clamp(m_fireRise * 0.3f, 0.7f, 1.7f);
         process.InitialVelocityMax *= Math.Clamp(m_fireRise * 0.3f, 0.7f, 1.7f);
-        if (burst.MaterialOverride is ShaderMaterial material)
+        if (effect.Particles.MaterialOverride is ShaderMaterial material)
         {
             material.SetShaderParameter("emission_strength", 0.55f * m_fireBrightness);
         }
 
-        effect.AddChild(burst);
-        var light = CreateFireLight(4.5f * size, 4.0f * m_fireBrightness);
-        effect.AddChild(light);
+        effect.Light.OmniRange = 4.5f * size;
+        effect.Light.LightEnergy = 4.0f * m_fireBrightness;
+        effect.Activate(hitPosition);
+        m_distanceBoundEffects.Add(effect);
+    }
+
+    private ImpactEffect AcquireWeaponImpactEffect()
+    {
+        var effect = m_weaponImpactPool.FirstOrDefault(candidate => !candidate.IsActive) ??
+                     m_weaponImpactPool.MaxBy(candidate => candidate.Age) ??
+                     throw new InvalidOperationException("The weapon-impact VFX pool is empty.");
+        m_distanceBoundEffects.Remove(effect);
+        if (effect.IsActive)
+        {
+            effect.Deactivate();
+        }
+
+        return effect;
+    }
+
+    private EffectInstance AcquireDestructionEffect()
+    {
+        var effect = m_destructionPool.FirstOrDefault(candidate => !candidate.IsActive) ??
+                     m_destructionPool.MaxBy(candidate => candidate.Age) ??
+                     throw new InvalidOperationException("The destruction VFX pool is empty.");
+        m_distanceBoundEffects.Remove(effect);
+        if (effect.IsActive)
+        {
+            effect.Deactivate();
+            GD.Print("MechRewired: recycled the oldest active destruction VFX pool entry.");
+        }
+
+        return effect;
+    }
+
+    private static void ConfigureFire(
+        GpuParticles3D particles,
+        int amount,
+        float lifetime,
+        float size)
+    {
+        particles.AmountRatio = Mathf.Clamp((float)amount / particles.Amount, 0.0f, 1.0f);
+        particles.Lifetime = lifetime;
+        var process = (ParticleProcessMaterial)particles.ProcessMaterial;
+        process.InitialVelocityMin = 5.0f;
+        process.InitialVelocityMax = 13.0f;
+        process.ScaleMin = size * 0.45f;
+        process.ScaleMax = size;
+        process.EmissionSphereRadius = size * 0.45f;
+    }
+
+    private static void ConfigureSmoke(
+        GpuParticles3D particles,
+        bool oneShot,
+        int amount,
+        float lifetime,
+        float size)
+    {
+        particles.AmountRatio = Mathf.Clamp((float)amount / particles.Amount, 0.0f, 1.0f);
+        particles.Lifetime = lifetime;
+        var process = (ParticleProcessMaterial)particles.ProcessMaterial;
+        process.InitialVelocityMin = oneShot ? 2.5f : 1.0f;
+        process.InitialVelocityMax = oneShot ? 7.5f : 2.6f;
+        process.ScaleMin = size * 0.35f;
+        process.ScaleMax = size * 1.65f;
+        process.EmissionSphereRadius = Math.Max(0.4f, size * (oneShot ? 0.55f : 0.3f));
+    }
+
+    private static void ConfigureSparks(GpuParticles3D particles, float size)
+    {
+        var process = (ParticleProcessMaterial)particles.ProcessMaterial;
+        process.ScaleMin = size * 0.35f;
+        process.ScaleMax = size;
+        process.EmissionSphereRadius = 0.7f;
     }
 
     private Vector3 GetDestructionSmokeOrigin(BattlefieldActor actor, Aabb originalBounds)
@@ -918,12 +1160,20 @@ public partial class BattlefieldEffects : Node3D
 
     private sealed class AmbientEffectState
     {
-        public AmbientEffectState(bool isFire, Aabb volume, string sourceName, AudioStreamWav ambientSound)
+        public AmbientEffectState(
+            bool isFire,
+            Aabb volume,
+            string sourceName,
+            AudioStreamWav ambientSound,
+            Aabb? fireVolume = null,
+            Aabb? plumeVolume = null)
         {
             IsFire = isFire;
             Volume = volume;
             SourceName = sourceName;
             AmbientSound = ambientSound;
+            FireVolume = fireVolume;
+            PlumeVolume = plumeVolume;
         }
 
         public bool IsFire { get; }
@@ -934,7 +1184,13 @@ public partial class BattlefieldEffects : Node3D
 
         public AudioStreamWav AmbientSound { get; }
 
+        public Aabb? FireVolume { get; }
+
+        public Aabb? PlumeVolume { get; }
+
         public EffectInstance Instance { get; set; }
+
+        public bool IsActive { get; set; }
 
         public bool IsCulled { get; set; }
 
@@ -972,36 +1228,158 @@ public partial class BattlefieldEffects : Node3D
         float BaseScaleMax,
         float BaseSpread);
 
-    private sealed partial class ImpactEffect : Node3D
+    private interface IPooledEffect
     {
+        bool IsActive { get; }
+
+        void Deactivate();
+    }
+
+    private sealed partial class ImpactEffect : Node3D, IPooledEffect
+    {
+        public ImpactEffect(GpuParticles3D particles, OmniLight3D light)
+        {
+            Particles = particles;
+            Light = light;
+        }
+
         private float m_age;
+
+        public GpuParticles3D Particles { get; }
+
+        public OmniLight3D Light { get; }
+
+        public bool IsActive { get; private set; }
+
+        public float Age => m_age;
+
+        public void Activate(Vector3 position)
+        {
+            Position = position;
+            m_age = 0.0f;
+            IsActive = true;
+            Visible = true;
+            ProcessMode = ProcessModeEnum.Inherit;
+            Light.Visible = true;
+            Particles.Emitting = true;
+            Particles.Restart();
+        }
+
+        public void Deactivate()
+        {
+            IsActive = false;
+            Particles.Emitting = false;
+            Light.Visible = false;
+            Visible = false;
+            ProcessMode = ProcessModeEnum.Disabled;
+        }
 
         public override void _Process(double delta)
         {
+            if (!IsActive)
+            {
+                return;
+            }
+
             m_age += (float)delta;
             if (m_age >= 0.9f)
             {
-                QueueFree();
+                Deactivate();
             }
         }
     }
 
-    private sealed partial class EffectInstance : Node3D
+    private sealed partial class EffectInstance : Node3D, IPooledEffect
     {
         private readonly bool m_ambient;
+        private readonly bool m_pooled;
         private float m_age;
 
-        public EffectInstance(bool ambient)
+        public EffectInstance(bool ambient, bool pooled = false)
         {
             m_ambient = ambient;
+            m_pooled = pooled;
+            IsActive = !pooled;
         }
+
+        public GpuParticles3D ExplosionFire { get; set; }
+
+        public GpuParticles3D ExplosionSmoke { get; set; }
+
+        public GpuParticles3D Sparks { get; set; }
 
         public GpuParticles3D LingeringSmoke { get; set; }
 
         public OmniLight3D ExplosionLight { get; set; }
 
+        public AudioStreamPlayer3D ExplosionAudio { get; set; }
+
+        public bool IsActive { get; private set; }
+
+        public float Age => m_age;
+
+        public void Activate(Vector3 position, Vector3 localHit)
+        {
+            if (!m_pooled)
+            {
+                throw new InvalidOperationException("Only pooled destruction effects can be activated.");
+            }
+
+            Position = position;
+            m_age = 0.0f;
+            IsActive = true;
+            Visible = true;
+            ProcessMode = ProcessModeEnum.Inherit;
+            Restart(ExplosionFire, localHit);
+            Restart(ExplosionSmoke, localHit);
+            Restart(Sparks, localHit);
+
+            LingeringSmoke.Position = Vector3.Zero;
+            LingeringSmoke.Emitting = true;
+            LingeringSmoke.Restart();
+            ExplosionLight.Position = localHit;
+            ExplosionLight.LightEnergy = 22.0f;
+            ExplosionLight.Visible = true;
+            if (ExplosionAudio != null)
+            {
+                ExplosionAudio.Position = localHit;
+                ExplosionAudio.Play();
+            }
+        }
+
+        public void Deactivate()
+        {
+            if (!m_pooled)
+            {
+                return;
+            }
+
+            IsActive = false;
+            ExplosionFire.Emitting = false;
+            ExplosionSmoke.Emitting = false;
+            Sparks.Emitting = false;
+            LingeringSmoke.Emitting = false;
+
+            ExplosionLight.Visible = false;
+            ExplosionAudio?.Stop();
+            Visible = false;
+            ProcessMode = ProcessModeEnum.Disabled;
+        }
+
+        private static void Restart(GpuParticles3D particles, Vector3 position)
+        {
+            particles.Position = position;
+            particles.Emitting = true;
+            particles.Restart();
+        }
+
         public override void _Process(double delta)
         {
+            if (!IsActive)
+            {
+                return;
+            }
+
             m_age += (float)delta;
             if (m_ambient)
             {

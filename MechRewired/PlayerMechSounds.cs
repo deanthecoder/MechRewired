@@ -29,7 +29,8 @@ public sealed record PlayerMechSounds(
     AudioStreamWav NavigationPointTone,
     IReadOnlyList<AudioStreamWav> NavigationPointReports,
     AudioStreamWav DisplayZoom,
-    AudioStreamWav MediumLaser)
+    AudioStreamWav MediumLaser,
+    IReadOnlyList<AudioStreamWav> WeaponImpacts)
 {
     private const string TorsoMotorPath = "SNDS/TORSLOOP.SFL";
     private const string FootfallPath = "SNDS/NONFOOT.SFL";
@@ -43,6 +44,14 @@ public sealed record PlayerMechSounds(
     private const string NavigationPointTonePath = "SNDS/MECNAVPT.SFL";
     private const string DisplayZoomPath = "SNDS/VIEWZOOM.SFL";
     private const string MediumLaserPath = "SNDS/MECMLASR.SFL";
+    private static readonly string[] WeaponImpactPaths =
+    [
+        "SNDS/MECWIMP1.SFL",
+        "SNDS/MECWIMP2.SFL",
+        "SNDS/MECWIMP3.SFL",
+        "SNDS/MECWIMP4.SFL",
+        "SNDS/MECWIMP5.SFL"
+    ];
     private static readonly string[] NavigationPointReportPaths =
     [
         "SNDS/GENEGOES.SFL",
@@ -72,7 +81,14 @@ public sealed record PlayerMechSounds(
                     $"Pyre Light NAV {index + 1} arrival report"))
                 .ToArray(),
             LoadResource(archive, DisplayZoomPath, true, "cockpit display zoom motor"),
-            LoadResource(archive, MediumLaserPath, false, "medium laser fire"));
+            LoadResource(archive, MediumLaserPath, false, "medium laser fire"),
+            WeaponImpactPaths
+                .Select((path, index) => LoadResource(
+                    archive,
+                    path,
+                    false,
+                    $"weapon impact {index + 1}"))
+                .ToArray());
     }
 
     internal static AudioStreamWav LoadResource(

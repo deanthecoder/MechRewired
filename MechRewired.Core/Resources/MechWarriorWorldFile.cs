@@ -33,6 +33,8 @@ public sealed class MechWarriorWorldFile
         IReadOnlyList<MechWarriorWorldNavPoint> navPoints,
         IReadOnlyList<MechWarriorMissionTable> missionTables,
         IReadOnlyList<MechWarriorWorldTask> tasks,
+        IReadOnlyList<MechWarriorGamePieceSpecification> gamePieceSpecifications,
+        IReadOnlyList<MechWarriorMissionStar> stars,
         int? timeOfDay,
         MechWarriorWorldLighting lighting,
         string luminosityTable,
@@ -44,6 +46,8 @@ public sealed class MechWarriorWorldFile
         NavPoints = navPoints;
         MissionTables = missionTables;
         Tasks = tasks;
+        GamePieceSpecifications = gamePieceSpecifications;
+        Stars = stars;
         TimeOfDay = timeOfDay;
         Lighting = lighting;
         LuminosityTable = luminosityTable;
@@ -61,6 +65,10 @@ public sealed class MechWarriorWorldFile
     public IReadOnlyList<MechWarriorMissionTable> MissionTables { get; }
 
     public IReadOnlyList<MechWarriorWorldTask> Tasks { get; }
+
+    public IReadOnlyList<MechWarriorGamePieceSpecification> GamePieceSpecifications { get; }
+
+    public IReadOnlyList<MechWarriorMissionStar> Stars { get; }
 
     public int? TimeOfDay { get; }
 
@@ -88,6 +96,8 @@ public sealed class MechWarriorWorldFile
         var navPoints = new List<MechWarriorWorldNavPoint>();
         var missionTables = new List<MechWarriorMissionTable>();
         var tasks = new List<MechWarriorWorldTask>();
+        var gamePieceSpecifications = new List<MechWarriorGamePieceSpecification>();
+        var stars = new List<MechWarriorMissionStar>();
         var localTransforms = new Dictionary<int, MechWarriorWorldTransform>();
         int? timeOfDay = null;
         MechWarriorWorldLighting lighting = null;
@@ -191,7 +201,7 @@ public sealed class MechWarriorWorldFile
                             ReadInt32(data, offset + 8) * TranslationScale,
                             ReadInt32(data, offset + 12) * TranslationScale,
                             ReadInt32(data, offset + 16) * TranslationScale),
-                        ReadUInt16(data, offset + 22),
+                        ReadInt16(data, offset + 22),
                         ReadUInt16(data, offset + 24) != 0,
                         ReadUInt16(data, offset + 30),
                         ReadUInt16(data, offset + 32),
@@ -210,6 +220,56 @@ public sealed class MechWarriorWorldFile
                         ReadUInt16(data, offset + 12),
                         ReadAscii(data, offset + 14, tagSize - 14)));
                     break;
+
+                case "GPS":
+                    EnsureTagSize(tagName, tagSize, 100);
+                    gamePieceSpecifications.Add(new MechWarriorGamePieceSpecification(
+                        ReadInt16(data, offset + 8),
+                        ReadInt16(data, offset + 10),
+                        data[offset + 12],
+                        data[offset + 13],
+                        ReadUInt16(data, offset + 14),
+                        ReadUInt16(data, offset + 16),
+                        ReadUInt16(data, offset + 18),
+                        ReadUInt16(data, offset + 20),
+                        ReadUInt16(data, offset + 22),
+                        ReadUInt16(data, offset + 24),
+                        ReadUInt16(data, offset + 32),
+                        data[offset + 35],
+                        ReadAscii(data, offset + 36, 9),
+                        ReadAscii(data, offset + 45, 9),
+                        ReadAscii(data, offset + 54, 22).TrimEnd(),
+                        ReadAscii(data, offset + 76, 22).TrimEnd()));
+                    break;
+
+                case "STAR":
+                    const int starRecordSize = 24;
+                    var starPayloadSize = tagSize - 8;
+                    if (starPayloadSize % starRecordSize != 0)
+                    {
+                        throw new InvalidDataException(
+                            $"BWD STAR tag has {starPayloadSize} payload bytes; expected 24-byte records.");
+                    }
+
+                    for (var starOffset = offset + 8;
+                         starOffset < offset + tagSize;
+                         starOffset += starRecordSize)
+                    {
+                        var disposition = ReadInt32(data, starOffset + 4);
+                        if (!Enum.IsDefined(typeof(MechWarriorMissionDisposition), disposition))
+                        {
+                            throw new InvalidDataException(
+                                $"BWD STAR group {stars.Count} has unsupported disposition {disposition}.");
+                        }
+
+                        stars.Add(new MechWarriorMissionStar(
+                            stars.Count,
+                            ReadInt32(data, starOffset),
+                            (MechWarriorMissionDisposition)disposition,
+                            ReadAscii(data, starOffset + 8, 8)));
+                    }
+
+                    break;
             }
 
             offset += tagSize;
@@ -222,6 +282,8 @@ public sealed class MechWarriorWorldFile
             navPoints.AsReadOnly(),
             missionTables.AsReadOnly(),
             tasks.AsReadOnly(),
+            gamePieceSpecifications.AsReadOnly(),
+            stars.AsReadOnly(),
             timeOfDay,
             lighting,
             luminosityTable,

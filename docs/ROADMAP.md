@@ -24,13 +24,12 @@ This phase is complete when the player can pilot one mech around the battlefield
 
 ## 3. Original mission gameplay
 
-- Load mech definitions and weapon configurations from original data.
+- Decode full MEK armor and weapon loadouts, replacing temporary tonnage-based whole-mech health and medium lasers.
 - Replace the current Pyre Light-specific resource constants with a scenario-driven mission definition that resolves the planet, battlefield, deployment, NAV sequence, enemy groups and music from the original data.
 - Decode the remaining mission metadata (`MTBL`, `TSK` and `AFFL`) and compare Pyre Light with structurally different missions before settling the runtime model. — MTBL fixed records and Pyre Light trigger/goal flags decoded; comparison, TSK and AFFL remain
 - Represent the remaining original objectives with reusable primitives: protect a target, eliminate all required enemies, and wait for a timer or prerequisite.
-- Add enemy mission actors, health, destruction transitions, weapons and damage.
-- Add basic friendly and hostile navigation, targeting and combat.
-- Recreate Pyre Light's mission chain with enemy opposition: reach Nav Epsilon and engage the power plant, reach Nav Zeta and inspect the firebase, then reach Nav Eta for extraction. — enemy opposition remains
+- Add component armor and location-based mech damage, including detachable limbs.
+- Add friendly actors plus formation/path behavior beyond the initial hostile acquire, track, glide and fire slice.
 - Implement data-driven objective evaluation reusable across missions, including failure and debrief states. — failure and debrief remain
 
 This phase is complete when one original mission can be played from deployment to a diagnostic debrief state.

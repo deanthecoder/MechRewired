@@ -64,7 +64,8 @@ public partial class Main : Node3D
                 out var playerStart,
                 out var navigationPoints,
                 out var missionDefinition,
-                out var playerMechDefinition))
+                out var playerMechDefinition,
+                out var missionGamePieces))
         {
             return;
         }
@@ -81,7 +82,8 @@ public partial class Main : Node3D
                 playerStart,
                 navigationPoints,
                 missionDefinition,
-                playerMechDefinition);
+                playerMechDefinition,
+                missionGamePieces);
         }
         catch (Exception exception)
         {
@@ -114,7 +116,8 @@ public partial class Main : Node3D
         out MechWarriorWorldNavPoint playerStart,
         out IReadOnlyList<MechWarriorMissionNavigationPoint> navigationPoints,
         out MissionDefinition missionDefinition,
-        out MechWarriorMechFile playerMechDefinition)
+        out MechWarriorMechFile playerMechDefinition,
+        out IReadOnlyList<MechWarriorMissionGamePiece> missionGamePieces)
     {
         archive = null;
         palette = null;
@@ -126,6 +129,7 @@ public partial class Main : Node3D
         navigationPoints = null;
         missionDefinition = null;
         playerMechDefinition = null;
+        missionGamePieces = null;
         try
         {
             var projectDirectory = new DirectoryInfo(ProjectSettings.GlobalizePath("res://"));
@@ -194,6 +198,19 @@ public partial class Main : Node3D
             var scenario = MechWarriorWorldFile.Load(archive.ReadEntry(scenarioEntry));
             missionDefinition = LoadMissionDefinition(scenarioEntry, scenario);
             navigationPoints = LoadMissionNavigationPoints(archive, scenarioEntry, scenario);
+            missionGamePieces = MechWarriorMissionGamePieceLoader.Load(archive, scenario);
+            foreach (var gamePiece in missionGamePieces)
+            {
+                var specification = gamePiece.Specification;
+                var spawn = gamePiece.SpawnPoint;
+                GD.Print(
+                    $"MechRewired: resolved {gamePiece.Star.Disposition.ToString().ToLowerInvariant()} " +
+                    $"game piece group {specification.GroupId}: {specification.DisplayName} " +
+                    $"({specification.ConfigurationName}; pilot {specification.PilotName}) at " +
+                    $"({spawn.Position.X:F2}, {spawn.Position.Y:F2}, {spawn.Position.Z:F2}), " +
+                    $"heading {spawn.StartingAngle:F1} degrees; target/sleep/rubberband " +
+                    $"{specification.TargetRange}/{specification.SleepRange}/{specification.RubberbandRange}m.");
+            }
 
             level = MechWarriorLevel.Load(
                 archive,
@@ -319,7 +336,8 @@ public partial class Main : Node3D
         MechWarriorWorldNavPoint playerStart,
         IReadOnlyList<MechWarriorMissionNavigationPoint> navigationPoints,
         MissionDefinition missionDefinition,
-        MechWarriorMechFile playerMechDefinition)
+        MechWarriorMechFile playerMechDefinition,
+        IReadOnlyList<MechWarriorMissionGamePiece> missionGamePieces)
     {
         var skyTopColor = ToGodotColor(palette[SkyTopPaletteIndex]);
         var skyHorizonColor = ToGodotColor(palette[SkyHorizonPaletteIndex]);
@@ -700,6 +718,7 @@ public partial class Main : Node3D
 
         var playerMechSounds = PlayerMechSounds.Load(archive);
         var playerMech = new PlayerMech(
+            playerMechDefinition.Tonnage,
             playerMechDefinition.CruisingSpeedKph,
             playerMechDefinition.MaximumSpeedKph,
             playerMechSounds);
@@ -795,6 +814,19 @@ public partial class Main : Node3D
         {
             battlefieldActor.ConfigureEffectPersistence(playerMech);
         }
+
+        var enemyMechs = LoadEnemyMechs(
+            archive,
+            palette,
+            luminosityTable,
+            materialMapEntry,
+            materialMap,
+            materialImages,
+            missionGamePieces,
+            playerMech,
+            playerMechSounds.MediumLaser,
+            battlefieldEffects,
+            debugTriangles.AsReadOnly());
         GD.Print(
             $"MechRewired: configured {staticSceneryObstacles.Count} static and " +
             $"{battlefieldActors.Length} actor scenery obstacles.");
@@ -822,6 +854,7 @@ public partial class Main : Node3D
             playerMission,
             debugTriangles.AsReadOnly(),
             battlefieldActors,
+            enemyMechs,
             playerMechSounds.MediumLaser,
             battlefieldEffects);
         AddChild(playerTargeting);
@@ -867,6 +900,194 @@ public partial class Main : Node3D
         };
         camera.LookAtFromPosition(camera.Position, target);
         AddChild(camera);
+    }
+
+    private IReadOnlyList<EnemyMech> LoadEnemyMechs(
+        MechWarriorProjectArchive archive,
+        MechWarriorPalette palette,
+        MechWarriorLuminosityTable luminosityTable,
+        MechWarriorProjectEntry materialMapEntry,
+        MechWarriorMaterialMap materialMap,
+        Dictionary<byte, MechWarriorIndexedImage> materialImages,
+        IReadOnlyList<MechWarriorMissionGamePiece> missionGamePieces,
+        PlayerMech playerMech,
+        AudioStreamWav laserSound,
+        BattlefieldEffects battlefieldEffects,
+        IReadOnlyList<DebugTriangle> debugTriangles)
+    {
+        var enemyRoot = new Node3D { Name = "EnemyMechs" };
+        AddChild(enemyRoot);
+        var enemies = new List<EnemyMech>();
+        foreach (var gamePiece in missionGamePieces.Where(gamePiece =>
+                     gamePiece.Star.Disposition == MechWarriorMissionDisposition.Hostile))
+        {
+            var chassis = MechWarriorMechChassis.Load(archive.ReadEntry(gamePiece.ChassisEntry));
+            var mechDefinition = MechWarriorMechFile.Load(archive.ReadEntry(gamePiece.ConfigurationEntry));
+            var enemy = new EnemyMech(
+                gamePiece,
+                mechDefinition,
+                playerMech,
+                battlefieldEffects,
+                laserSound,
+                position => FindDeploymentSurfaceHeight(debugTriangles, position),
+                debugTriangles);
+            enemyRoot.AddChild(enemy);
+
+            var objectsById = chassis.Objects.ToDictionary(mechObject => mechObject.Id);
+            var torsoObjectId = chassis.ThingObjectIds.FirstOrDefault(id => objectsById.ContainsKey(id));
+            var torsoPivot = torsoObjectId != 0
+                ? MechWarriorCoordinateSystem.ToGodotPosition(objectsById[torsoObjectId].Transform.Translation)
+                : Vector3.Zero;
+            var bounds = new Aabb();
+            var hasBounds = false;
+            var renderedParts = 0;
+            var renderedPolygons = 0;
+            foreach (var chassisObject in chassis.Objects.Where(chassisObject => chassisObject.ModelResourceIndex >= 0))
+            {
+                var modelEntry = archive.GetEntry("POLY", chassisObject.ModelResourceIndex);
+                if (modelEntry.Name.StartsWith("DUMMY", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var models = MechWarriorModel.LoadAll(archive.ReadEntry(modelEntry));
+                var model = models.MaxBy(candidate => candidate.Polygons.Count) ??
+                            throw new InvalidDataException($"{modelEntry.Path} contains no mech model.");
+                LoadMechMaterialImages(
+                    archive,
+                    materialMapEntry,
+                    materialMap,
+                    materialImages,
+                    model.Polygons.Select(polygon => polygon.MaterialIndex));
+                var mesh = MechWarriorModelMeshBuilder.Build(
+                    model,
+                    palette,
+                    luminosityTable,
+                    GeneralIlluminationLevel,
+                    materialImages);
+                var absolutePosition = MechWarriorCoordinateSystem.ToGodotPosition(
+                    chassisObject.Transform.Translation);
+                var isTorsoPart = torsoObjectId != 0 &&
+                                  IsDescendantOf(chassisObject.Id, torsoObjectId, objectsById);
+                var modelInstance = new MeshInstance3D
+                {
+                    Name = modelEntry.Name,
+                    Mesh = mesh,
+                    Position = isTorsoPart ? absolutePosition - torsoPivot : absolutePosition,
+                    RotationDegrees = MechWarriorCoordinateSystem.ToGodotRotation(
+                        chassisObject.Transform.RotationDegrees),
+                    Scale = MechWarriorCoordinateSystem.ToGodotScale(chassisObject.Transform.Scale),
+                    CastShadow = modelEntry.Name.Contains("DEC", StringComparison.OrdinalIgnoreCase)
+                        ? GeometryInstance3D.ShadowCastingSetting.Off
+                        : GeometryInstance3D.ShadowCastingSetting.DoubleSided
+                };
+                (isTorsoPart ? enemy.Torso : enemy.Legs).AddChild(modelInstance);
+                modelInstance.AddToGroup(DebugCamera.SolidMeshGroup);
+
+                var wireframe = new MeshInstance3D
+                {
+                    Name = $"{modelEntry.Name}Wireframe",
+                    Mesh = MechWarriorModelMeshBuilder.BuildWireframe(model),
+                    Position = modelInstance.Position,
+                    RotationDegrees = modelInstance.RotationDegrees,
+                    Scale = modelInstance.Scale,
+                    Visible = false
+                };
+                (isTorsoPart ? enemy.Torso : enemy.Legs).AddChild(wireframe);
+                wireframe.AddToGroup(DebugCamera.WireframeMeshGroup);
+
+                var absoluteTransform = isTorsoPart
+                    ? new Transform3D(Basis.Identity, torsoPivot) * modelInstance.Transform
+                    : modelInstance.Transform;
+                var partBounds = absoluteTransform * mesh.GetAabb();
+                bounds = hasBounds ? bounds.Merge(partBounds) : partBounds;
+                hasBounds = true;
+                renderedParts++;
+                renderedPolygons += model.Polygons.Count;
+            }
+
+            if (!hasBounds)
+            {
+                throw new InvalidDataException(
+                    $"{gamePiece.ChassisEntry.Path} contains no supported renderable mech parts.");
+            }
+
+            var authoredWeaponMounts = chassis.PointsOfFire
+                .Select(point => objectsById.GetValueOrDefault(point.ObjectId))
+                .Where(mechObject =>
+                    mechObject != null &&
+                    (torsoObjectId == 0 || IsDescendantOf(mechObject.Id, torsoObjectId, objectsById)))
+                .Select(mechObject => MechWarriorCoordinateSystem.ToGodotPosition(
+                    mechObject.Transform.Translation))
+                .Distinct()
+                .OrderBy(position => position.X)
+                .ToArray();
+            var weaponMounts = authoredWeaponMounts.Length > 2
+                ? new[] { authoredWeaponMounts[0], authoredWeaponMounts[^1] }
+                : authoredWeaponMounts;
+            enemy.ConfigureVisuals(bounds, torsoPivot, weaponMounts);
+            var spawnPosition = MechWarriorCoordinateSystem.ToGodotPosition(gamePiece.SpawnPoint.Position);
+            spawnPosition.Y = FindDeploymentSurfaceHeight(debugTriangles, spawnPosition) - bounds.Position.Y;
+            enemy.Position = spawnPosition;
+            enemy.RotationDegrees = MechWarriorCoordinateSystem.ToGodotRotation(
+                new System.Numerics.Vector3(0.0f, gamePiece.SpawnPoint.StartingAngle, 0.0f));
+            enemies.Add(enemy);
+            GD.Print(
+                $"MechRewired: deployed hostile {enemy.Description} from {gamePiece.ChassisEntry.Path}/" +
+                $"{gamePiece.ConfigurationEntry.Name} at rendered ({enemy.Position.X:F2}, {enemy.Position.Y:F2}, " +
+                $"{enemy.Position.Z:F2}); {renderedParts} parts, {renderedPolygons} polygons, " +
+                $"{weaponMounts.Length} firing points, {enemy.Health} whole-mech health.");
+        }
+
+        GD.Print(
+            $"MechRewired: hostile force online ({enemies.Count} data-driven mechs; " +
+            "GPS acquire ranges, chassis/torso tracking, MEK movement, medium lasers; leg animation pending).");
+        return enemies.AsReadOnly();
+    }
+
+    private static void LoadMechMaterialImages(
+        MechWarriorProjectArchive archive,
+        MechWarriorProjectEntry materialMapEntry,
+        MechWarriorMaterialMap materialMap,
+        Dictionary<byte, MechWarriorIndexedImage> materialImages,
+        IEnumerable<byte> materialIndices)
+    {
+        foreach (var materialIndex in materialIndices.Distinct())
+        {
+            if (materialIndex > MaximumTexturedMechMaterialIndex ||
+                materialImages.ContainsKey(materialIndex) ||
+                !materialMap.Images.TryGetValue(materialIndex, out var materialImage))
+            {
+                continue;
+            }
+
+            var imageEntry = archive.GetEntry("CEL", materialImage.ImageResourceIndex);
+            materialImages.Add(materialIndex, MechWarriorIndexedImage.Load(archive.ReadEntry(imageEntry)));
+            GD.Print(
+                $"MechRewired: mapped enemy WTB material {materialIndex} through {materialMapEntry.Path} " +
+                $"to {imageEntry.Path} ('{materialImage.Name}').");
+        }
+    }
+
+    private static bool IsDescendantOf(
+        int objectId,
+        int ancestorId,
+        IReadOnlyDictionary<int, MechWarriorWorldObject> objectsById)
+    {
+        for (var currentId = objectId; objectsById.TryGetValue(currentId, out var current); currentId = current.RelativeToId)
+        {
+            if (currentId == ancestorId)
+            {
+                return true;
+            }
+
+            if (current.RelativeToId < 0)
+            {
+                return false;
+            }
+        }
+
+        return false;
     }
 
     private static IReadOnlyList<MissionDropShipSetPiece> LoadMissionDropShips(
@@ -1094,6 +1315,30 @@ public partial class Main : Node3D
             var fireDefinitions = effectDefinitions
                 .Where(effect => !effect.ModelEntry.Name.StartsWith("SMO", StringComparison.OrdinalIgnoreCase))
                 .ToArray();
+            var elevatedSmokeByFireId = new Dictionary<int, List<(MechWarriorWorldObject Object, Aabb Bounds)>>();
+            var foldedSmokeIds = new HashSet<int>();
+            foreach (var smoke in effectDefinitions.Where(effect =>
+                         effect.ModelEntry.Name.StartsWith("SMO", StringComparison.OrdinalIgnoreCase)))
+            {
+                var supportingFire = fireDefinitions
+                    .Where(fire => IsElevatedSmokeAboveFire(smoke.Bounds, fire.Bounds))
+                    .OrderBy(fire => HorizontalDistance(smoke.Bounds, fire.Bounds))
+                    .FirstOrDefault();
+                if (supportingFire.Object == null)
+                {
+                    continue;
+                }
+
+                if (!elevatedSmokeByFireId.TryGetValue(supportingFire.Object.Id, out var smokeVolumes))
+                {
+                    smokeVolumes = [];
+                    elevatedSmokeByFireId.Add(supportingFire.Object.Id, smokeVolumes);
+                }
+
+                smokeVolumes.Add((smoke.Object, smoke.Bounds));
+                foldedSmokeIds.Add(smoke.Object.Id);
+            }
+
             var renderedCount = 0;
             foreach (var effect in effectDefinitions)
             {
@@ -1101,11 +1346,11 @@ public partial class Main : Node3D
                 var modelEntry = effect.ModelEntry;
                 var effectBounds = effect.Bounds;
                 if (modelEntry.Name.StartsWith("SMO", StringComparison.OrdinalIgnoreCase) &&
-                    fireDefinitions.Any(fire => IsElevatedSmokeAboveFire(effectBounds, fire.Bounds)))
+                    foldedSmokeIds.Contains(effectObject.Id))
                 {
                     GD.Print(
                         $"MechRewired: folded elevated {modelEntry.Name} object {effectObject.Id} " +
-                        "into its lower fire emitter.");
+                        "into its lower fire emitter while preserving its authored plume volume.");
                     continue;
                 }
 
@@ -1124,8 +1369,18 @@ public partial class Main : Node3D
                 }
                 else
                 {
+                    var plumeBounds = effectBounds;
+                    if (elevatedSmokeByFireId.TryGetValue(effectObject.Id, out var smokeVolumes))
+                    {
+                        foreach (var smokeVolume in smokeVolumes)
+                        {
+                            plumeBounds = MergeBounds(plumeBounds, smokeVolume.Bounds);
+                        }
+                    }
+
                     battlefieldEffects.AddAmbientFire(
                         effectBounds,
+                        plumeBounds,
                         include.Transform.Translation.Y,
                         $"{effectsEntry.Name}-{effectObject.Id}",
                         ambientSound);
@@ -1154,11 +1409,21 @@ public partial class Main : Node3D
 
     private static bool IsElevatedSmokeAboveFire(Aabb smoke, Aabb fire)
     {
-        var horizontalDistance = new Vector2(
-            smoke.GetCenter().X - fire.GetCenter().X,
-            smoke.GetCenter().Z - fire.GetCenter().Z).Length();
+        var horizontalDistance = HorizontalDistance(smoke, fire);
         return horizontalDistance <= Math.Max(smoke.Size.X, fire.Size.X) * 0.65f &&
                smoke.GetCenter().Y > fire.GetCenter().Y + fire.Size.Y * 0.12f;
+    }
+
+    private static float HorizontalDistance(Aabb first, Aabb second) =>
+        new Vector2(
+            first.GetCenter().X - second.GetCenter().X,
+            first.GetCenter().Z - second.GetCenter().Z).Length();
+
+    private static Aabb MergeBounds(Aabb first, Aabb second)
+    {
+        var minimum = first.Position.Min(second.Position);
+        var maximum = first.End.Max(second.End);
+        return new Aabb(minimum, maximum - minimum);
     }
 
     private static Aabb GetEffectWorldBounds(

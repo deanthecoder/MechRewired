@@ -45,6 +45,8 @@ public partial class PlayerMech : Node3D
     private const float CockpitPitchDegrees = -19.0f;
     private const float MotorSettleSeconds = 0.15f;
     private const float LegAlignmentTolerance = 0.005f;
+    private const float DamageShudderDuration = 0.55f;
+    private const float DamageShudderFrequency = 14.0f;
 
     private IReadOnlyList<DebugTriangle> m_terrainTriangles = Array.Empty<DebugTriangle>();
     private Func<IReadOnlyList<SceneryObstacle>> m_sceneryObstacleProvider = () => Array.Empty<SceneryObstacle>();
@@ -64,7 +66,11 @@ public partial class PlayerMech : Node3D
     private SceneryObstacle m_lastBlockingObstacle;
     private bool m_aligningLegsToTorso;
     private bool m_translationLocked;
+    private string m_translationLockReason = string.Empty;
     private bool m_displayZoomMoving;
+    private float m_damageShudderRemaining;
+    private float m_damageShudderStrength;
+    private int m_nextDamageImpact;
     private readonly AudioStreamPlayer m_torsoMotor;
     private readonly AudioStreamPlayer m_footfall;
     private readonly AudioStreamPlayer m_startup;
@@ -72,15 +78,26 @@ public partial class PlayerMech : Node3D
     private readonly AudioStreamPlayer m_deploymentReport;
     private readonly AudioStreamPlayer m_displayZoom;
     private readonly AudioStreamPlayer m_driveTransition;
+    private readonly AudioStreamPlayer m_damageImpact;
+    private readonly IReadOnlyList<AudioStreamWav> m_damageImpactSounds;
     private readonly AudioStreamWav m_startWalking;
     private readonly AudioStreamWav m_stopWalking;
     private readonly AudioStreamWav m_startRunning;
     private readonly AudioStreamWav m_stopRunning;
     private readonly double m_cruisingSpeedKph;
 
-    public PlayerMech(double cruisingSpeedKph, double maximumForwardSpeedKph, PlayerMechSounds sounds)
+    public PlayerMech(
+        int tonnage,
+        double cruisingSpeedKph,
+        double maximumForwardSpeedKph,
+        PlayerMechSounds sounds)
     {
         ArgumentNullException.ThrowIfNull(sounds);
+        if (tonnage <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(tonnage));
+        }
+
         if (cruisingSpeedKph <= 0.0 || cruisingSpeedKph >= maximumForwardSpeedKph)
         {
             throw new ArgumentOutOfRangeException(
@@ -89,6 +106,8 @@ public partial class PlayerMech : Node3D
         }
 
         Name = "PlayerMech";
+        MaximumHealth = tonnage * 2;
+        Health = MaximumHealth;
         m_cruisingSpeedKph = cruisingSpeedKph;
         Drive = new MechDrive(new MechDriveProfile(maximumForwardSpeedKph));
         Legs = new Node3D { Name = "Legs" };
@@ -146,6 +165,13 @@ public partial class PlayerMech : Node3D
             Name = "DriveTransition",
             VolumeDb = -4.0f
         };
+        m_damageImpactSounds = sounds.WeaponImpacts;
+        m_damageImpact = new AudioStreamPlayer
+        {
+            Name = "DamageImpact",
+            VolumeDb = -1.0f,
+            MaxPolyphony = 4
+        };
         AddChild(m_torsoMotor);
         AddChild(m_footfall);
         AddChild(m_startup);
@@ -153,6 +179,7 @@ public partial class PlayerMech : Node3D
         AddChild(m_deploymentReport);
         AddChild(m_displayZoom);
         AddChild(m_driveTransition);
+        AddChild(m_damageImpact);
     }
 
     public MechDrive Drive { get; }
@@ -162,6 +189,14 @@ public partial class PlayerMech : Node3D
     public float FeetElevation => Position.Y + m_modelBottomY;
 
     public float ActualSpeedKph { get; private set; }
+
+    public int Health { get; private set; }
+
+    public int MaximumHealth { get; }
+
+    public bool IsDestroyed => Health <= 0;
+
+    public Vector3 TargetPosition => CockpitMount?.GlobalPosition ?? GlobalPosition + Vector3.Up * 8.0f;
 
     public Node3D Legs { get; }
 
@@ -181,6 +216,29 @@ public partial class PlayerMech : Node3D
 
     public event Action TargetRequested;
 
+    public void ApplyDamage(int damage, string attacker)
+    {
+        if (damage <= 0 || IsDestroyed)
+        {
+            return;
+        }
+
+        Health = Math.Max(0, Health - damage);
+        PlayDamageImpact();
+        m_damageShudderRemaining = DamageShudderDuration;
+        m_damageShudderStrength = Mathf.Clamp(damage / 8.0f, 0.5f, 1.25f);
+        GD.Print(
+            $"MechRewired: PlayerMech hit by {attacker} for {damage} damage " +
+            $"({Health}/{MaximumHealth} whole-mech health).");
+        if (IsDestroyed)
+        {
+            Drive.SelectStop();
+            m_translationLocked = true;
+            m_translationLockReason = "destroyed";
+            GD.Print("MechRewired: PlayerMech destroyed; detailed armor and mission failure handling pending.");
+        }
+    }
+
     /// <summary>
     /// Stops and locks forward/reverse travel while leaving stationary steering and aiming available.
     /// </summary>
@@ -193,6 +251,7 @@ public partial class PlayerMech : Node3D
 
         var previousTargetSpeedKph = Drive.TargetSpeedKph;
         m_translationLocked = true;
+        m_translationLockReason = "extraction";
         Drive.SelectStop();
         PlayDriveTransition(previousTargetSpeedKph);
         GD.Print(
@@ -312,6 +371,7 @@ public partial class PlayerMech : Node3D
             Mathf.Abs(appliedDistance),
             Mathf.Abs(headingChangeRadians),
             (float)delta);
+        ApplyDamageShudder((float)delta);
         var chassisAngularSpeed = Mathf.Abs(headingChangeRadians) / (float)delta;
         UpdateMotorAudio(Mathf.Max(torsoAngularSpeed, chassisAngularSpeed), (float)delta);
     }
@@ -355,7 +415,7 @@ public partial class PlayerMech : Node3D
                 break;
 
             case InputEventKey { Pressed: true, Echo: false, Keycode: Key.Space }:
-                FireRequested?.Invoke();
+                RequestFire();
                 GetViewport().SetInputAsHandled();
                 break;
 
@@ -368,7 +428,7 @@ public partial class PlayerMech : Node3D
                     }
                     else
                     {
-                        FireRequested?.Invoke();
+                        RequestFire();
                     }
                 }
                 else
@@ -418,7 +478,9 @@ public partial class PlayerMech : Node3D
             $"{(Drive.IsReversing ? "reverse" : "forward")}; speed {ActualSpeedKph:F1} km/h; " +
             $"target {Drive.TargetSpeedKph:F1} km/h; torso yaw {Mathf.RadToDeg(m_torsoYaw):F1} degrees, " +
             $"pitch {Mathf.RadToDeg(m_torsoPitch):F1} degrees (target " +
-            $"{Mathf.RadToDeg(m_targetTorsoYaw):F1}, {Mathf.RadToDeg(m_targetTorsoPitch):F1}).");
+            $"{Mathf.RadToDeg(m_targetTorsoYaw):F1}, {Mathf.RadToDeg(m_targetTorsoPitch):F1}); " +
+            $"health {Health}/{MaximumHealth}; translation lock " +
+            $"{(m_translationLocked ? m_translationLockReason : "none")}.");
         if (m_slopeBlocked || m_sceneryBlocked)
         {
             var scenery = m_lastBlockingObstacle == null
@@ -484,6 +546,9 @@ public partial class PlayerMech : Node3D
         if (m_translationLocked &&
             (throttleKey >= 0 || key is Key.Equal or Key.Minus or Key.Backspace or Key.Quoteleft))
         {
+            GD.Print(
+                $"MechRewired: PlayerMech translation command ignored; movement locked for " +
+                $"{m_translationLockReason} (health {Health}/{MaximumHealth}).");
             return true;
         }
 
@@ -546,6 +611,25 @@ public partial class PlayerMech : Node3D
     private static void RequestWeaponCycle()
     {
         GD.Print("MechRewired: medium laser selected (additional weapons not yet implemented).");
+    }
+
+    private void RequestFire()
+    {
+        if (!IsDestroyed)
+        {
+            FireRequested?.Invoke();
+        }
+    }
+
+    private void PlayDamageImpact()
+    {
+        if (m_damageImpactSounds.Count == 0)
+        {
+            return;
+        }
+
+        m_damageImpact.Stream = m_damageImpactSounds[m_nextDamageImpact++ % m_damageImpactSounds.Count];
+        m_damageImpact.Play();
     }
 
     private void PlayDriveTransition(double previousTargetSpeedKph)
@@ -838,6 +922,29 @@ public partial class PlayerMech : Node3D
             m_torsoYaw * CockpitTorsoYawFactor,
             viewOffset + cockpitRelativeOffset,
             roll + cockpitRelativeRoll);
+    }
+
+    private void ApplyDamageShudder(float delta)
+    {
+        if (m_damageShudderRemaining <= 0.0f)
+        {
+            return;
+        }
+
+        m_damageShudderRemaining = Math.Max(0.0f, m_damageShudderRemaining - delta);
+        var elapsed = DamageShudderDuration - m_damageShudderRemaining;
+        var envelope = m_damageShudderRemaining / DamageShudderDuration;
+        envelope *= envelope;
+        var phase = elapsed * DamageShudderFrequency * Mathf.Tau;
+        var amplitude = m_damageShudderStrength * envelope;
+        ViewBobMount.Position += new Vector3(
+            Mathf.Sin(phase * 0.83f) * 0.065f,
+            Mathf.Sin(phase * 1.37f) * 0.045f,
+            0.0f) * amplitude;
+        ViewBobMount.Rotation += new Vector3(
+            Mathf.Sin(phase * 1.13f) * 0.008f,
+            0.0f,
+            Mathf.Sin(phase) * 0.018f) * amplitude;
     }
 
     private void UpdateMotorAudio(float angularSpeed, float delta)
