@@ -22,6 +22,7 @@ namespace MechRewired;
 public partial class PlayerTargeting : Node
 {
     private const float LaserRange = 1200.0f;
+    private const float TargetingRange = 1000.0f;
     private const float ObjectiveHighlightRange = 300.0f;
     private const int LaserDamage = 7;
 
@@ -85,6 +86,11 @@ public partial class PlayerTargeting : Node
         AddChild(m_laserSound);
         playerMech.FireRequested += FireLaser;
         playerMech.TargetRequested += SelectUnderReticle;
+        playerMech.NextTargetRequested += SelectNextEnemy;
+        playerMech.PreviousTargetRequested += SelectPreviousEnemy;
+        playerMech.NearestEnemyTargetRequested += SelectNearestEnemy;
+        playerMech.ClearTargetRequested += ClearTarget;
+        playerMech.InspectTargetRequested += InspectSelectedActor;
     }
 
     public BattlefieldActor SelectedActor { get; private set; }
@@ -126,11 +132,7 @@ public partial class PlayerTargeting : Node
 
         if (enemyMech != null)
         {
-            SelectedActor = null;
-            SelectedEnemy = enemyMech;
-            GD.Print(
-                $"MechRewired: targeted hostile {enemyMech.Description} " +
-                $"({enemyMech.Health}/{enemyMech.MaximumHealth} whole-mech health).");
+            SelectEnemy(enemyMech);
             return;
         }
 
@@ -147,6 +149,54 @@ public partial class PlayerTargeting : Node
         GD.Print(
             $"MechRewired: targeted {actor.Description} in BWD/{actor.SourceResourceName}.BWD " +
             $"({actor.Health}/{actor.MaximumHealth} health).");
+    }
+
+    public void SelectNextEnemy() => CycleEnemy(1);
+
+    public void SelectPreviousEnemy() => CycleEnemy(-1);
+
+    public void SelectNearestEnemy()
+    {
+        var enemyMech = m_enemyMechs
+            .Where(IsTargetableEnemy)
+            .OrderBy(candidate => candidate.TargetPosition.DistanceSquaredTo(m_playerMech.GlobalPosition))
+            .FirstOrDefault();
+        if (enemyMech == null)
+        {
+            ClearTarget();
+            GD.Print($"MechRewired: no powered hostile mechs are within {TargetingRange:F0}m targeting range.");
+            return;
+        }
+
+        SelectEnemy(enemyMech);
+    }
+
+    public void ClearTarget()
+    {
+        SelectedActor = null;
+        SelectedEnemy = null;
+        GD.Print("MechRewired: targeting reset.");
+    }
+
+    public void InspectSelectedActor()
+    {
+        var actor = SelectedActor;
+        if (actor == null &&
+            ObjectiveActor != null &&
+            m_playerMission.GetActiveObjectiveKind(ObjectiveActor) == MissionObjectiveKind.Inspect)
+        {
+            actor = ObjectiveActor;
+        }
+
+        if (actor == null || !IsSelectable(actor))
+        {
+            GD.Print("MechRewired: no inspectable target selected.");
+            return;
+        }
+
+        GD.Print(
+            $"MechRewired: inspected {actor.Description} in " +
+            $"BWD/{actor.SourceResourceName}.BWD.");
         m_playerMission.Apply(new MissionEvent(
             MissionEventKind.TargetInspected,
             actor.SourceResourceName));
@@ -188,6 +238,7 @@ public partial class PlayerTargeting : Node
                 }
 
                 SelectedActor = actor.IsDestroyed || !IsSelectable(actor) ? null : actor;
+                SelectedEnemy = null;
             }
             else
             {
@@ -339,6 +390,38 @@ public partial class PlayerTargeting : Node
         !actor.IsDestroyed &&
         actor.HasDisplayName &&
         (actor.IsDamageable || m_playerMission.IsActiveObjectiveTarget(actor));
+
+    private void CycleEnemy(int direction)
+    {
+        var liveEnemies = m_enemyMechs.Where(IsTargetableEnemy).ToArray();
+        if (liveEnemies.Length == 0)
+        {
+            ClearTarget();
+            GD.Print($"MechRewired: no powered hostile mechs are within {TargetingRange:F0}m targeting range.");
+            return;
+        }
+
+        var selectedIndex = Array.IndexOf(liveEnemies, SelectedEnemy);
+        var nextIndex = selectedIndex < 0
+            ? direction > 0 ? 0 : liveEnemies.Length - 1
+            : (selectedIndex + direction + liveEnemies.Length) % liveEnemies.Length;
+        SelectEnemy(liveEnemies[nextIndex]);
+    }
+
+    private void SelectEnemy(EnemyMech enemyMech)
+    {
+        SelectedActor = null;
+        SelectedEnemy = enemyMech;
+        GD.Print(
+            $"MechRewired: targeted hostile {enemyMech.Description} " +
+            $"({enemyMech.Health}/{enemyMech.MaximumHealth} whole-mech health).");
+    }
+
+    private bool IsTargetableEnemy(EnemyMech enemyMech) =>
+        !enemyMech.IsDestroyed &&
+        !enemyMech.IsPoweredDown &&
+        enemyMech.TargetPosition.DistanceSquaredTo(m_playerMech.GlobalPosition) <=
+        TargetingRange * TargetingRange;
 
     private void UpdateObjectiveActor()
     {

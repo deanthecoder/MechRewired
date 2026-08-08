@@ -216,6 +216,16 @@ public partial class PlayerMech : Node3D
 
     public event Action TargetRequested;
 
+    public event Action NextTargetRequested;
+
+    public event Action PreviousTargetRequested;
+
+    public event Action NearestEnemyTargetRequested;
+
+    public event Action ClearTargetRequested;
+
+    public event Action InspectTargetRequested;
+
     public void ApplyDamage(int damage, string attacker)
     {
         if (damage <= 0 || IsDestroyed)
@@ -409,8 +419,33 @@ public partial class PlayerMech : Node3D
                 GetViewport().SetInputAsHandled();
                 break;
 
+            case InputEventKey { Pressed: true, Echo: false, Keycode: Key.T, CtrlPressed: true }:
+                ClearTargetRequested?.Invoke();
+                GetViewport().SetInputAsHandled();
+                break;
+
             case InputEventKey { Pressed: true, Echo: false, Keycode: Key.T }:
+                NextTargetRequested?.Invoke();
+                GetViewport().SetInputAsHandled();
+                break;
+
+            case InputEventKey { Pressed: true, Echo: false, Keycode: Key.R }:
+                PreviousTargetRequested?.Invoke();
+                GetViewport().SetInputAsHandled();
+                break;
+
+            case InputEventKey { Pressed: true, Echo: false, Keycode: Key.E }:
+                NearestEnemyTargetRequested?.Invoke();
+                GetViewport().SetInputAsHandled();
+                break;
+
+            case InputEventKey { Pressed: true, Echo: false, Keycode: Key.Q }:
                 TargetRequested?.Invoke();
+                GetViewport().SetInputAsHandled();
+                break;
+
+            case InputEventKey { Pressed: true, Echo: false, Keycode: Key.I }:
+                InspectTargetRequested?.Invoke();
                 GetViewport().SetInputAsHandled();
                 break;
 

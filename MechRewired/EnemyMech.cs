@@ -58,6 +58,7 @@ public partial class EnemyMech : Node3D
         PlayerMech playerMech,
         BattlefieldEffects battlefieldEffects,
         AudioStreamWav laserSound,
+        Texture2D damageSilhouette,
         Func<Vector3, float> surfaceHeightProvider,
         IReadOnlyList<DebugTriangle> sceneTriangles)
     {
@@ -66,6 +67,7 @@ public partial class EnemyMech : Node3D
         ArgumentNullException.ThrowIfNull(playerMech);
         ArgumentNullException.ThrowIfNull(battlefieldEffects);
         ArgumentNullException.ThrowIfNull(laserSound);
+        ArgumentNullException.ThrowIfNull(damageSilhouette);
         ArgumentNullException.ThrowIfNull(surfaceHeightProvider);
         ArgumentNullException.ThrowIfNull(sceneTriangles);
 
@@ -73,6 +75,7 @@ public partial class EnemyMech : Node3D
         MechDefinition = mechDefinition;
         m_playerMech = playerMech;
         m_battlefieldEffects = battlefieldEffects;
+        DamageSilhouette = damageSilhouette;
         m_surfaceHeightProvider = surfaceHeightProvider;
         m_sceneTriangles = sceneTriangles;
         Name = $"Enemy-{definition.Specification.DisplayName}-{definition.Specification.GroupId}";
@@ -105,6 +108,8 @@ public partial class EnemyMech : Node3D
 
     public MechWarriorMechFile MechDefinition { get; }
 
+    public Texture2D DamageSilhouette { get; }
+
     public Node3D Legs { get; }
 
     public Node3D Torso { get; }
@@ -116,6 +121,15 @@ public partial class EnemyMech : Node3D
     public int MaximumHealth { get; }
 
     public bool IsDestroyed { get; private set; }
+
+    /// <summary>
+    /// Whether the mech's reactor is offline and therefore unavailable to target sensors.
+    /// </summary>
+    /// <remarks>
+    /// The current mission slice does not yet decode an authored power-state command, so spawned hostiles are active.
+    /// Keeping this explicit lets the targeting system honour that state as soon as mission AI supplies it.
+    /// </remarks>
+    public bool IsPoweredDown { get; private set; }
 
     public Aabb WorldBounds => GlobalTransform * m_localBounds;
 

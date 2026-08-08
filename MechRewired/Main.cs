@@ -41,6 +41,28 @@ public partial class Main : Node3D
     private const string PlayerStartPath = "BWD/YELLST01.BWD";
     private const string PlayerMechPath = "MEK/TBR00STD.MEK";
     private const string LevelAreaPrefix = "YELLARE";
+    private static readonly IReadOnlyDictionary<string, string> DamageShapePrefixes =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["battlemaster"] = "BTTL",
+            ["direwolf"] = "DIRE",
+            ["elemental"] = "ELEM",
+            ["firemoth"] = "FIRE",
+            ["gargoyle"] = "GARG",
+            ["hellbringer"] = "HELL",
+            ["jenner"] = "JENN",
+            ["kitfox"] = "KITF",
+            ["maddog"] = "MADD",
+            ["marauder"] = "MARA",
+            ["nova"] = "NOVA",
+            ["rifleman"] = "RIFL",
+            ["stormcrow"] = "STRM",
+            ["summoner"] = "SUMM",
+            ["tarantula"] = "TARA",
+            ["timberwolf"] = "TIMB",
+            ["warhammer"] = "WARH",
+            ["warhawk"] = "WARK"
+        };
     private static readonly string[] ExplosionDebrisPaths =
     [
         "POLY/CHUNKER1.WTB",
@@ -918,17 +940,25 @@ public partial class Main : Node3D
         var enemyRoot = new Node3D { Name = "EnemyMechs" };
         AddChild(enemyRoot);
         var enemies = new List<EnemyMech>();
+        var damageSilhouettes = new Dictionary<string, Texture2D>(StringComparer.OrdinalIgnoreCase);
         foreach (var gamePiece in missionGamePieces.Where(gamePiece =>
                      gamePiece.Star.Disposition == MechWarriorMissionDisposition.Hostile))
         {
             var chassis = MechWarriorMechChassis.Load(archive.ReadEntry(gamePiece.ChassisEntry));
             var mechDefinition = MechWarriorMechFile.Load(archive.ReadEntry(gamePiece.ConfigurationEntry));
+            if (!damageSilhouettes.TryGetValue(gamePiece.Specification.ChassisName, out var damageSilhouette))
+            {
+                damageSilhouette = LoadDamageSilhouette(archive, gamePiece.Specification.ChassisName);
+                damageSilhouettes.Add(gamePiece.Specification.ChassisName, damageSilhouette);
+            }
+
             var enemy = new EnemyMech(
                 gamePiece,
                 mechDefinition,
                 playerMech,
                 battlefieldEffects,
                 laserSound,
+                damageSilhouette,
                 position => FindDeploymentSurfaceHeight(debugTriangles, position),
                 debugTriangles);
             enemyRoot.AddChild(enemy);
@@ -1043,6 +1073,47 @@ public partial class Main : Node3D
             $"MechRewired: hostile force online ({enemies.Count} data-driven mechs; " +
             "GPS acquire ranges, chassis/torso tracking, MEK movement, medium lasers; leg animation pending).");
         return enemies.AsReadOnly();
+    }
+
+    private static Texture2D LoadDamageSilhouette(
+        MechWarriorProjectArchive archive,
+        string chassisName)
+    {
+        if (!DamageShapePrefixes.TryGetValue(chassisName.Replace(" ", string.Empty), out var prefix))
+        {
+            throw new InvalidDataException(
+                $"No original damage silhouette is mapped for chassis '{chassisName}'.");
+        }
+
+        var entry = archive.GetEntry($"SHP/{prefix}DMG6.SHP");
+        var shape = MechWarriorShapeImage.Load(archive.ReadEntry(entry));
+        var pixels = new byte[checked(shape.Width * shape.Height * 4)];
+        for (var y = 0; y < shape.Height; y++)
+        {
+            for (var x = 0; x < shape.Width; x++)
+            {
+                var outputIndex = y * shape.Width + x;
+                var sourceY = shape.Height - 1 - y;
+                var outputOffset = outputIndex * 4;
+                pixels[outputOffset] = byte.MaxValue;
+                pixels[outputOffset + 1] = byte.MaxValue;
+                pixels[outputOffset + 2] = byte.MaxValue;
+                pixels[outputOffset + 3] = shape.IsOpaque(x, sourceY)
+                    ? byte.MaxValue
+                    : byte.MinValue;
+            }
+        }
+
+        var image = Image.CreateFromData(
+            shape.Width,
+            shape.Height,
+            false,
+            Image.Format.Rgba8,
+            pixels);
+        GD.Print(
+            $"MechRewired: decompressed {entry.Path} damage silhouette " +
+            $"for {chassisName} ({shape.Width}x{shape.Height}).");
+        return ImageTexture.CreateFromImage(image);
     }
 
     private static void LoadMechMaterialImages(

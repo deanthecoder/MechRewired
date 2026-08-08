@@ -9,3 +9,9 @@ This file adds MechRewired-specific guidance to the shared repository instructio
 - Prefer Luna, when available, for builds and test runs, clean status or diff checks, already-scoped commits, formatting, repetitive searches, inventories, and other straightforward verification work.
 - Use Terra when a delegated task needs broader exploration or moderate judgment. Keep Sol focused on architecture, difficult debugging, integration decisions, and final accountability.
 - Avoid delegation when explaining the task would consume more tokens than doing it directly, or when concurrent edits would overlap and create coordination risk.
+
+## Original asset fidelity
+
+- Before drawing or generating a HUD element, inspect the original game archive for an equivalent resource.
+- Use the original HUD artwork when it exists, including chassis-specific variants, rather than substituting generic or invented imagery.
+- Only create a procedural replacement when no suitable original resource exists; keep that fallback visibly faithful and document why it was needed.

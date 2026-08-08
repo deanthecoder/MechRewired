@@ -194,7 +194,8 @@ public partial class PlayerHud : Control
                 continue;
             }
 
-            DrawCircle(point, 2.8f * m_scale, GaugeRed);
+            var radius = ReferenceEquals(enemyMech, m_targeting.SelectedEnemy) ? 5.5f : 4.0f;
+            DrawCircle(point, radius * m_scale, GaugeRed);
         }
     }
 
@@ -348,6 +349,13 @@ public partial class PlayerHud : Control
         DrawRect(panel, Colors.Black);
         DrawRect(panel, TargetFrame, false, LineWidth(4.0f));
 
+        var enemyMech = m_targeting.SelectedEnemy;
+        if (enemyMech != null)
+        {
+            DrawEnemyTargetPanel(enemyMech, panelLeft, panelTop, panelWidth, panelHeight);
+            return;
+        }
+
         var iconCenter = Point(panelLeft + panelWidth * 0.5f, panelTop + panelHeight * 0.5f);
         var navigation = SelectedNavigationPoint;
         var navigationColor = m_navigation.IsReached(m_navigation.SelectedIndex)
@@ -360,6 +368,43 @@ public partial class PlayerHud : Control
             ? $"{distanceMeters / 1000.0f:F2}Km"
             : $"{distanceMeters:F0}m";
         DrawText(new Vector2(panelLeft, 675.0f), navigation.Description, navigationColor, 25);
+        DrawText(new Vector2(panelLeft, 706.0f), distanceText, HudGreen, 25);
+    }
+
+    private void DrawEnemyTargetPanel(
+        EnemyMech enemyMech,
+        float panelLeft,
+        float panelTop,
+        float panelWidth,
+        float panelHeight)
+    {
+        const float padding = 10.0f;
+        var texture = enemyMech.DamageSilhouette;
+        var availableSize = new Vector2(
+            panelWidth - padding * 2.0f,
+            panelHeight - padding * 2.0f);
+        var textureScale = Math.Min(
+            availableSize.X / texture.GetWidth(),
+            availableSize.Y / texture.GetHeight());
+        var textureSize = new Vector2(texture.GetWidth(), texture.GetHeight()) * textureScale;
+        var textureRect = new Rect2(
+            Point(
+                panelLeft + (panelWidth - textureSize.X) * 0.5f,
+                panelTop + (panelHeight - textureSize.Y) * 0.5f),
+            textureSize * m_scale);
+        var healthFraction = (float)enemyMech.Health / enemyMech.MaximumHealth;
+        var conditionColor = healthFraction > 0.66f
+            ? HudGreen
+            : healthFraction > 0.33f
+                ? RadarAmber
+                : GaugeRed;
+        DrawTextureRect(texture, textureRect, false, conditionColor);
+
+        var distanceMeters = enemyMech.TargetPosition.DistanceTo(m_playerMech.GlobalPosition);
+        var distanceText = distanceMeters >= 1000.0f
+            ? $"{distanceMeters / 1000.0f:F2}Km"
+            : $"{distanceMeters:F0}m";
+        DrawText(new Vector2(panelLeft, 675.0f), enemyMech.Description, RadarAmber, 25);
         DrawText(new Vector2(panelLeft, 706.0f), distanceText, HudGreen, 25);
     }
 
@@ -476,7 +521,7 @@ public partial class PlayerHud : Control
         var bounds = enemyMech?.WorldBounds ?? actor.WorldBounds;
         var description = enemyMech?.Description ?? actor.Description;
         var targetRect = GetScreenRect(camera, bounds).Grow(5.0f * m_scale);
-        DrawTargetCorners(targetRect, RadarAmber);
+        DrawTargetCorners(targetRect, enemyMech == null ? RadarAmber : GaugeRed);
         var center = targetRect.GetCenter();
         var radius = Math.Max(targetRect.Size.X, targetRect.Size.Y) * 0.5f;
         var fontSize = Math.Max((int)(18 * m_scale), 1);
@@ -522,7 +567,7 @@ public partial class PlayerHud : Control
         if (objectiveKind == MissionObjectiveKind.Inspect)
         {
             var fontSize = Math.Max((int)(16 * m_scale), 1);
-            const string label = "INSPECT [T]";
+            const string label = "INSPECT [I]";
             var labelWidth = ThemeDB.FallbackFont.GetStringSize(
                 label,
                 HorizontalAlignment.Left,

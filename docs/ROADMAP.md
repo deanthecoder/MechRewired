@@ -19,6 +19,8 @@ This phase is complete when a recognizable original battlefield can be explored 
 - Prevent the player mech walking through scenery and mission actors. — transformed vertical-wall triangle collision implemented; vertical clearance and sliding refinements remain
 - Decode the original `MW2MECH.CPI`/`VWSP` cockpit and view definitions, then replace or validate the procedural cockpit frame against them. - Not a priority.
 - Implement the remaining targeting and combat systems: heat, armor and location-based damage.
+- Add section-aware player/target colors to the original chassis-specific damage silhouettes. Treat the current 2×-tonnage whole-mech health as temporary.
+- Build a shared data-driven/procedural `MechRig` gait for player and enemies: derive phase from actual travel distance, synchronize exterior legs, cockpit movement and footsteps, and support turning in place; add terrain IK later.
 
 This phase is complete when the player can pilot one mech around the battlefield and destroy a stationary target.
 
@@ -28,7 +30,8 @@ This phase is complete when the player can pilot one mech around the battlefield
 - Replace the current Pyre Light-specific resource constants with a scenario-driven mission definition that resolves the planet, battlefield, deployment, NAV sequence, enemy groups and music from the original data.
 - Decode the remaining mission metadata (`MTBL`, `TSK` and `AFFL`) and compare Pyre Light with structurally different missions before settling the runtime model. — MTBL fixed records and Pyre Light trigger/goal flags decoded; comparison, TSK and AFFL remain
 - Represent the remaining original objectives with reusable primitives: protect a target, eliminate all required enemies, and wait for a timer or prerequisite.
-- Add component armor and location-based mech damage, including detachable limbs.
+- Implement real mech destruction by detaching textured/decal part assemblies into physics bodies, using cached simple colliders and VFX with 800m one-way persistence.
+- Later, add per-part ray hits plus localized armor/internal damage, limb loss and mobility/weapon consequences, reusing the destruction-detachment path.
 - Add friendly actors plus formation/path behavior beyond the initial hostile acquire, track, glide and fire slice.
 - Implement data-driven objective evaluation reusable across missions, including failure and debrief states. — failure and debrief remain
 
@@ -36,7 +39,7 @@ This phase is complete when one original mission can be played from deployment t
 
 ## 4. Fidelity and remaster effects
 
-- Add articulated legs and inverse kinematics.
+- Add terrain-aware leg IK after the shared `MechRig` gait is in place.
 - Improve cockpit shadow quality, stabilize nearby building shadows and tune shadow darkness for the dusk palette.
 - Add emissive missile and weapon lighting.
 - Tune particles for explosions, smoke, sparks, dust and damage feedback. — dust and damage scaling remain
