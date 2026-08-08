@@ -504,6 +504,7 @@ public partial class Main : Node3D
         var collisionWallsByObject = new Dictionary<
             (string SourcePath, int ObjectId),
             IReadOnlyList<SceneryWallTriangle>>();
+        var renderedBoundsByObject = new Dictionary<(string SourcePath, int ObjectId), Aabb>();
         var authoredColorTasks = LoadAuthoredColorTasks(archive, level.Sources, palette);
         var renderedObjects = level.StaticObjects
             .Concat(level.Actors.SelectMany(actor => actor.Components))
@@ -565,12 +566,21 @@ public partial class Main : Node3D
             {
                 if (authoredColorTasks.TryGetValue((levelObject.SourceEntry.Path, levelObject.Id), out var colors))
                 {
+                    var locatorPosition = MechWarriorCoordinateSystem.ToGodotPosition(levelObject.Transform.Translation);
+                    if (levelObject.RelativeToId >= 0 &&
+                        renderedBoundsByObject.TryGetValue(
+                            (levelObject.SourceEntry.Path, levelObject.RelativeToId),
+                            out var parentBounds))
+                    {
+                        // DUMMY locators carry the horizontal attachment point, but their vertical coordinate
+                        // is not a physical mesh origin. Mount them on the authored parent assembly instead.
+                        locatorPosition.Y = parentBounds.End.Y;
+                    }
+
                     var locator = new Node3D
                     {
                         Name = $"{levelObject.ModelEntry.Name}LightLocator",
-                        Position = MechWarriorCoordinateSystem.ToGodotPosition(levelObject.Transform.Translation),
-                        RotationDegrees = MechWarriorCoordinateSystem.ToGodotRotation(levelObject.Transform.RotationDegrees),
-                        Scale = MechWarriorCoordinateSystem.ToGodotScale(levelObject.Transform.Scale)
+                        Position = locatorPosition
                     };
                     locator.AddChild(CreateAnimatedLocatorLight(colors));
                     levelRoot.AddChild(locator);
@@ -646,6 +656,10 @@ public partial class Main : Node3D
             var collisionWalls = BuildSceneryWalls(
                 objectRoot.GlobalTransform,
                 modelCache[levelObject.ModelEntry.Path]);
+            var objectBounds = meshes
+                .Select(mesh => objectRoot.GlobalTransform * mesh.GetAabb())
+                .Aggregate((combined, next) => combined.Merge(next));
+            renderedBoundsByObject[(levelObject.SourceEntry.Path, levelObject.Id)] = objectBounds;
             collisionWallsByObject[(levelObject.SourceEntry.Path, levelObject.Id)] = collisionWalls;
             if (levelObject.Kind == MechWarriorLevelObjectKind.Scenery &&
                 TryCreateSceneryObstacle(
@@ -1226,9 +1240,7 @@ public partial class Main : Node3D
                     var locator = new Node3D
                     {
                         Name = $"{modelEntry.Name}LightLocator",
-                        Position = MechWarriorCoordinateSystem.ToGodotPosition(worldObject.Transform.Translation),
-                        RotationDegrees = MechWarriorCoordinateSystem.ToGodotRotation(worldObject.Transform.RotationDegrees),
-                        Scale = MechWarriorCoordinateSystem.ToGodotScale(worldObject.Transform.Scale)
+                        Position = MechWarriorCoordinateSystem.ToGodotPosition(worldObject.Transform.Translation)
                     };
                     locator.AddChild(CreateAnimatedLocatorLight(locatorColors));
                     dropShip.AddChild(locator);
@@ -1889,7 +1901,7 @@ public partial class Main : Node3D
             AddChild(new MeshInstance3D
             {
                 Name = "IndicatorBulb",
-                Mesh = new SphereMesh { Radius = 0.12f, Height = 0.24f },
+                Mesh = new SphereMesh { Radius = 0.35f, Height = 0.70f },
                 MaterialOverride = m_bulbMaterial,
                 CastShadow = GeometryInstance3D.ShadowCastingSetting.Off
             });
