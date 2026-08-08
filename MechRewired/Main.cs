@@ -34,6 +34,7 @@ public partial class Main : Node3D
     private const float DefaultFogDistance = 1200.0f;
     private const float MinimumFogDistance = 300.0f;
     private const float MaximumFogDistance = 5000.0f;
+    private const float MinimumSceneryObstacleHeight = 5.0f;
     private const string PalettePath = "PAL/YELL_DA.COL";
     private const string LevelPath = "BWD/YELLWLD1.BWD";
     private const string PlanetPath = "BWD/YELLPLT1.BWD";
@@ -1646,13 +1647,28 @@ public partial class Main : Node3D
         var walls = new List<SceneryWallTriangle>();
         foreach (var model in models)
         {
+            if (model.Vertices.Count == 0)
+            {
+                continue;
+            }
+
+            var transformedVertices = model.Vertices
+                .Select(vertex => TransformVertex(transform, vertex))
+                .ToArray();
+            var modelHeight = transformedVertices.Max(vertex => vertex.Y) -
+                              transformedVertices.Min(vertex => vertex.Y);
+            if (modelHeight < MinimumSceneryObstacleHeight)
+            {
+                continue;
+            }
+
             foreach (var polygon in model.Polygons)
             {
                 for (var triangleIndex = 1; triangleIndex < polygon.VertexIndices.Count - 1; triangleIndex++)
                 {
-                    var first = TransformVertex(transform, model.Vertices[polygon.VertexIndices[0]]);
-                    var second = TransformVertex(transform, model.Vertices[polygon.VertexIndices[triangleIndex]]);
-                    var third = TransformVertex(transform, model.Vertices[polygon.VertexIndices[triangleIndex + 1]]);
+                    var first = transformedVertices[polygon.VertexIndices[0]];
+                    var second = transformedVertices[polygon.VertexIndices[triangleIndex]];
+                    var third = transformedVertices[polygon.VertexIndices[triangleIndex + 1]];
                     var normal = (second - first).Cross(third - first);
                     if (normal.LengthSquared() <= 0.000001f ||
                         Mathf.Abs(normal.Normalized().Y) > maximumFloorNormal)

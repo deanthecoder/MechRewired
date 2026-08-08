@@ -194,8 +194,23 @@ public partial class PlayerHud : Control
                 continue;
             }
 
-            var radius = ReferenceEquals(enemyMech, m_targeting.SelectedEnemy) ? 5.5f : 4.0f;
-            DrawCircle(point, radius * m_scale, GaugeRed);
+            var markerRadius = ReferenceEquals(enemyMech, m_targeting.SelectedEnemy) ? 5.0f : 3.0f;
+            markerRadius *= m_scale;
+            Vector2[] marker =
+            {
+                point + Vector2.Up * markerRadius,
+                point + Vector2.Right * markerRadius,
+                point + Vector2.Down * markerRadius,
+                point + Vector2.Left * markerRadius
+            };
+            if (ReferenceEquals(enemyMech, m_targeting.SelectedEnemy))
+            {
+                DrawColoredPolygon(marker, GaugeRed);
+            }
+            else
+            {
+                DrawPolyline([.. marker, marker[0]], GaugeRed, LineWidth(1.0f));
+            }
         }
     }
 
@@ -511,17 +526,23 @@ public partial class PlayerHud : Control
         var camera = m_playerMech.CockpitCamera;
         var targetPosition = enemyMech?.TargetPosition ?? actor?.TargetPosition ?? default;
         if ((actor == null && enemyMech == null) ||
-            ReferenceEquals(actor, m_targeting.ObjectiveActor) ||
-            camera == null ||
-            camera.IsPositionBehind(targetPosition))
+            (actor != null && ReferenceEquals(actor, m_targeting.ObjectiveActor)) ||
+            camera == null)
         {
             return;
         }
 
         var bounds = enemyMech?.WorldBounds ?? actor.WorldBounds;
-        var description = enemyMech?.Description ?? actor.Description;
-        var targetRect = GetScreenRect(camera, bounds).Grow(5.0f * m_scale);
+        var targetRect = camera.IsPositionBehind(targetPosition)
+            ? GetOffscreenTargetRect(camera, targetPosition)
+            : ClampTargetRect(GetScreenRect(camera, bounds).Grow(5.0f * m_scale));
         DrawTargetCorners(targetRect, enemyMech == null ? RadarAmber : GaugeRed);
+        if (enemyMech != null)
+        {
+            return;
+        }
+
+        var description = actor.Description;
         var center = targetRect.GetCenter();
         var radius = Math.Max(targetRect.Size.X, targetRect.Size.Y) * 0.5f;
         var fontSize = Math.Max((int)(18 * m_scale), 1);
@@ -538,6 +559,30 @@ public partial class PlayerHud : Control
             -1.0f,
             fontSize,
             RadarAmber);
+    }
+
+    private Rect2 GetOffscreenTargetRect(Camera3D camera, Vector3 targetPosition)
+    {
+        var localDirection = camera.ToLocal(targetPosition);
+        var direction = new Vector2(localDirection.X, -localDirection.Y);
+        if (direction.LengthSquared() < 0.0001f)
+        {
+            direction = Vector2.Down;
+        }
+
+        var size = new Vector2(48.0f, 48.0f) * m_scale;
+        var center = Size * 0.5f + direction.Normalized() * Size.Length();
+        return ClampTargetRect(new Rect2(center - size * 0.5f, size));
+    }
+
+    private Rect2 ClampTargetRect(Rect2 rect)
+    {
+        var margin = 20.0f * m_scale;
+        var halfSize = rect.Size * 0.5f;
+        var center = rect.GetCenter();
+        center.X = Mathf.Clamp(center.X, margin + halfSize.X, Size.X - margin - halfSize.X);
+        center.Y = Mathf.Clamp(center.Y, margin + halfSize.Y, Size.Y - margin - halfSize.Y);
+        return new Rect2(center - halfSize, rect.Size);
     }
 
     private void DrawObjectiveTargets()
