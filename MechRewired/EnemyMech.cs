@@ -137,6 +137,9 @@ public partial class EnemyMech : Node3D
 
     public event Action<EnemyMech> Destroyed;
 
+    /// <summary>Raised once when this hostile activates its reactor/sensors.</summary>
+    public event Action<EnemyMech> PoweredUp;
+
     public void ConfigureVisuals(
         Aabb localBounds,
         Vector3 torsoPivot,
@@ -196,7 +199,7 @@ public partial class EnemyMech : Node3D
                 return;
             }
 
-            m_acquired = true;
+            PowerUp();
             m_hasLineOfSight = true;
             m_targetMemoryRemaining = TargetMemorySeconds;
             GD.Print(
@@ -295,7 +298,7 @@ public partial class EnemyMech : Node3D
         {
             if (!m_acquired)
             {
-                m_acquired = true;
+                PowerUp();
                 m_hasLineOfSight = true;
                 m_targetMemoryRemaining = TargetMemorySeconds;
                 m_sensorCooldown = 0.0f;
@@ -331,6 +334,18 @@ public partial class EnemyMech : Node3D
         m_laserSound.Play();
         m_battlefieldEffects.SpawnWeaponImpact(end);
         m_playerMech.ApplyDamage(LaserDamage, Description);
+    }
+
+    private void PowerUp()
+    {
+        if (m_acquired)
+        {
+            return;
+        }
+
+        m_acquired = true;
+        IsPoweredDown = false;
+        PoweredUp?.Invoke(this);
     }
 
     private bool HasLineOfSight(Vector3 start, Vector3 end)

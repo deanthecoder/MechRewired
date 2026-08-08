@@ -33,6 +33,7 @@ public partial class PlayerTargeting : Node
     private readonly IReadOnlyList<EnemyMech> m_enemyMechs;
     private readonly IReadOnlyDictionary<(string SourcePath, int ObjectId), BattlefieldActor> m_actorsByObject;
     private readonly AudioStreamPlayer m_laserSound;
+    private readonly AudioStreamPlayer m_enemyPowerUpSound;
     private readonly BattlefieldEffects m_battlefieldEffects;
     private int m_nextLaserSide = -1;
 
@@ -43,6 +44,7 @@ public partial class PlayerTargeting : Node
         IReadOnlyList<BattlefieldActor> actors,
         IReadOnlyList<EnemyMech> enemyMechs,
         AudioStreamWav laserSound,
+        AudioStreamWav enemyPowerUpSound,
         BattlefieldEffects battlefieldEffects)
     {
         ArgumentNullException.ThrowIfNull(playerMech);
@@ -51,6 +53,7 @@ public partial class PlayerTargeting : Node
         ArgumentNullException.ThrowIfNull(actors);
         ArgumentNullException.ThrowIfNull(enemyMechs);
         ArgumentNullException.ThrowIfNull(laserSound);
+        ArgumentNullException.ThrowIfNull(enemyPowerUpSound);
         ArgumentNullException.ThrowIfNull(battlefieldEffects);
         Name = "PlayerTargeting";
         m_playerMech = playerMech;
@@ -72,6 +75,7 @@ public partial class PlayerTargeting : Node
         foreach (var enemyMech in enemyMechs)
         {
             enemyMech.Destroyed += OnEnemyDestroyed;
+            enemyMech.PoweredUp += OnEnemyPoweredUp;
         }
 
         m_sceneTriangles = sceneTriangles;
@@ -84,6 +88,13 @@ public partial class PlayerTargeting : Node
             VolumeDb = -2.0f
         };
         AddChild(m_laserSound);
+        m_enemyPowerUpSound = new AudioStreamPlayer
+        {
+            Name = "EnemyPowerUpWarning",
+            Stream = enemyPowerUpSound,
+            VolumeDb = -1.0f
+        };
+        AddChild(m_enemyPowerUpSound);
         playerMech.FireRequested += FireLaser;
         playerMech.TargetRequested += SelectUnderReticle;
         playerMech.NextTargetRequested += SelectNextEnemy;
@@ -384,6 +395,12 @@ public partial class PlayerTargeting : Node
         {
             SelectedEnemy = null;
         }
+    }
+
+    private void OnEnemyPoweredUp(EnemyMech enemyMech)
+    {
+        m_enemyPowerUpSound.Play();
+        GD.Print($"MechRewired: enemy power up detected: {enemyMech.Description}.");
     }
 
     private bool IsSelectable(BattlefieldActor actor) =>

@@ -504,6 +504,7 @@ public partial class Main : Node3D
         var collisionWallsByObject = new Dictionary<
             (string SourcePath, int ObjectId),
             IReadOnlyList<SceneryWallTriangle>>();
+        var authoredColorTasks = LoadAuthoredColorTasks(archive, level.Sources, palette);
         var renderedObjects = level.StaticObjects
             .Concat(level.Actors.SelectMany(actor => actor.Components))
             .Concat(level.Actors.SelectMany(actor => actor.DestroyedComponents));
@@ -562,6 +563,22 @@ public partial class Main : Node3D
 
             if (meshes.Count == 0)
             {
+                if (authoredColorTasks.TryGetValue((levelObject.SourceEntry.Path, levelObject.Id), out var colors))
+                {
+                    var locator = new Node3D
+                    {
+                        Name = $"{levelObject.ModelEntry.Name}LightLocator",
+                        Position = MechWarriorCoordinateSystem.ToGodotPosition(levelObject.Transform.Translation),
+                        RotationDegrees = MechWarriorCoordinateSystem.ToGodotRotation(levelObject.Transform.RotationDegrees),
+                        Scale = MechWarriorCoordinateSystem.ToGodotScale(levelObject.Transform.Scale)
+                    };
+                    locator.AddChild(CreateAnimatedLocatorLight(colors));
+                    levelRoot.AddChild(locator);
+                    GD.Print(
+                        $"MechRewired: rendered map-authored colour locator {levelObject.SourceEntry.Path} " +
+                        $"object {levelObject.Id} ({levelObject.ModelEntry.Name}; {colors.Length} frames).");
+                }
+
                 continue;
             }
 
@@ -879,6 +896,7 @@ public partial class Main : Node3D
             battlefieldActors,
             enemyMechs,
             playerMechSounds.MediumLaser,
+            playerMechSounds.EnemyPowerUpDetected,
             battlefieldEffects);
         AddChild(playerTargeting);
 
@@ -1202,6 +1220,22 @@ public partial class Main : Node3D
             foreach (var worldObject in setPieceWorld.Objects)
             {
                 var modelEntry = archive.GetEntry("POLY", worldObject.ModelResourceIndex);
+                if (modelEntry.Name.StartsWith("DUMMY", StringComparison.OrdinalIgnoreCase) &&
+                    animatedColors.TryGetValue(worldObject.Id, out var locatorColors))
+                {
+                    var locator = new Node3D
+                    {
+                        Name = $"{modelEntry.Name}LightLocator",
+                        Position = MechWarriorCoordinateSystem.ToGodotPosition(worldObject.Transform.Translation),
+                        RotationDegrees = MechWarriorCoordinateSystem.ToGodotRotation(worldObject.Transform.RotationDegrees),
+                        Scale = MechWarriorCoordinateSystem.ToGodotScale(worldObject.Transform.Scale)
+                    };
+                    locator.AddChild(CreateAnimatedLocatorLight(locatorColors));
+                    dropShip.AddChild(locator);
+                    renderedObjectCount++;
+                    continue;
+                }
+
                 try
                 {
                     var models = MechWarriorModel.LoadAll(archive.ReadEntry(modelEntry));
@@ -1290,7 +1324,7 @@ public partial class Main : Node3D
         MechWarriorPalette palette)
     {
         var colors = new Dictionary<int, Color[]>();
-        foreach (var task in setPieceWorld.Tasks.Where(task => task.Type == 1))
+        foreach (var task in setPieceWorld.Tasks.Where(IsColorAnimationTask))
         {
             var arguments = task.Command.Split([';', ','], StringSplitOptions.TrimEntries);
             if (arguments.Length < 2 || !int.TryParse(arguments[0], out var objectId))
@@ -1312,11 +1346,47 @@ public partial class Main : Node3D
                 .Select(index => ToGodotColor(palette[index]))
                 .ToArray();
             GD.Print(
-                $"MechRewired: decoded dropship object {objectId} color animation " +
+                $"MechRewired: decoded map object {objectId} color animation " +
                 $"({string.Join(", ", paletteIndices)}).");
         }
 
         return colors;
+    }
+
+    /// <summary>
+    /// Reads original BWD palette-cycle tasks, including locator-only DUMMY objects.
+    /// </summary>
+    private static IReadOnlyDictionary<(string SourcePath, int ObjectId), Color[]> LoadAuthoredColorTasks(
+        MechWarriorProjectArchive archive,
+        IReadOnlyList<MechWarriorLevelSource> sources,
+        MechWarriorPalette palette)
+    {
+        var animations = new Dictionary<(string SourcePath, int ObjectId), Color[]>();
+        foreach (var source in sources)
+        {
+            var world = MechWarriorWorldFile.Load(archive.ReadEntry(source.Entry));
+            foreach (var (objectId, colors) in LoadDropShipColorTasks(world, palette))
+            {
+                animations[(source.Entry.Path, objectId)] = colors;
+            }
+        }
+
+        return animations;
+    }
+
+    private static bool IsColorAnimationTask(MechWarriorWorldTask task) =>
+        (task.Type & 0xffff) == 1;
+
+    private static AnimatedLocatorLight CreateAnimatedLocatorLight(Color[] colors)
+    {
+        var light = new AnimatedLocatorLight(colors)
+        {
+            Name = "AuthoredIndicatorLight",
+            LightEnergy = 5.0f,
+            OmniRange = 14.0f,
+            ShadowEnabled = false
+        };
+        return light;
     }
 
     private static AudioStreamWav LoadDropShipTaskSound(
@@ -1788,6 +1858,53 @@ public partial class Main : Node3D
     /// <summary>
     /// Presents map-authored dropship geometry for deployment and extraction.
     /// </summary>
+    /// <summary>
+    /// Applies an original palette-cycle task to a small point light.
+    /// </summary>
+    private sealed partial class AnimatedLocatorLight : OmniLight3D
+    {
+        private const float FrameSeconds = 0.09f;
+        private readonly Color[] m_colors;
+        private readonly StandardMaterial3D m_bulbMaterial;
+        private float m_elapsed;
+
+        public AnimatedLocatorLight(Color[] colors)
+        {
+            ArgumentNullException.ThrowIfNull(colors);
+            if (colors.Length == 0)
+            {
+                throw new ArgumentException("An animated light needs at least one palette colour.", nameof(colors));
+            }
+
+            m_colors = colors;
+            LightColor = colors[0];
+            m_bulbMaterial = new StandardMaterial3D
+            {
+                AlbedoColor = colors[0],
+                EmissionEnabled = true,
+                Emission = colors[0],
+                EmissionEnergyMultiplier = 5.0f,
+                ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded
+            };
+            AddChild(new MeshInstance3D
+            {
+                Name = "IndicatorBulb",
+                Mesh = new SphereMesh { Radius = 0.12f, Height = 0.24f },
+                MaterialOverride = m_bulbMaterial,
+                CastShadow = GeometryInstance3D.ShadowCastingSetting.Off
+            });
+        }
+
+        public override void _Process(double delta)
+        {
+            m_elapsed += (float)delta;
+            var color = m_colors[(int)(m_elapsed / FrameSeconds) % m_colors.Length];
+            LightColor = color;
+            m_bulbMaterial.AlbedoColor = color;
+            m_bulbMaterial.Emission = color;
+        }
+    }
+
     /// <remarks>
     /// The set piece is discovered from a BWD <c>drop</c> task rather than a
     /// mission name. Its child models retain their offsets around the authored
