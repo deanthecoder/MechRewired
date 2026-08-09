@@ -269,7 +269,7 @@ public partial class PlayerMech : Node3D
         _ => Legs
     };
 
-    public void RegisterGaitPart(Node3D node, string partName) =>
+    public bool RegisterGaitPart(Node3D node, string partName) =>
         m_mechRig.RegisterPart(node, partName);
 
     public void Configure(

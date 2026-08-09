@@ -37,16 +37,17 @@ public partial class MechRig : Node
     /// <summary>
     /// Registers one solid or wireframe visual using its original or semantic part name.
     /// </summary>
-    public void RegisterPart(Node3D node, string partName)
+    public bool RegisterPart(Node3D node, string partName)
     {
         ArgumentNullException.ThrowIfNull(node);
         ArgumentException.ThrowIfNullOrWhiteSpace(partName);
         if (!TryClassify(partName, out var kind))
         {
-            return;
+            return false;
         }
 
         m_parts.Add(new RigPart(node, node.Position, node.Rotation, kind));
+        return true;
     }
 
     /// <summary>
@@ -160,7 +161,10 @@ public partial class MechRig : Node
 
     private static bool TryClassify(string name, out PartKind kind)
     {
-        var normalized = new string(name.Where(char.IsLetterOrDigit).Select(char.ToUpperInvariant).ToArray());
+        var baseName = name.EndsWith(".WTB", StringComparison.OrdinalIgnoreCase)
+            ? name[..^4]
+            : name;
+        var normalized = new string(baseName.Where(char.IsLetterOrDigit).Select(char.ToUpperInvariant).ToArray());
         if (normalized.Contains("LEFTUPPERLEG") || normalized.EndsWith("LULEG", StringComparison.Ordinal))
         {
             kind = PartKind.LeftUpperLeg;
@@ -173,13 +177,15 @@ public partial class MechRig : Node
             return true;
         }
 
-        if (normalized.Contains("LEFTLOWERLEG") || normalized.EndsWith("LLLEG", StringComparison.Ordinal))
+        if (normalized.Contains("LEFTLOWERLEG") || normalized.EndsWith("LLLEG", StringComparison.Ordinal) ||
+            normalized.EndsWith("LKNEE", StringComparison.Ordinal))
         {
             kind = PartKind.LeftLowerLeg;
             return true;
         }
 
-        if (normalized.Contains("RIGHTLOWERLEG") || normalized.EndsWith("RLLEG", StringComparison.Ordinal))
+        if (normalized.Contains("RIGHTLOWERLEG") || normalized.EndsWith("RLLEG", StringComparison.Ordinal) ||
+            normalized.EndsWith("RKNEE", StringComparison.Ordinal))
         {
             kind = PartKind.RightLowerLeg;
             return true;
@@ -192,8 +198,22 @@ public partial class MechRig : Node
             return true;
         }
 
+        if (normalized.EndsWith("LLTOE", StringComparison.Ordinal) ||
+            normalized.EndsWith("LFOOT", StringComparison.Ordinal))
+        {
+            kind = PartKind.LeftToe;
+            return true;
+        }
+
         if (normalized.Contains("RIGHTFRONTTOE") || normalized.Contains("RIGHTREARTOE") ||
             normalized.EndsWith("RFTOE", StringComparison.Ordinal) || normalized.EndsWith("RRTOE", StringComparison.Ordinal))
+        {
+            kind = PartKind.RightToe;
+            return true;
+        }
+
+        if (normalized.EndsWith("RLTOE", StringComparison.Ordinal) ||
+            normalized.EndsWith("RFOOT", StringComparison.Ordinal))
         {
             kind = PartKind.RightToe;
             return true;

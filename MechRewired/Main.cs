@@ -882,6 +882,7 @@ public partial class Main : Node3D
             playerMech,
             playerMechSounds.MediumLaser,
             battlefieldEffects,
+            () => GetSceneryObstacles(staticSceneryObstacles, battlefieldActors),
             debugTriangles.AsReadOnly());
         GD.Print(
             $"MechRewired: configured {staticSceneryObstacles.Count} static and " +
@@ -971,6 +972,7 @@ public partial class Main : Node3D
         PlayerMech playerMech,
         AudioStreamWav laserSound,
         BattlefieldEffects battlefieldEffects,
+        Func<IReadOnlyList<SceneryObstacle>> sceneryObstacleProvider,
         IReadOnlyList<DebugTriangle> debugTriangles)
     {
         var enemyRoot = new Node3D { Name = "EnemyMechs" };
@@ -996,6 +998,7 @@ public partial class Main : Node3D
                 laserSound,
                 damageSilhouette,
                 position => FindDeploymentSurfaceHeight(debugTriangles, position),
+                sceneryObstacleProvider,
                 debugTriangles);
             enemyRoot.AddChild(enemy);
 
@@ -1007,10 +1010,13 @@ public partial class Main : Node3D
             var bounds = new Aabb();
             var hasBounds = false;
             var renderedParts = 0;
+            var animatedGaitParts = 0;
+            var renderedModelNames = new List<string>();
             var renderedPolygons = 0;
             foreach (var chassisObject in chassis.Objects.Where(chassisObject => chassisObject.ModelResourceIndex >= 0))
             {
                 var modelEntry = archive.GetEntry("POLY", chassisObject.ModelResourceIndex);
+                renderedModelNames.Add(modelEntry.Name);
                 if (modelEntry.Name.StartsWith("DUMMY", StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
@@ -1048,7 +1054,10 @@ public partial class Main : Node3D
                         : GeometryInstance3D.ShadowCastingSetting.DoubleSided
                 };
                 (isTorsoPart ? enemy.Torso : enemy.Legs).AddChild(modelInstance);
-                enemy.RegisterGaitPart(modelInstance, modelEntry.Name);
+                if (enemy.RegisterGaitPart(modelInstance, modelEntry.Name))
+                {
+                    animatedGaitParts++;
+                }
                 modelInstance.AddToGroup(DebugCamera.SolidMeshGroup);
 
                 var wireframe = new MeshInstance3D
@@ -1100,11 +1109,19 @@ public partial class Main : Node3D
             enemy.RotationDegrees = MechWarriorCoordinateSystem.ToGodotRotation(
                 new System.Numerics.Vector3(0.0f, gamePiece.SpawnPoint.StartingAngle, 0.0f));
             enemies.Add(enemy);
+            if (animatedGaitParts == 0)
+            {
+                GD.PushWarning(
+                    $"MechRewired: {enemy.Description} has no recognized gait parts among " +
+                    $"[{string.Join(", ", renderedModelNames)}].");
+            }
+
             GD.Print(
                 $"MechRewired: deployed hostile {enemy.Description} from {gamePiece.ChassisEntry.Path}/" +
                 $"{gamePiece.ConfigurationEntry.Name} at rendered ({enemy.Position.X:F2}, {enemy.Position.Y:F2}, " +
                 $"{enemy.Position.Z:F2}); {renderedParts} parts, {renderedPolygons} polygons, " +
-                $"{weaponMounts.Length} firing points, {enemy.Health} whole-mech health.");
+                $"{animatedGaitParts} articulated gait parts, {weaponMounts.Length} firing points, " +
+                $"{enemy.Health} whole-mech health, {mechDefinition.CruisingSpeedKph:F1} km/h tactical speed.");
         }
 
         GD.Print(

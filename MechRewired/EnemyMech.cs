@@ -10,6 +10,7 @@
 
 using Godot;
 using MechRewired.Resources;
+using MechRewired.Simulation;
 
 namespace MechRewired;
 
@@ -18,7 +19,7 @@ namespace MechRewired;
 /// </summary>
 /// <remarks>
 /// Original GPS ranges, spawn data, chassis hierarchy and MEK movement data drive the actor. Detailed armor,
-/// weapon loadouts, formations and leg animation can be layered on without changing mission spawning.
+/// weapon loadouts, formations and navigation can be layered on without changing mission spawning.
 /// </remarks>
 public partial class EnemyMech : Node3D
 {
@@ -26,8 +27,6 @@ public partial class EnemyMech : Node3D
     private const float TorsoTurnDegreesPerSecond = 58.0f;
     private const float MaximumTorsoYawRadians = Mathf.Pi / 2.0f;
     private const float MaximumTorsoPitchRadians = Mathf.Pi / 5.0f;
-    private const float MovementSpeedFactor = 0.42f;
-    private const float MinimumStandOffDistance = 90.0f;
     private const float SensorIntervalSeconds = 0.2f;
     private const float TargetMemorySeconds = 4.0f;
     private const float InitialSensorHalfAngleDegrees = 70.0f;
@@ -36,6 +35,7 @@ public partial class EnemyMech : Node3D
     private readonly PlayerMech m_playerMech;
     private readonly BattlefieldEffects m_battlefieldEffects;
     private readonly Func<Vector3, float> m_surfaceHeightProvider;
+    private readonly Func<IReadOnlyList<SceneryObstacle>> m_sceneryObstacleProvider;
     private readonly IReadOnlyList<DebugTriangle> m_sceneTriangles;
     private readonly float m_maximumSpeedMetersPerSecond;
     private readonly float m_acquisitionRange;
@@ -43,11 +43,14 @@ public partial class EnemyMech : Node3D
     private readonly float m_fireInterval;
     private readonly AudioStreamPlayer3D m_laserSound;
     private readonly MechRig m_mechRig;
+    private readonly EnemyCombatMovement m_combatMovement;
     private readonly List<Marker3D> m_weaponMounts = new();
     private Aabb m_localBounds;
     private float m_modelBottomY;
+    private float m_footprintRadius;
     private float m_fireCooldown;
     private float m_sensorCooldown;
+    private float m_movementBlockedLogCooldown;
     private float m_targetMemoryRemaining;
     private int m_nextWeaponMount;
     private bool m_acquired;
@@ -55,6 +58,8 @@ public partial class EnemyMech : Node3D
     private bool m_hasGaitSample;
     private Vector3 m_previousGaitPosition;
     private float m_previousGaitYaw;
+    private Vector3 m_lastKnownTargetPosition;
+    private EnemyCombatMovementMode? m_movementMode;
 
     public EnemyMech(
         MechWarriorMissionGamePiece definition,
@@ -64,6 +69,7 @@ public partial class EnemyMech : Node3D
         AudioStreamWav laserSound,
         Texture2D damageSilhouette,
         Func<Vector3, float> surfaceHeightProvider,
+        Func<IReadOnlyList<SceneryObstacle>> sceneryObstacleProvider,
         IReadOnlyList<DebugTriangle> sceneTriangles)
     {
         ArgumentNullException.ThrowIfNull(definition);
@@ -73,6 +79,7 @@ public partial class EnemyMech : Node3D
         ArgumentNullException.ThrowIfNull(laserSound);
         ArgumentNullException.ThrowIfNull(damageSilhouette);
         ArgumentNullException.ThrowIfNull(surfaceHeightProvider);
+        ArgumentNullException.ThrowIfNull(sceneryObstacleProvider);
         ArgumentNullException.ThrowIfNull(sceneTriangles);
 
         Definition = definition;
@@ -81,16 +88,19 @@ public partial class EnemyMech : Node3D
         m_battlefieldEffects = battlefieldEffects;
         DamageSilhouette = damageSilhouette;
         m_surfaceHeightProvider = surfaceHeightProvider;
+        m_sceneryObstacleProvider = sceneryObstacleProvider;
         m_sceneTriangles = sceneTriangles;
         Name = $"Enemy-{definition.Specification.DisplayName}-{definition.Specification.GroupId}";
         MaximumHealth = Math.Max(14, mechDefinition.Tonnage * 2);
         Health = MaximumHealth;
-        m_maximumSpeedMetersPerSecond = (float)(mechDefinition.MaximumSpeedKph / 3.6) * MovementSpeedFactor;
+        // Combat manoeuvres use the authored walking/cruising speed. Running is reserved for later pursuit states.
+        m_maximumSpeedMetersPerSecond = (float)(mechDefinition.CruisingSpeedKph / 3.6);
         m_weaponRange = Math.Max(definition.Specification.TargetRange, 120);
         m_acquisitionRange = Math.Max(
             m_weaponRange,
             Math.Max(definition.Specification.SleepRange, definition.Specification.RubberbandRange));
         m_fireInterval = Mathf.Clamp(2.8f - definition.Specification.GunnerySkill * 0.12f, 1.35f, 2.8f);
+        m_combatMovement = new EnemyCombatMovement(m_weaponRange, definition.Specification.GroupId);
 
         Legs = new Node3D { Name = "Legs" };
         Torso = new Node3D { Name = "Torso" };
@@ -147,7 +157,7 @@ public partial class EnemyMech : Node3D
     /// <summary>Raised once when this hostile activates its reactor/sensors.</summary>
     public event Action<EnemyMech> PoweredUp;
 
-    public void RegisterGaitPart(Node3D node, string partName) =>
+    public bool RegisterGaitPart(Node3D node, string partName) =>
         m_mechRig.RegisterPart(node, partName);
 
     public void ConfigureVisuals(
@@ -157,6 +167,7 @@ public partial class EnemyMech : Node3D
     {
         m_localBounds = localBounds;
         m_modelBottomY = localBounds.Position.Y;
+        m_footprintRadius = Mathf.Max(localBounds.Size.X, localBounds.Size.Z) * 0.35f;
         Torso.Position = torsoPivot;
         foreach (var position in weaponMountPositions)
         {
@@ -192,9 +203,11 @@ public partial class EnemyMech : Node3D
         UpdateGait(elapsed);
         m_fireCooldown = Math.Max(0.0f, m_fireCooldown - elapsed);
         m_sensorCooldown = Math.Max(0.0f, m_sensorCooldown - elapsed);
-        var targetOffset = m_playerMech.TargetPosition - TargetPosition;
-        var planarOffset = new Vector3(targetOffset.X, 0.0f, targetOffset.Z);
-        var distance = planarOffset.Length();
+        m_movementBlockedLogCooldown = Math.Max(0.0f, m_movementBlockedLogCooldown - elapsed);
+        var playerTargetPosition = m_playerMech.TargetPosition;
+        var playerOffset = playerTargetPosition - TargetPosition;
+        var playerPlanarOffset = new Vector3(playerOffset.X, 0.0f, playerOffset.Z);
+        var playerDistance = playerPlanarOffset.Length();
         if (!m_acquired)
         {
             if (m_sensorCooldown > 0.0f)
@@ -203,9 +216,13 @@ public partial class EnemyMech : Node3D
             }
 
             m_sensorCooldown = SensorIntervalSeconds;
-            if (distance > m_acquisitionRange ||
-                !IsInsideInitialSensorCone(planarOffset) ||
-                !HasLineOfSight(TargetPosition, m_playerMech.TargetPosition))
+            var hasLineOfSight = HasLineOfSight(TargetPosition, playerTargetPosition);
+            if (!EnemyAwareness.CanAcquire(
+                    playerDistance,
+                    m_acquisitionRange,
+                    GetInitialSensorAlignment(playerPlanarOffset),
+                    Mathf.Cos(Mathf.DegToRad(InitialSensorHalfAngleDegrees)),
+                    hasLineOfSight))
             {
                 return;
             }
@@ -213,21 +230,24 @@ public partial class EnemyMech : Node3D
             PowerUp();
             m_hasLineOfSight = true;
             m_targetMemoryRemaining = TargetMemorySeconds;
+            m_lastKnownTargetPosition = playerTargetPosition;
             GD.Print(
-                $"MechRewired: {Description} acquired visible PlayerMech at {distance:F0}m " +
+                $"MechRewired: {Description} acquired visible PlayerMech at {playerDistance:F0}m " +
                 $"(GPS target {Definition.Specification.TargetRange}m; sleep " +
                 $"{Definition.Specification.SleepRange}m; rubberband " +
-                $"{Definition.Specification.RubberbandRange}m).");
+                $"{Definition.Specification.RubberbandRange}m; close awareness " +
+                $"{EnemyAwareness.GetCloseAwarenessRange(m_acquisitionRange):F0}m).");
         }
         else
         {
             if (m_sensorCooldown <= 0.0f)
             {
                 m_sensorCooldown = SensorIntervalSeconds;
-                m_hasLineOfSight = HasLineOfSight(TargetPosition, m_playerMech.TargetPosition);
+                m_hasLineOfSight = HasLineOfSight(TargetPosition, playerTargetPosition);
                 if (m_hasLineOfSight)
                 {
                     m_targetMemoryRemaining = TargetMemorySeconds;
+                    m_lastKnownTargetPosition = playerTargetPosition;
                 }
             }
 
@@ -238,12 +258,16 @@ public partial class EnemyMech : Node3D
                 {
                     m_acquired = false;
                     GD.Print($"MechRewired: {Description} lost contact with PlayerMech behind cover.");
+                    return;
                 }
 
-                return;
             }
         }
 
+        var movementTarget = m_hasLineOfSight ? playerTargetPosition : m_lastKnownTargetPosition;
+        var targetOffset = movementTarget - TargetPosition;
+        var planarOffset = new Vector3(targetOffset.X, 0.0f, targetOffset.Z);
+        var distance = planarOffset.Length();
         if (distance <= 0.01f)
         {
             return;
@@ -263,29 +287,25 @@ public partial class EnemyMech : Node3D
                 Mathf.DegToRad(TorsoTurnDegreesPerSecond) * elapsed),
             0.0f);
 
-        var standOffDistance = Math.Max(MinimumStandOffDistance, m_weaponRange * 0.45f);
-        if (distance > standOffDistance)
+        var movement = m_combatMovement.Advance(
+            elapsed,
+            distance,
+            m_hasLineOfSight,
+            (double)m_playerMech.Health / m_playerMech.MaximumHealth);
+        if (m_movementMode != movement.Mode)
         {
-            Rotation = new Vector3(
-                0.0f,
-                MoveTowardAngle(
-                    Rotation.Y,
-                    desiredYaw,
-                    Mathf.DegToRad(ChassisTurnDegreesPerSecond) * elapsed),
-                0.0f);
-            var chassisAlignment = Mathf.Abs(Mathf.AngleDifference(Rotation.Y, desiredYaw));
-            if (chassisAlignment <= Mathf.DegToRad(25.0f))
-            {
-                var step = Math.Min(distance - standOffDistance, m_maximumSpeedMetersPerSecond * elapsed);
-                var candidate = GlobalPosition - GlobalBasis.Z * step;
-                candidate.Y = m_surfaceHeightProvider(candidate) - m_modelBottomY;
-                GlobalPosition = candidate;
-            }
+            m_movementMode = movement.Mode;
+            GD.Print(
+                $"MechRewired: {Description} combat movement {movement.Mode} at {playerDistance:F0}m " +
+                $"({Health}/{MaximumHealth} health).");
         }
 
-        var aimYaw = Mathf.Abs(Mathf.AngleDifference(Torso.GlobalRotation.Y, desiredYaw));
+        ApplyCombatMovement(movement, planarOffset, elapsed);
+
+        var playerYaw = Mathf.Atan2(-playerPlanarOffset.X, -playerPlanarOffset.Z);
+        var aimYaw = Mathf.Abs(Mathf.AngleDifference(Torso.GlobalRotation.Y, playerYaw));
         if (m_hasLineOfSight &&
-            distance <= m_weaponRange &&
+            playerDistance <= m_weaponRange &&
             aimYaw <= Mathf.DegToRad(12.0f) &&
             m_fireCooldown <= 0.0f)
         {
@@ -302,6 +322,7 @@ public partial class EnemyMech : Node3D
         }
 
         Health = Math.Max(0, Health - damage);
+        m_combatMovement.NotifyDamage();
         GD.Print(
             $"MechRewired: laser hit {Description} ({Definition.Specification.ConfigurationName}) " +
             $"for {damage} damage ({Health}/{MaximumHealth}).");
@@ -313,6 +334,7 @@ public partial class EnemyMech : Node3D
                 m_hasLineOfSight = true;
                 m_targetMemoryRemaining = TargetMemorySeconds;
                 m_sensorCooldown = 0.0f;
+                m_lastKnownTargetPosition = m_playerMech.TargetPosition;
                 GD.Print($"MechRewired: {Description} alerted by weapon impact.");
             }
 
@@ -381,6 +403,81 @@ public partial class EnemyMech : Node3D
         m_previousGaitYaw = GlobalRotation.Y;
     }
 
+    private void ApplyCombatMovement(
+        EnemyCombatMovementStep movement,
+        Vector3 planarOffset,
+        float elapsed)
+    {
+        var radial = planarOffset.Normalized();
+        var lateral = new Vector3(radial.Z, 0.0f, -radial.X);
+        var direction = (radial * (float)movement.Radial + lateral * (float)movement.Lateral).Normalized();
+        if (direction.LengthSquared() <= 0.0001f)
+        {
+            return;
+        }
+
+        // Keep the chassis combat-facing while the translation vector strafes or creates limited space.
+        // This preserves the torso firing arc instead of making an enemy visibly turn and run away.
+        var facingLateral = Mathf.Clamp((float)movement.Lateral, -0.7f, 0.7f);
+        var facingDirection = (radial + lateral * facingLateral).Normalized();
+        var desiredMovementYaw = Mathf.Atan2(-facingDirection.X, -facingDirection.Z);
+        Rotation = new Vector3(
+            0.0f,
+            MoveTowardAngle(
+                Rotation.Y,
+                desiredMovementYaw,
+                Mathf.DegToRad(ChassisTurnDegreesPerSecond) * elapsed),
+            0.0f);
+        if (Mathf.Abs(Mathf.AngleDifference(Rotation.Y, desiredMovementYaw)) > Mathf.DegToRad(28.0f))
+        {
+            return;
+        }
+
+        var step = m_maximumSpeedMetersPerSecond * (float)movement.SpeedFraction * elapsed;
+        if (TryMove(direction, step, out var blockingObstacle))
+        {
+            return;
+        }
+
+        // Try the opposite side immediately, then retain it so an obstacle does not cause frame-by-frame jitter.
+        var alternateDirection = (radial * (float)movement.Radial - lateral * (float)movement.Lateral).Normalized();
+        SceneryObstacle alternateBlockingObstacle = null;
+        if (alternateDirection.LengthSquared() > 0.0001f &&
+            TryMove(alternateDirection, step, out alternateBlockingObstacle))
+        {
+            m_combatMovement.ReverseStrafeDirection();
+            return;
+        }
+
+        if (m_movementBlockedLogCooldown <= 0.0f)
+        {
+            var obstacle = alternateBlockingObstacle ?? blockingObstacle;
+            GD.Print(
+                $"MechRewired: {Description} combat movement blocked by scenery " +
+                $"'{obstacle?.Name ?? "unknown"}' while {movement.Mode}.");
+            m_movementBlockedLogCooldown = 2.0f;
+        }
+    }
+
+    private bool TryMove(Vector3 direction, float distance, out SceneryObstacle blockingObstacle)
+    {
+        var candidate = GlobalPosition + direction * distance;
+        if (SceneryCollision.TryFindBlockingObstacle(
+                new System.Numerics.Vector2(GlobalPosition.X, GlobalPosition.Z),
+                new System.Numerics.Vector2(candidate.X, candidate.Z),
+                m_footprintRadius,
+                m_sceneryObstacleProvider(),
+                out blockingObstacle))
+        {
+            return false;
+        }
+
+        blockingObstacle = null;
+        candidate.Y = m_surfaceHeightProvider(candidate) - m_modelBottomY;
+        GlobalPosition = candidate;
+        return true;
+    }
+
     private bool HasLineOfSight(Vector3 start, Vector3 end)
     {
         var distance = start.DistanceTo(end);
@@ -398,18 +495,17 @@ public partial class EnemyMech : Node3D
                hitDistance >= distance - 1.0f;
     }
 
-    private bool IsInsideInitialSensorCone(Vector3 planarOffset)
+    private float GetInitialSensorAlignment(Vector3 planarOffset)
     {
         if (planarOffset.LengthSquared() <= 0.0001f)
         {
-            return true;
+            return 1.0f;
         }
 
         var forward = -GlobalBasis.Z;
         forward.Y = 0.0f;
         forward = forward.Normalized();
-        return forward.Dot(planarOffset.Normalized()) >=
-               Mathf.Cos(Mathf.DegToRad(InitialSensorHalfAngleDegrees));
+        return forward.Dot(planarOffset.Normalized());
     }
 
     private static float MoveTowardAngle(float current, float target, float maximumDelta) =>
