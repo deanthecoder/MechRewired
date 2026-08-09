@@ -27,6 +27,7 @@ public sealed record PlayerMechSounds(
     AudioStreamWav StartRunning,
     AudioStreamWav StopRunning,
     AudioStreamWav EnemyPowerUpDetected,
+    AudioStreamWav EnemyMechDestroyed,
     AudioStreamWav NavigationPointTone,
     IReadOnlyList<AudioStreamWav> NavigationPointReports,
     AudioStreamWav DisplayZoom,
@@ -42,7 +43,8 @@ public sealed record PlayerMechSounds(
     private const string StopWalkingPath = "SNDS/WLK2STOP.SFL";
     private const string StartRunningPath = "SNDS/WALK2RUN.SFL";
     private const string StopRunningPath = "SNDS/RUN2WLK.SFL";
-    private const string EnemyPowerUpDetectedPath = "SNDS/MECREACT.WAV";
+    private const string EnemyPowerUpDetectedPath = "SNDS/BET79.SFL";
+    private const string EnemyMechDestroyedPath = "SNDS/BET75.SFL";
     private const string NavigationPointTonePath = "SNDS/MECNAVPT.SFL";
     private const string DisplayZoomPath = "SNDS/VIEWZOOM.SFL";
     private const string MediumLaserPath = "SNDS/MECMLASR.SFL";
@@ -74,7 +76,8 @@ public sealed record PlayerMechSounds(
             LoadResource(archive, StopWalkingPath, false, "walk-to-stop transition"),
             LoadResource(archive, StartRunningPath, false, "walk-to-run transition"),
             LoadResource(archive, StopRunningPath, false, "run-to-walk transition"),
-            LoadWaveResource(archive, EnemyPowerUpDetectedPath, false, "enemy reactor activation warning"),
+            LoadResource(archive, EnemyPowerUpDetectedPath, false, "enemy power-up detected report"),
+            LoadResource(archive, EnemyMechDestroyedPath, false, "enemy mech destroyed report"),
             LoadResource(archive, NavigationPointTonePath, false, "navigation point arrival tone"),
             NavigationPointReportPaths
                 .Select((path, index) => LoadResource(

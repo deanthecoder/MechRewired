@@ -27,8 +27,10 @@ public partial class PlayerMission : Node
 
     private readonly MissionRuntime m_runtime;
     private readonly IReadOnlyDictionary<string, AudioStreamWav> m_completionReports;
+    private readonly IReadOnlyList<AudioStreamWav> m_extractionReadyReports;
     private readonly AudioStreamWav m_successReport;
     private readonly AudioStreamPlayer m_reportPlayer;
+    private readonly Queue<AudioStreamWav> m_reportQueue = new();
     private bool m_completionReported;
     private float m_statusMessageRemaining;
 
@@ -43,10 +45,24 @@ public partial class PlayerMission : Node
             archive,
             definition.SuccessReport,
             "mission success report");
+        m_extractionReadyReports =
+        [
+            PlayerMechSounds.LoadResource(
+                archive,
+                "SNDS/GENE014S.SFL",
+                false,
+                "all primary objectives complete report"),
+            PlayerMechSounds.LoadResource(
+                archive,
+                "SNDS/GENE015S.SFL",
+                false,
+                "proceed to dust-off zone report")
+        ];
         m_reportPlayer = new AudioStreamPlayer
         {
             Name = "ObjectiveReport"
         };
+        m_reportPlayer.Finished += PlayNextQueuedReport;
         AddChild(m_reportPlayer);
         foreach (var objective in definition.Objectives.Where(objective =>
                      m_runtime.GetState(objective.Id) == MissionObjectiveState.Active))
@@ -68,13 +84,19 @@ public partial class PlayerMission : Node
                     $"from {missionEvent.Kind} on {missionEvent.TargetResourceName}.");
                 if (m_completionReports.TryGetValue(transition.Objective.Id, out var report))
                 {
-                    m_reportPlayer.Stream = report;
-                    m_reportPlayer.Play();
+                    QueueReport(report);
                 }
             }
             else
             {
                 GD.Print($"MechRewired: activated objective '{transition.Objective.Description}'.");
+                if (transition.Objective.Kind == MissionObjectiveKind.Extract)
+                {
+                    foreach (var report in m_extractionReadyReports)
+                    {
+                        QueueReport(report);
+                    }
+                }
             }
         }
 
@@ -90,8 +112,7 @@ public partial class PlayerMission : Node
                 var timer = GetTree().CreateTimer(SuccessReportDelaySeconds);
                 timer.Timeout += () =>
                 {
-                    m_reportPlayer.Stream = m_successReport;
-                    m_reportPlayer.Play();
+                    QueueReport(m_successReport);
                 };
             }
         }
@@ -193,5 +214,30 @@ public partial class PlayerMission : Node
             reportEntry.Path,
             false,
             purpose);
+    }
+
+    private void QueueReport(AudioStreamWav report)
+    {
+        if (report == null)
+        {
+            return;
+        }
+
+        m_reportQueue.Enqueue(report);
+        if (!m_reportPlayer.Playing)
+        {
+            PlayNextQueuedReport();
+        }
+    }
+
+    private void PlayNextQueuedReport()
+    {
+        if (m_reportQueue.Count == 0)
+        {
+            return;
+        }
+
+        m_reportPlayer.Stream = m_reportQueue.Dequeue();
+        m_reportPlayer.Play();
     }
 }

@@ -911,6 +911,7 @@ public partial class Main : Node3D
             enemyMechs,
             playerMechSounds.MediumLaser,
             playerMechSounds.EnemyPowerUpDetected,
+            playerMechSounds.EnemyMechDestroyed,
             battlefieldEffects);
         AddChild(playerTargeting);
 
@@ -1103,8 +1104,9 @@ public partial class Main : Node3D
         }
 
         GD.Print(
-            $"MechRewired: hostile force online ({enemies.Count} data-driven mechs; " +
-            "GPS acquire ranges, chassis/torso tracking, MEK movement, medium lasers; leg animation pending).");
+            $"MechRewired: hostile force deployed dormant ({enemies.Count} data-driven mechs; " +
+            "GPS acquire ranges, sensor cone/line of sight, chassis/torso tracking, MEK movement, medium lasers; " +
+            "leg animation pending).");
         return enemies.AsReadOnly();
     }
 

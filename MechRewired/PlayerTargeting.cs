@@ -34,6 +34,7 @@ public partial class PlayerTargeting : Node
     private readonly IReadOnlyDictionary<(string SourcePath, int ObjectId), BattlefieldActor> m_actorsByObject;
     private readonly AudioStreamPlayer m_laserSound;
     private readonly AudioStreamPlayer m_enemyPowerUpSound;
+    private readonly AudioStreamPlayer m_enemyMechDestroyedSound;
     private readonly BattlefieldEffects m_battlefieldEffects;
     private int m_nextLaserSide = -1;
 
@@ -45,6 +46,7 @@ public partial class PlayerTargeting : Node
         IReadOnlyList<EnemyMech> enemyMechs,
         AudioStreamWav laserSound,
         AudioStreamWav enemyPowerUpSound,
+        AudioStreamWav enemyMechDestroyedSound,
         BattlefieldEffects battlefieldEffects)
     {
         ArgumentNullException.ThrowIfNull(playerMech);
@@ -53,7 +55,7 @@ public partial class PlayerTargeting : Node
         ArgumentNullException.ThrowIfNull(actors);
         ArgumentNullException.ThrowIfNull(enemyMechs);
         ArgumentNullException.ThrowIfNull(laserSound);
-        ArgumentNullException.ThrowIfNull(enemyPowerUpSound);
+        ArgumentNullException.ThrowIfNull(enemyMechDestroyedSound);
         ArgumentNullException.ThrowIfNull(battlefieldEffects);
         Name = "PlayerTargeting";
         m_playerMech = playerMech;
@@ -88,13 +90,23 @@ public partial class PlayerTargeting : Node
             VolumeDb = -2.0f
         };
         AddChild(m_laserSound);
-        m_enemyPowerUpSound = new AudioStreamPlayer
+        if (enemyPowerUpSound != null)
         {
-            Name = "EnemyPowerUpWarning",
-            Stream = enemyPowerUpSound,
+            m_enemyPowerUpSound = new AudioStreamPlayer
+            {
+                Name = "EnemyPowerUpWarning",
+                Stream = enemyPowerUpSound,
+                VolumeDb = -1.0f
+            };
+            AddChild(m_enemyPowerUpSound);
+        }
+        m_enemyMechDestroyedSound = new AudioStreamPlayer
+        {
+            Name = "EnemyMechDestroyedReport",
+            Stream = enemyMechDestroyedSound,
             VolumeDb = -1.0f
         };
-        AddChild(m_enemyPowerUpSound);
+        AddChild(m_enemyMechDestroyedSound);
         playerMech.FireRequested += FireLaser;
         playerMech.TargetRequested += SelectUnderReticle;
         playerMech.NextTargetRequested += SelectNextEnemy;
@@ -391,6 +403,7 @@ public partial class PlayerTargeting : Node
 
     private void OnEnemyDestroyed(EnemyMech enemyMech)
     {
+        m_enemyMechDestroyedSound.Play();
         if (ReferenceEquals(SelectedEnemy, enemyMech))
         {
             SelectedEnemy = null;
@@ -399,7 +412,7 @@ public partial class PlayerTargeting : Node
 
     private void OnEnemyPoweredUp(EnemyMech enemyMech)
     {
-        m_enemyPowerUpSound.Play();
+        m_enemyPowerUpSound?.Play();
         GD.Print($"MechRewired: enemy power up detected: {enemyMech.Description}.");
     }
 

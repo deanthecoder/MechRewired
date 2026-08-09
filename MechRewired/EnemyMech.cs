@@ -126,10 +126,11 @@ public partial class EnemyMech : Node3D
     /// Whether the mech's reactor is offline and therefore unavailable to target sensors.
     /// </summary>
     /// <remarks>
-    /// The current mission slice does not yet decode an authored power-state command, so spawned hostiles are active.
-    /// Keeping this explicit lets the targeting system honour that state as soon as mission AI supplies it.
+    /// Until an authored initial power-state command is decoded, hostiles begin dormant. Their existing
+    /// GPS/range, sensor-cone and line-of-sight data decides when they activate; a successful weapon hit
+    /// also wakes them immediately.
     /// </remarks>
-    public bool IsPoweredDown { get; private set; }
+    public bool IsPoweredDown { get; private set; } = true;
 
     public Aabb WorldBounds => GlobalTransform * m_localBounds;
 
@@ -338,8 +339,9 @@ public partial class EnemyMech : Node3D
 
     private void PowerUp()
     {
-        if (m_acquired)
+        if (!IsPoweredDown)
         {
+            m_acquired = true;
             return;
         }
 

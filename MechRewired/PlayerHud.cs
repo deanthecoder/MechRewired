@@ -182,7 +182,8 @@ public partial class PlayerHud : Control
     private void DrawEnemyMechs(Vector2 center, Vector2 playerPosition)
     {
         var radarRange = RadarRanges[m_radarRangeIndex];
-        foreach (var enemyMech in m_targeting.EnemyMechs.Where(enemyMech => !enemyMech.IsDestroyed))
+        foreach (var enemyMech in m_targeting.EnemyMechs.Where(enemyMech =>
+                     !enemyMech.IsDestroyed && !enemyMech.IsPoweredDown))
         {
             var localPosition = m_playerMech.ToLocal(enemyMech.TargetPosition);
             var point = playerPosition + new Vector2(
