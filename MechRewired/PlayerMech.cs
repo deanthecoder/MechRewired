@@ -71,12 +71,14 @@ public partial class PlayerMech : Node3D
     private readonly AudioStreamPlayer m_displayZoom;
     private readonly AudioStreamPlayer m_driveTransition;
     private readonly AudioStreamPlayer m_damageImpact;
+    private readonly AudioStreamPlayer m_criticalHit;
     private readonly IReadOnlyList<AudioStreamWav> m_damageImpactSounds;
     private readonly AudioStreamWav m_startWalking;
     private readonly AudioStreamWav m_stopWalking;
     private readonly AudioStreamWav m_startRunning;
     private readonly AudioStreamWav m_stopRunning;
     private readonly double m_cruisingSpeedKph;
+    private Aabb m_localBounds;
 
     public PlayerMech(
         int tonnage,
@@ -166,6 +168,12 @@ public partial class PlayerMech : Node3D
             VolumeDb = -1.0f,
             MaxPolyphony = 4
         };
+        m_criticalHit = new AudioStreamPlayer
+        {
+            Name = "CriticalHitReport",
+            Stream = sounds.CriticalHit,
+            VolumeDb = -0.5f
+        };
         AddChild(m_torsoMotor);
         AddChild(m_footfall);
         AddChild(m_startup);
@@ -174,6 +182,7 @@ public partial class PlayerMech : Node3D
         AddChild(m_displayZoom);
         AddChild(m_driveTransition);
         AddChild(m_damageImpact);
+        AddChild(m_criticalHit);
     }
 
     public MechDrive Drive { get; }
@@ -191,6 +200,8 @@ public partial class PlayerMech : Node3D
     public bool IsDestroyed => Health <= 0;
 
     public Vector3 TargetPosition => CockpitMount?.GlobalPosition ?? GlobalPosition + Vector3.Up * 8.0f;
+
+    public Aabb WorldBounds => GlobalTransform * m_localBounds;
 
     public Node3D Legs { get; }
 
@@ -220,6 +231,8 @@ public partial class PlayerMech : Node3D
 
     public event Action InspectTargetRequested;
 
+    public event Action Destroyed;
+
     public void ApplyDamage(int damage, string attacker)
     {
         if (damage <= 0 || IsDestroyed)
@@ -227,6 +240,7 @@ public partial class PlayerMech : Node3D
             return;
         }
 
+        var previousHealth = Health;
         Health = Math.Max(0, Health - damage);
         PlayDamageImpact();
         m_damageShudderRemaining = DamageShudderDuration;
@@ -234,12 +248,21 @@ public partial class PlayerMech : Node3D
         GD.Print(
             $"MechRewired: PlayerMech hit by {attacker} for {damage} damage " +
             $"({Health}/{MaximumHealth} whole-mech health).");
+        var criticalThreshold = MaximumHealth / 3.0f;
+        if (Health > 0 && previousHealth > criticalThreshold && Health <= criticalThreshold)
+        {
+            m_criticalHit.Play();
+            GD.Print("MechRewired: PlayerMech entered critical-health state.");
+        }
+
         if (IsDestroyed)
         {
             Drive.SelectStop();
             m_translationLocked = true;
             m_translationLockReason = "destroyed";
-            GD.Print("MechRewired: PlayerMech destroyed; detailed armor and mission failure handling pending.");
+            StopOperationalAudio();
+            GD.Print("MechRewired: PlayerMech destroyed.");
+            Destroyed?.Invoke();
         }
     }
 
@@ -278,6 +301,7 @@ public partial class PlayerMech : Node3D
         Func<IReadOnlyList<SceneryObstacle>> sceneryObstacleProvider)
     {
         ArgumentNullException.ThrowIfNull(sceneryObstacleProvider);
+        m_localBounds = modelBounds;
         m_modelBottomY = modelBounds.Position.Y;
         m_footprintRadius = Mathf.Max(modelBounds.Size.X, modelBounds.Size.Z) * 0.35f;
         m_terrainTriangles = sceneTriangles
@@ -333,6 +357,14 @@ public partial class PlayerMech : Node3D
             return;
         }
 
+        if (IsDestroyed)
+        {
+            ActualSpeedKph = 0.0f;
+            m_mechRig.Advance(0.0f, 0.0f, 0.0f, (float)delta);
+            UpdateMotorAudio(0.0f, (float)delta);
+            return;
+        }
+
         var isPilotCamera = CockpitCamera.Current || ExternalCamera.Current;
         UpdateDisplayZoom((float)delta);
         var headLookHeld = Input.IsPhysicalKeyPressed(Key.Shift);
@@ -385,6 +417,11 @@ public partial class PlayerMech : Node3D
 
     public override void _UnhandledInput(InputEvent inputEvent)
     {
+        if (IsDestroyed)
+        {
+            return;
+        }
+
         if (CockpitCamera == null || (!CockpitCamera.Current && !ExternalCamera.Current))
         {
             return;
@@ -662,6 +699,16 @@ public partial class PlayerMech : Node3D
 
         m_damageImpact.Stream = m_damageImpactSounds[m_nextDamageImpact++ % m_damageImpactSounds.Count];
         m_damageImpact.Play();
+    }
+
+    private void StopOperationalAudio()
+    {
+        m_reactorHum.Stop();
+        m_torsoMotor.Stop();
+        m_footfall.Stop();
+        m_startup.Stop();
+        m_displayZoom.Stop();
+        m_driveTransition.Stop();
     }
 
     private void PlayDriveTransition(double previousTargetSpeedKph)

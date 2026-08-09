@@ -401,11 +401,16 @@ public partial class BattlefieldEffects : Node3D
     /// <summary>
     /// Spawns destruction effects for a dynamic combat actor such as an enemy mech.
     /// </summary>
-    public void SpawnDestruction(string actorName, int soundVariant, Aabb bounds, Vector3 hitPosition)
+    public void SpawnDestruction(
+        string actorName,
+        int soundVariant,
+        Aabb bounds,
+        Vector3 hitPosition,
+        AudioStreamWav explosionSound = null)
     {
         var plumePosition = bounds.GetCenter();
         plumePosition.Y = FindTerrainHeight(plumePosition, bounds.Position.Y);
-        SpawnDestruction(actorName, soundVariant, bounds, plumePosition, hitPosition);
+        SpawnDestruction(actorName, soundVariant, bounds, plumePosition, hitPosition, explosionSound);
     }
 
     private void SpawnDestruction(
@@ -413,7 +418,8 @@ public partial class BattlefieldEffects : Node3D
         int soundVariant,
         Aabb bounds,
         Vector3 plumePosition,
-        Vector3 hitPosition)
+        Vector3 hitPosition,
+        AudioStreamWav explosionSound = null)
     {
         if (!IsWithinEffectPersistenceRange(hitPosition))
         {
@@ -445,9 +451,10 @@ public partial class BattlefieldEffects : Node3D
             Math.Clamp(boundsLength * 0.08f, 1.5f, 3.5f));
         effect.ExplosionLight.OmniRange = Math.Clamp(boundsLength * 0.45f, 5.0f, 13.0f);
         effect.ExplosionLight.LightEnergy = 22.0f;
-        if (effect.ExplosionAudio != null && m_explosionSounds.Count > 0)
+        if (effect.ExplosionAudio != null && (explosionSound != null || m_explosionSounds.Count > 0))
         {
-            effect.ExplosionAudio.Stream = m_explosionSounds[Math.Abs(soundVariant) % m_explosionSounds.Count];
+            effect.ExplosionAudio.Stream = explosionSound ??
+                                           m_explosionSounds[Math.Abs(soundVariant) % m_explosionSounds.Count];
         }
 
         effect.Activate(plumePosition, localHit);

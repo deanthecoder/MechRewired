@@ -32,7 +32,10 @@ public sealed record PlayerMechSounds(
     IReadOnlyList<AudioStreamWav> NavigationPointReports,
     AudioStreamWav DisplayZoom,
     AudioStreamWav MediumLaser,
-    IReadOnlyList<AudioStreamWav> WeaponImpacts)
+    IReadOnlyList<AudioStreamWav> WeaponImpacts,
+    AudioStreamWav CriticalHit,
+    AudioStreamWav DeathExplosion,
+    AudioStreamWav MissionFailed)
 {
     private const string TorsoMotorPath = "SNDS/TORSLOOP.SFL";
     private const string FootfallPath = "SNDS/NONFOOT.SFL";
@@ -48,6 +51,9 @@ public sealed record PlayerMechSounds(
     private const string NavigationPointTonePath = "SNDS/MECNAVPT.SFL";
     private const string DisplayZoomPath = "SNDS/VIEWZOOM.SFL";
     private const string MediumLaserPath = "SNDS/MECMLASR.SFL";
+    private const string CriticalHitPath = "SNDS/BET6.SFL";
+    private const string DeathExplosionPath = "SNDS/MECEXPBG.SFL";
+    private const string MissionFailedPath = "SNDS/GENE001F.SFL";
     private static readonly string[] WeaponImpactPaths =
     [
         "SNDS/MECWIMP1.SFL",
@@ -94,7 +100,10 @@ public sealed record PlayerMechSounds(
                     path,
                     false,
                     $"weapon impact {index + 1}"))
-                .ToArray());
+                .ToArray(),
+            LoadResource(archive, CriticalHitPath, false, "critical-hit report"),
+            LoadResource(archive, DeathExplosionPath, false, "player mech destruction explosion"),
+            LoadResource(archive, MissionFailedPath, false, "mission failed report"));
     }
 
     internal static AudioStreamWav LoadResource(

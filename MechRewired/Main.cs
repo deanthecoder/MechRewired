@@ -865,6 +865,11 @@ public partial class Main : Node3D
             bounds,
             debugTriangles.AsReadOnly(),
             () => GetSceneryObstacles(staticSceneryObstacles, battlefieldActors));
+        AddChild(new PlayerDeathSequence(
+            playerMech,
+            battlefieldEffects,
+            playerMechSounds.DeathExplosion,
+            playerMechSounds.MissionFailed));
         battlefieldEffects.ConfigureObserver(playerMech);
         foreach (var battlefieldActor in battlefieldActors)
         {
