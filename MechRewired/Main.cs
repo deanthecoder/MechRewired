@@ -924,7 +924,13 @@ public partial class Main : Node3D
             Layer = 10
         };
         AddChild(hudLayer);
-        var playerHud = new PlayerHud(playerMech, playerNavigation, playerTargeting, playerMission)
+        var playerDamageSilhouette = LoadDamageSilhouette(archive, "Timber Wolf");
+        var playerHud = new PlayerHud(
+            playerMech,
+            playerDamageSilhouette,
+            playerNavigation,
+            playerTargeting,
+            playerMission)
         {
             Name = "PlayerHud",
             AnchorRight = 1.0f,

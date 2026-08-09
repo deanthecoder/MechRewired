@@ -30,6 +30,9 @@ public partial class PlayerHud : Control
     private const float AltimeterPixelsPerMeter = 14.0f;
     private const float MaximumTargetFrameSize = 160.0f;
     private const float ObjectiveTargetFrameSize = 48.0f;
+    private const float PlayerDamageRight = 1225.0f;
+    private const float PlayerDamageSize = 130.5f;
+    private const float PlayerDamageCenterX = PlayerDamageRight - PlayerDamageSize * 0.5f;
     private static readonly float[] RadarRanges = [500.0f, 1000.0f, 2000.0f, 4000.0f];
     private static readonly Color HudGreen = Color.FromHtml("00f000");
     private static readonly Color RadarAmber = Color.FromHtml("d7a900");
@@ -40,6 +43,7 @@ public partial class PlayerHud : Control
     private static readonly Color TargetFrame = Color.FromHtml("4b0a00");
 
     private readonly PlayerMech m_playerMech;
+    private readonly Texture2D m_playerDamageSilhouette;
     private readonly PlayerNavigation m_navigation;
     private readonly PlayerTargeting m_targeting;
     private readonly PlayerMission m_mission;
@@ -49,16 +53,19 @@ public partial class PlayerHud : Control
 
     public PlayerHud(
         PlayerMech playerMech,
+        Texture2D playerDamageSilhouette,
         PlayerNavigation navigation,
         PlayerTargeting targeting,
         PlayerMission mission)
     {
         ArgumentNullException.ThrowIfNull(playerMech);
+        ArgumentNullException.ThrowIfNull(playerDamageSilhouette);
         ArgumentNullException.ThrowIfNull(navigation);
         ArgumentNullException.ThrowIfNull(targeting);
         ArgumentNullException.ThrowIfNull(mission);
 
         m_playerMech = playerMech;
+        m_playerDamageSilhouette = playerDamageSilhouette;
         m_navigation = navigation;
         m_targeting = targeting;
         m_mission = mission;
@@ -394,27 +401,15 @@ public partial class PlayerHud : Control
         float panelWidth,
         float panelHeight)
     {
-        const float padding = 10.0f;
-        var texture = enemyMech.DamageSilhouette;
-        var availableSize = new Vector2(
-            panelWidth - padding * 2.0f,
-            panelHeight - padding * 2.0f);
-        var textureScale = Math.Min(
-            availableSize.X / texture.GetWidth(),
-            availableSize.Y / texture.GetHeight());
-        var textureSize = new Vector2(texture.GetWidth(), texture.GetHeight()) * textureScale;
-        var textureRect = new Rect2(
-            Point(
-                panelLeft + (panelWidth - textureSize.X) * 0.5f,
-                panelTop + (panelHeight - textureSize.Y) * 0.5f),
-            textureSize * m_scale);
         var healthFraction = (float)enemyMech.Health / enemyMech.MaximumHealth;
-        var conditionColor = healthFraction > 0.66f
-            ? HudGreen
-            : healthFraction > 0.33f
-                ? RadarAmber
-                : GaugeRed;
-        DrawTextureRect(texture, textureRect, false, conditionColor);
+        DrawDamageSilhouette(
+            enemyMech.DamageSilhouette,
+            panelLeft,
+            panelTop,
+            panelWidth,
+            panelHeight,
+            healthFraction,
+            10.0f);
 
         var distanceMeters = enemyMech.TargetPosition.DistanceTo(m_playerMech.GlobalPosition);
         var distanceText = distanceMeters >= 1000.0f
@@ -690,10 +685,48 @@ public partial class PlayerHud : Control
 
     private void DrawPlayerDamageStatus()
     {
+        DrawDamageSilhouette(
+            m_playerDamageSilhouette,
+            PlayerDamageRight - PlayerDamageSize,
+            525.25f,
+            PlayerDamageSize,
+            PlayerDamageSize,
+            (float)m_playerMech.Health / m_playerMech.MaximumHealth,
+            0.0f);
+
         if (m_playerMech.IsDestroyed)
         {
             DrawCenteredText(640.0f, 155.0f, "MECH DESTROYED", GaugeRed, 30);
         }
+    }
+
+    private void DrawDamageSilhouette(
+        Texture2D texture,
+        float left,
+        float top,
+        float width,
+        float height,
+        float healthFraction,
+        float padding)
+    {
+        var availableSize = new Vector2(width - padding * 2.0f, height - padding * 2.0f);
+        var textureScale = Math.Min(
+            availableSize.X / texture.GetWidth(),
+            availableSize.Y / texture.GetHeight());
+        var textureSize = new Vector2(texture.GetWidth(), texture.GetHeight()) * textureScale;
+        var textureRect = new Rect2(
+            Point(
+                left + (width - textureSize.X) * 0.5f,
+                top + (height - textureSize.Y) * 0.5f),
+            textureSize * m_scale);
+        var conditionColor = healthFraction <= 0.0f
+            ? Colors.Black
+            : healthFraction > 0.66f
+                ? HudGreen
+                : healthFraction > 0.33f
+                    ? RadarAmber
+                    : GaugeRed;
+        DrawTextureRect(texture, textureRect, false, conditionColor);
     }
 
     private void DrawSpeed()
@@ -760,8 +793,9 @@ public partial class PlayerHud : Control
                 new Vector2(sideShadeWidth, negativeBottom - positiveTop - inset * 2.0f) * m_scale),
             GaugeSideShade);
 
-        DrawText(
-            new Vector2(1110.0f, 687.0f),
+        DrawCenteredText(
+            PlayerDamageCenterX,
+            687.0f,
             $"{m_playerMech.ActualSpeedKph:F0} kph",
             HudGreen,
             25);
