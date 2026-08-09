@@ -32,12 +32,6 @@ public partial class PlayerMech : Node3D
     private const float MaximumTorsoPitch = Mathf.Pi / 4.0f;
     private const float KeyboardTorsoSpeed = Mathf.Pi / 3.0f;
     private const float TorsoAimResponse = 5.0f;
-    private const float GaitCycleDistance = 18.0f;
-    private const float MaximumGaitSpeedFraction = 0.4f;
-    private const float GaitEngageRate = 4.0f;
-    private const float GaitSettleRate = 0.6f;
-    private const float PivotGaitRadius = 8.0f;
-    private const float PivotGaitWeight = 0.18f;
     private const float CockpitRelativeVerticalGait = 0.055f;
     private const float CockpitRelativeLateralGait = 0.034f;
     private const float CockpitRelativeRollGait = 0.016f;
@@ -56,10 +50,7 @@ public partial class PlayerMech : Node3D
     private float m_torsoPitch;
     private float m_targetTorsoYaw;
     private float m_targetTorsoPitch;
-    private float m_gaitPhase;
-    private float m_gaitWeight;
     private float m_motorIdleTime;
-    private bool m_gaitActive;
     private int m_footfallCount;
     private bool m_slopeBlocked;
     private bool m_sceneryBlocked;
@@ -72,6 +63,7 @@ public partial class PlayerMech : Node3D
     private float m_damageShudderStrength;
     private int m_nextDamageImpact;
     private readonly AudioStreamPlayer m_torsoMotor;
+    private readonly MechRig m_mechRig;
     private readonly AudioStreamPlayer m_footfall;
     private readonly AudioStreamPlayer m_startup;
     private readonly AudioStreamPlayer m_reactorHum;
@@ -116,6 +108,8 @@ public partial class PlayerMech : Node3D
         ViewBobMount = new Node3D { Name = "ViewBobMount" };
         AddChild(Legs);
         AddChild(Torso);
+        m_mechRig = new MechRig { Name = "MechRig" };
+        AddChild(m_mechRig);
         Torso.AddChild(CockpitMount);
         CockpitMount.AddChild(ViewBobMount);
 
@@ -275,6 +269,9 @@ public partial class PlayerMech : Node3D
         _ => Legs
     };
 
+    public void RegisterGaitPart(Node3D node, string partName) =>
+        m_mechRig.RegisterPart(node, partName);
+
     public void Configure(
         Aabb modelBounds,
         IReadOnlyList<DebugTriangle> sceneTriangles,
@@ -378,7 +375,7 @@ public partial class PlayerMech : Node3D
             ? 0.0f
             : appliedDistance / (float)delta * 3.6f;
         ApplyCockpitGait(
-            Mathf.Abs(appliedDistance),
+            appliedDistance,
             Mathf.Abs(headingChangeRadians),
             (float)delta);
         ApplyDamageShudder((float)delta);
@@ -912,35 +909,17 @@ public partial class PlayerMech : Node3D
     private void ApplyCockpitGait(float distanceMeters, float headingChangeRadians, float delta)
     {
         var speedFraction = (float)Drive.SpeedFraction;
-        var movementWeight = distanceMeters > 0.0001f
-            ? Mathf.Min(speedFraction, MaximumGaitSpeedFraction)
-            : 0.0f;
-        var pivotWeight = headingChangeRadians > 0.0001f ? PivotGaitWeight : 0.0f;
-        var targetWeight = Mathf.Max(movementWeight, pivotWeight);
-        var gaitWeightRate = targetWeight < m_gaitWeight ? GaitSettleRate : GaitEngageRate;
-        m_gaitWeight = Mathf.MoveToward(m_gaitWeight, targetWeight, delta * gaitWeightRate);
-        var gaitActive = distanceMeters > 0.0f || headingChangeRadians > 0.0f;
-        if (gaitActive)
+        if (m_mechRig.Advance(distanceMeters, headingChangeRadians, speedFraction, delta))
         {
-            var strideScale = Mathf.Max(1.0f, speedFraction / MaximumGaitSpeedFraction);
-            var movementPhase = distanceMeters / (GaitCycleDistance * strideScale);
-            var pivotPhase = headingChangeRadians * PivotGaitRadius / GaitCycleDistance;
-            var phaseAdvance = Mathf.Max(movementPhase, pivotPhase) * Mathf.Tau;
-            var crossedFootfall = Mathf.FloorToInt((m_gaitPhase + phaseAdvance) / Mathf.Pi) >
-                                  Mathf.FloorToInt(m_gaitPhase / Mathf.Pi);
-            m_gaitPhase = Mathf.PosMod(m_gaitPhase + phaseAdvance, Mathf.Tau);
-            if (!m_gaitActive || crossedFootfall)
-            {
-                PlayFootfall();
-            }
+            PlayFootfall();
         }
 
-        m_gaitActive = gaitActive;
-
-        var landingPulse = Mathf.Pow(Mathf.Max(0.0f, Mathf.Cos(m_gaitPhase * 2.0f)), 10.0f);
-        var vertical = (Mathf.Sin(m_gaitPhase * 2.0f) * 0.015f - landingPulse * 0.07f) * m_gaitWeight;
-        var lateral = Mathf.Sin(m_gaitPhase) * 0.025f * m_gaitWeight;
-        var roll = -Mathf.Sin(m_gaitPhase) * 0.012f * m_gaitWeight;
+        var gaitPhase = m_mechRig.Phase;
+        var gaitWeight = m_mechRig.Weight;
+        var landingPulse = Mathf.Pow(Mathf.Max(0.0f, Mathf.Cos(gaitPhase * 2.0f)), 10.0f);
+        var vertical = (Mathf.Sin(gaitPhase * 2.0f) * 0.015f - landingPulse * 0.07f) * gaitWeight;
+        var lateral = Mathf.Sin(gaitPhase) * 0.025f * gaitWeight;
+        var roll = -Mathf.Sin(gaitPhase) * 0.012f * gaitWeight;
         var viewOffset = new Vector3(lateral, vertical, 0.0f);
         ViewBobMount.Position = viewOffset;
         ViewBobMount.Rotation = new Vector3(0.0f, 0.0f, roll);
@@ -948,10 +927,10 @@ public partial class PlayerMech : Node3D
         // Express the cockpit's motion relative to the moving camera as smooth hydraulic travel.
         // Adding the camera transform first cancels its sharp landing pulse from the visible frame.
         var cockpitRelativeOffset = new Vector3(
-            -Mathf.Sin(m_gaitPhase) * CockpitRelativeLateralGait,
-            -Mathf.Sin(m_gaitPhase * 2.0f) * CockpitRelativeVerticalGait,
-            0.0f) * m_gaitWeight;
-        var cockpitRelativeRoll = Mathf.Sin(m_gaitPhase) * CockpitRelativeRollGait * m_gaitWeight;
+            -Mathf.Sin(gaitPhase) * CockpitRelativeLateralGait,
+            -Mathf.Sin(gaitPhase * 2.0f) * CockpitRelativeVerticalGait,
+            0.0f) * gaitWeight;
+        var cockpitRelativeRoll = Mathf.Sin(gaitPhase) * CockpitRelativeRollGait * gaitWeight;
         Cockpit.SetPose(
             CockpitPitchDegrees,
             m_torsoYaw * CockpitTorsoYawFactor,

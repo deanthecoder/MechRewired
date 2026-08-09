@@ -42,6 +42,7 @@ public partial class EnemyMech : Node3D
     private readonly float m_weaponRange;
     private readonly float m_fireInterval;
     private readonly AudioStreamPlayer3D m_laserSound;
+    private readonly MechRig m_mechRig;
     private readonly List<Marker3D> m_weaponMounts = new();
     private Aabb m_localBounds;
     private float m_modelBottomY;
@@ -51,6 +52,9 @@ public partial class EnemyMech : Node3D
     private int m_nextWeaponMount;
     private bool m_acquired;
     private bool m_hasLineOfSight;
+    private bool m_hasGaitSample;
+    private Vector3 m_previousGaitPosition;
+    private float m_previousGaitYaw;
 
     public EnemyMech(
         MechWarriorMissionGamePiece definition,
@@ -92,6 +96,8 @@ public partial class EnemyMech : Node3D
         Torso = new Node3D { Name = "Torso" };
         AddChild(Legs);
         AddChild(Torso);
+        m_mechRig = new MechRig { Name = "MechRig" };
+        AddChild(m_mechRig);
         m_laserSound = new AudioStreamPlayer3D
         {
             Name = "LaserSound",
@@ -141,6 +147,9 @@ public partial class EnemyMech : Node3D
     /// <summary>Raised once when this hostile activates its reactor/sensors.</summary>
     public event Action<EnemyMech> PoweredUp;
 
+    public void RegisterGaitPart(Node3D node, string partName) =>
+        m_mechRig.RegisterPart(node, partName);
+
     public void ConfigureVisuals(
         Aabb localBounds,
         Vector3 torsoPivot,
@@ -180,6 +189,7 @@ public partial class EnemyMech : Node3D
         }
 
         var elapsed = (float)delta;
+        UpdateGait(elapsed);
         m_fireCooldown = Math.Max(0.0f, m_fireCooldown - elapsed);
         m_sensorCooldown = Math.Max(0.0f, m_sensorCooldown - elapsed);
         var targetOffset = m_playerMech.TargetPosition - TargetPosition;
@@ -348,6 +358,27 @@ public partial class EnemyMech : Node3D
         m_acquired = true;
         IsPoweredDown = false;
         PoweredUp?.Invoke(this);
+    }
+
+    private void UpdateGait(float delta)
+    {
+        if (!m_hasGaitSample)
+        {
+            m_hasGaitSample = true;
+            m_previousGaitPosition = GlobalPosition;
+            m_previousGaitYaw = GlobalRotation.Y;
+            m_mechRig.Advance(0.0f, 0.0f, 0.0f, delta);
+            return;
+        }
+
+        var distance = GlobalPosition.DistanceTo(m_previousGaitPosition);
+        var headingChange = Mathf.Abs(Mathf.AngleDifference(m_previousGaitYaw, GlobalRotation.Y));
+        var speedFraction = delta <= 0.0f || m_maximumSpeedMetersPerSecond <= 0.0f
+            ? 0.0f
+            : Mathf.Clamp(distance / delta / m_maximumSpeedMetersPerSecond, 0.0f, 1.0f);
+        m_mechRig.Advance(distance, headingChange, speedFraction, delta);
+        m_previousGaitPosition = GlobalPosition;
+        m_previousGaitYaw = GlobalRotation.Y;
     }
 
     private bool HasLineOfSight(Vector3 start, Vector3 end)

@@ -830,6 +830,7 @@ public partial class Main : Node3D
                     : GeometryInstance3D.ShadowCastingSetting.DoubleSided
             };
             playerMech.GetPartParent(definition.Name).AddChild(modelInstance);
+            playerMech.RegisterGaitPart(modelInstance, definition.Name);
             modelInstance.AddToGroup(DebugCamera.SolidMeshGroup);
 
             var wireframeInstance = new MeshInstance3D
@@ -841,6 +842,7 @@ public partial class Main : Node3D
                 Layers = PlayerMech.ExteriorRenderLayer
             };
             playerMech.GetPartParent(definition.Name).AddChild(wireframeInstance);
+            playerMech.RegisterGaitPart(wireframeInstance, definition.Name);
             wireframeInstance.AddToGroup(DebugCamera.WireframeMeshGroup);
 
             var partBounds = renderMesh.GetAabb();
@@ -1046,6 +1048,7 @@ public partial class Main : Node3D
                         : GeometryInstance3D.ShadowCastingSetting.DoubleSided
                 };
                 (isTorsoPart ? enemy.Torso : enemy.Legs).AddChild(modelInstance);
+                enemy.RegisterGaitPart(modelInstance, modelEntry.Name);
                 modelInstance.AddToGroup(DebugCamera.SolidMeshGroup);
 
                 var wireframe = new MeshInstance3D
@@ -1058,6 +1061,7 @@ public partial class Main : Node3D
                     Visible = false
                 };
                 (isTorsoPart ? enemy.Torso : enemy.Legs).AddChild(wireframe);
+                enemy.RegisterGaitPart(wireframe, modelEntry.Name);
                 wireframe.AddToGroup(DebugCamera.WireframeMeshGroup);
 
                 var absoluteTransform = isTorsoPart
@@ -1106,7 +1110,7 @@ public partial class Main : Node3D
         GD.Print(
             $"MechRewired: hostile force deployed dormant ({enemies.Count} data-driven mechs; " +
             "GPS acquire ranges, sensor cone/line of sight, chassis/torso tracking, MEK movement, medium lasers; " +
-            "leg animation pending).");
+            "shared procedural gait).");
         return enemies.AsReadOnly();
     }
 
