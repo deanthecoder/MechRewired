@@ -267,7 +267,6 @@ public partial class PlayerMech : Node3D
                 this,
                 Name,
                 m_destructibleParts,
-                m_terrainTriangles,
                 TargetPosition,
                 0x54494D42);
             Legs.Visible = false;

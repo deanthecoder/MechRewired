@@ -726,6 +726,7 @@ public partial class Main : Node3D
             $"{meshCache.Count} unique models; luminosity levels {GeneralIlluminationLevel} terrain / " +
             $"{ObjectIlluminationLevel} objects).");
         AddImplicitGround(levelRoot, worldBounds, terrainPaletteCounts, palette, debugTriangles);
+        BattlefieldPhysics.AddTerrainCollision(levelRoot, debugTriangles);
         battlefieldEffects.ConfigureTerrain(debugTriangles.AsReadOnly());
         LoadAmbientEffects(archive, battlefieldEffects, battlefieldEffectSounds.AmbientFire);
         var playerRotation = MechWarriorCoordinateSystem.ToGodotRotation(

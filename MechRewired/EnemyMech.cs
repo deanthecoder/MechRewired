@@ -355,7 +355,6 @@ public partial class EnemyMech : Node3D
             m_playerMech,
             Name,
             m_destructibleParts,
-            m_sceneTriangles,
             hitPosition,
             Definition.Specification.GroupId * 7919 + 104729);
         Legs.Visible = false;
