@@ -77,6 +77,9 @@ public partial class Main : Node3D
     public override void _Ready()
     {
         GD.Print("MechRewired: reactor online.");
+        GD.Print(
+            $"MechRewired: rendering with {RenderingServer.GetCurrentRenderingMethod()} " +
+            $"on {RenderingServer.GetCurrentRenderingDriverName()}.");
         if (!TryLoadGameData(
                 out var archive,
                 out var palette,
@@ -396,7 +399,12 @@ public partial class Main : Node3D
             FogLightEnergy = 1.0f,
             FogDensity = 1.0f,
             FogDepthCurve = 1.0f,
-            FogSkyAffect = 0.0f
+            FogSkyAffect = 0.0f,
+            GlowEnabled = true,
+            GlowIntensity = 0.8f,
+            GlowStrength = 1.0f,
+            GlowBloom = 0.05f,
+            GlowHdrThreshold = 1.5f
         };
         SetFogDistance(planet.ViewDistance ?? DefaultFogDistance);
         var environment = new WorldEnvironment
