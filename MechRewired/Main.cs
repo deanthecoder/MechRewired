@@ -831,6 +831,7 @@ public partial class Main : Node3D
             };
             playerMech.GetPartParent(definition.Name).AddChild(modelInstance);
             playerMech.RegisterGaitPart(modelInstance, definition.Name);
+            playerMech.RegisterDestructiblePart(modelInstance, definition.Name);
             modelInstance.AddToGroup(DebugCamera.SolidMeshGroup);
 
             var wireframeInstance = new MeshInstance3D
@@ -1069,6 +1070,7 @@ public partial class Main : Node3D
                 {
                     animatedGaitParts++;
                 }
+                enemy.RegisterDestructiblePart(modelInstance, modelEntry.Name);
                 modelInstance.AddToGroup(DebugCamera.SolidMeshGroup);
 
                 var wireframe = new MeshInstance3D

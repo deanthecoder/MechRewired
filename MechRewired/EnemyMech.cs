@@ -45,6 +45,7 @@ public partial class EnemyMech : Node3D
     private readonly MechRig m_mechRig;
     private readonly EnemyCombatMovement m_combatMovement;
     private readonly List<Marker3D> m_weaponMounts = new();
+    private readonly List<(MeshInstance3D Mesh, string PartName)> m_destructibleParts = new();
     private Aabb m_localBounds;
     private float m_modelBottomY;
     private float m_footprintRadius;
@@ -159,6 +160,13 @@ public partial class EnemyMech : Node3D
 
     public bool RegisterGaitPart(Node3D node, string partName) =>
         m_mechRig.RegisterPart(node, partName);
+
+    public void RegisterDestructiblePart(MeshInstance3D mesh, string partName)
+    {
+        ArgumentNullException.ThrowIfNull(mesh);
+        ArgumentException.ThrowIfNullOrWhiteSpace(partName);
+        m_destructibleParts.Add((mesh, partName));
+    }
 
     public void ConfigureVisuals(
         Aabb localBounds,
@@ -342,6 +350,14 @@ public partial class EnemyMech : Node3D
         }
 
         IsDestroyed = true;
+        MechWreckage.Spawn(
+            GetParent(),
+            m_playerMech,
+            Name,
+            m_destructibleParts,
+            m_sceneTriangles,
+            hitPosition,
+            Definition.Specification.GroupId * 7919 + 104729);
         Legs.Visible = false;
         Torso.Visible = false;
         m_battlefieldEffects.SpawnDestruction(Name, Definition.Specification.GroupId, WorldBounds, hitPosition);

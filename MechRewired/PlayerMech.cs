@@ -78,6 +78,7 @@ public partial class PlayerMech : Node3D
     private readonly AudioStreamWav m_startRunning;
     private readonly AudioStreamWav m_stopRunning;
     private readonly double m_cruisingSpeedKph;
+    private readonly List<(MeshInstance3D Mesh, string PartName)> m_destructibleParts = new();
     private Aabb m_localBounds;
 
     public PlayerMech(
@@ -261,6 +262,16 @@ public partial class PlayerMech : Node3D
             m_translationLocked = true;
             m_translationLockReason = "destroyed";
             StopOperationalAudio();
+            MechWreckage.Spawn(
+                GetParent(),
+                this,
+                Name,
+                m_destructibleParts,
+                m_terrainTriangles,
+                TargetPosition,
+                0x54494D42);
+            Legs.Visible = false;
+            Torso.Visible = false;
             GD.Print("MechRewired: PlayerMech destroyed.");
             Destroyed?.Invoke();
         }
@@ -294,6 +305,13 @@ public partial class PlayerMech : Node3D
 
     public bool RegisterGaitPart(Node3D node, string partName) =>
         m_mechRig.RegisterPart(node, partName);
+
+    public void RegisterDestructiblePart(MeshInstance3D mesh, string partName)
+    {
+        ArgumentNullException.ThrowIfNull(mesh);
+        ArgumentException.ThrowIfNullOrWhiteSpace(partName);
+        m_destructibleParts.Add((mesh, partName));
+    }
 
     public void Configure(
         Aabb modelBounds,
