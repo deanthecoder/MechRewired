@@ -9,6 +9,7 @@
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
 using MechRewired.Resources;
+using MechRewired.Simulation;
 using NUnit.Framework;
 
 namespace MechRewired.Tests.Resources;
@@ -19,7 +20,7 @@ public sealed class MechWarriorMechFileTests
     [Test]
     public void LoadDecodesTimberWolfMovementSpeeds()
     {
-        var data = new byte[24];
+        var data = CreateMechData();
         BitConverter.GetBytes(75).CopyTo(data, 0);
         BitConverter.GetBytes(5).CopyTo(data, 4);
 
@@ -29,14 +30,32 @@ public sealed class MechWarriorMechFileTests
         Assert.That(mech.WalkingMovementPoints, Is.EqualTo(5));
         Assert.That(mech.CruisingSpeedKph, Is.EqualTo(54.0));
         Assert.That(mech.MaximumSpeedKph, Is.EqualTo(86.4));
+        Assert.That(mech.Sections[MechDamageSection.CenterTorso], Is.EqualTo(new MechSectionArmor(40, 12, 30)));
     }
 
     [Test]
     public void LoadRejectsATruncatedGeneralHeader()
     {
-        var exception = Assert.Throws<InvalidDataException>(() => MechWarriorMechFile.Load(new byte[23]));
+        var exception = Assert.Throws<InvalidDataException>(() => MechWarriorMechFile.Load(new byte[0x157]));
 
-        Assert.That(exception.Message, Does.Contain("23 bytes"));
-        Assert.That(exception.Message, Does.Contain("24 bytes"));
+        Assert.That(exception.Message, Does.Contain("343 bytes"));
+        Assert.That(exception.Message, Does.Contain("344 bytes"));
+    }
+
+    private static byte[] CreateMechData()
+    {
+        var data = new byte[0x158];
+        int[] offsets = [0x018, 0x068, 0x090, 0x040, 0x0e0, 0x0b8, 0x108, 0x130];
+        foreach (var offset in offsets)
+        {
+            BitConverter.GetBytes(20).CopyTo(data, offset);
+            BitConverter.GetBytes(0).CopyTo(data, offset + 4);
+            BitConverter.GetBytes(15).CopyTo(data, offset + 8);
+        }
+
+        BitConverter.GetBytes(40).CopyTo(data, 0x068);
+        BitConverter.GetBytes(12).CopyTo(data, 0x06c);
+        BitConverter.GetBytes(30).CopyTo(data, 0x070);
+        return data;
     }
 }

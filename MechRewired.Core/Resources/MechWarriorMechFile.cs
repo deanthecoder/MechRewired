@@ -10,18 +10,36 @@
 
 namespace MechRewired.Resources;
 
+using MechRewired.Simulation;
+
 /// <summary>
 /// Decodes the general movement header from an original MW2 MEK configuration.
 /// </summary>
 public sealed class MechWarriorMechFile
 {
-    private const int GeneralHeaderSize = 24;
+    private const int BaseFileSize = 0x158;
     private const double MovementPointSpeedKph = 10.8;
+    private static readonly IReadOnlyDictionary<MechDamageSection, int> SectionOffsets =
+        new Dictionary<MechDamageSection, int>
+        {
+            [MechDamageSection.Head] = 0x018,
+            [MechDamageSection.CenterTorso] = 0x068,
+            [MechDamageSection.LeftTorso] = 0x090,
+            [MechDamageSection.RightTorso] = 0x040,
+            [MechDamageSection.LeftArm] = 0x0e0,
+            [MechDamageSection.RightArm] = 0x0b8,
+            [MechDamageSection.LeftLeg] = 0x108,
+            [MechDamageSection.RightLeg] = 0x130
+        };
 
-    private MechWarriorMechFile(int tonnage, int walkingMovementPoints)
+    private MechWarriorMechFile(
+        int tonnage,
+        int walkingMovementPoints,
+        IReadOnlyDictionary<MechDamageSection, MechSectionArmor> sections)
     {
         Tonnage = tonnage;
         WalkingMovementPoints = walkingMovementPoints;
+        Sections = sections;
     }
 
     public int Tonnage { get; }
@@ -34,13 +52,15 @@ public sealed class MechWarriorMechFile
 
     public double MaximumSpeedKph => RunningMovementPoints * MovementPointSpeedKph;
 
+    public IReadOnlyDictionary<MechDamageSection, MechSectionArmor> Sections { get; }
+
     public static MechWarriorMechFile Load(byte[] data)
     {
         ArgumentNullException.ThrowIfNull(data);
-        if (data.Length < GeneralHeaderSize)
+        if (data.Length < BaseFileSize)
         {
             throw new InvalidDataException(
-                $"The MEK resource is {data.Length} bytes; at least {GeneralHeaderSize} bytes are required.");
+                $"The MEK resource is {data.Length} bytes; at least {BaseFileSize} bytes are required.");
         }
 
         using var stream = new MemoryStream(data, false);
@@ -58,6 +78,22 @@ public sealed class MechWarriorMechFile
                 $"The MEK walking movement points must be positive; found {walkingMovementPoints}.");
         }
 
-        return new MechWarriorMechFile(tonnage, walkingMovementPoints);
+        var sections = SectionOffsets.ToDictionary(
+            entry => entry.Key,
+            entry => new MechSectionArmor(
+                BitConverter.ToInt32(data, entry.Value),
+                BitConverter.ToInt32(data, entry.Value + 4),
+                BitConverter.ToInt32(data, entry.Value + 8)));
+        foreach (var (section, armor) in sections)
+        {
+            if (armor.FrontArmor < 0 || armor.RearArmor < 0 || armor.InternalStructure <= 0)
+            {
+                throw new InvalidDataException(
+                    $"The MEK {section} values are invalid: front {armor.FrontArmor}, rear " +
+                    $"{armor.RearArmor}, internal {armor.InternalStructure}.");
+            }
+        }
+
+        return new MechWarriorMechFile(tonnage, walkingMovementPoints, sections);
     }
 }

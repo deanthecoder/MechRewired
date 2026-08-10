@@ -11,6 +11,7 @@
 using Godot;
 using MechRewired.Missions;
 using MechRewired.Resources;
+using MechRewired.Simulation;
 
 namespace MechRewired;
 
@@ -43,7 +44,7 @@ public partial class PlayerHud : Control
     private static readonly Color TargetFrame = Color.FromHtml("4b0a00");
 
     private readonly PlayerMech m_playerMech;
-    private readonly Texture2D m_playerDamageSilhouette;
+    private readonly MechDamageSilhouette m_playerDamageSilhouette;
     private readonly PlayerNavigation m_navigation;
     private readonly PlayerTargeting m_targeting;
     private readonly PlayerMission m_mission;
@@ -53,7 +54,7 @@ public partial class PlayerHud : Control
 
     public PlayerHud(
         PlayerMech playerMech,
-        Texture2D playerDamageSilhouette,
+        MechDamageSilhouette playerDamageSilhouette,
         PlayerNavigation navigation,
         PlayerTargeting targeting,
         PlayerMission mission)
@@ -401,14 +402,13 @@ public partial class PlayerHud : Control
         float panelWidth,
         float panelHeight)
     {
-        var healthFraction = (float)enemyMech.Health / enemyMech.MaximumHealth;
         DrawDamageSilhouette(
             enemyMech.DamageSilhouette,
             panelLeft,
             panelTop,
             panelWidth,
             panelHeight,
-            healthFraction,
+            enemyMech.Damage,
             10.0f);
 
         var distanceMeters = enemyMech.TargetPosition.DistanceTo(m_playerMech.GlobalPosition);
@@ -691,7 +691,7 @@ public partial class PlayerHud : Control
             525.25f,
             PlayerDamageSize,
             PlayerDamageSize,
-            (float)m_playerMech.Health / m_playerMech.MaximumHealth,
+            m_playerMech.Damage,
             0.0f);
 
         if (m_playerMech.IsDestroyed)
@@ -701,32 +701,44 @@ public partial class PlayerHud : Control
     }
 
     private void DrawDamageSilhouette(
-        Texture2D texture,
+        MechDamageSilhouette silhouette,
         float left,
         float top,
         float width,
         float height,
-        float healthFraction,
+        MechDamageModel damage,
         float padding)
     {
         var availableSize = new Vector2(width - padding * 2.0f, height - padding * 2.0f);
         var textureScale = Math.Min(
-            availableSize.X / texture.GetWidth(),
-            availableSize.Y / texture.GetHeight());
-        var textureSize = new Vector2(texture.GetWidth(), texture.GetHeight()) * textureScale;
+            availableSize.X / silhouette.Width,
+            availableSize.Y / silhouette.Height);
+        var textureSize = new Vector2(silhouette.Width, silhouette.Height) * textureScale;
         var textureRect = new Rect2(
             Point(
                 left + (width - textureSize.X) * 0.5f,
                 top + (height - textureSize.Y) * 0.5f),
             textureSize * m_scale);
-        var conditionColor = healthFraction <= 0.0f
+        foreach (var section in Enum.GetValues<MechDamageSection>())
+        {
+            DrawTextureRect(
+                silhouette.SectionMasks[section],
+                textureRect,
+                false,
+                GetDamageColor(damage, section));
+        }
+    }
+
+    private static Color GetDamageColor(MechDamageModel damage, MechDamageSection section)
+    {
+        var healthFraction = damage.GetHealthFraction(section);
+        return healthFraction <= 0.0f
             ? Colors.Black
             : healthFraction > 0.66f
                 ? HudGreen
                 : healthFraction > 0.33f
                     ? RadarAmber
                     : GaugeRed;
-        DrawTextureRect(texture, textureRect, false, conditionColor);
     }
 
     private void DrawSpeed()

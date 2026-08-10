@@ -153,8 +153,15 @@ public partial class MechRig : Node
     private static Vector3 RotateAroundX(Vector3 position, Vector3 pivot, float radians) =>
         pivot + (position - pivot).Rotated(Vector3.Right, radians);
 
-    private static void SetPose(RigPart part, Vector3 position, float pitch)
+    private void SetPose(RigPart part, Vector3 position, float pitch)
     {
+        if (!GodotObject.IsInstanceValid(part.Node) ||
+            !GodotObject.IsInstanceValid(GetParent()) ||
+            !GetParent().IsAncestorOf(part.Node))
+        {
+            return;
+        }
+
         part.Node.Position = position;
         part.Node.Rotation = part.RestRotation + new Vector3(pitch, 0.0f, 0.0f);
     }

@@ -44,6 +44,7 @@ public partial class EnemyMech : Node3D
     private readonly AudioStreamPlayer3D m_laserSound;
     private readonly MechRig m_mechRig;
     private readonly EnemyCombatMovement m_combatMovement;
+    private readonly MechDamageModel m_damageModel;
     private readonly List<Marker3D> m_weaponMounts = new();
     private readonly List<(MeshInstance3D Mesh, string PartName)> m_destructibleParts = new();
     private Aabb m_localBounds;
@@ -68,7 +69,7 @@ public partial class EnemyMech : Node3D
         PlayerMech playerMech,
         BattlefieldEffects battlefieldEffects,
         AudioStreamWav laserSound,
-        Texture2D damageSilhouette,
+        MechDamageSilhouette damageSilhouette,
         Func<Vector3, float> surfaceHeightProvider,
         Func<IReadOnlyList<SceneryObstacle>> sceneryObstacleProvider,
         IReadOnlyList<DebugTriangle> sceneTriangles)
@@ -92,8 +93,7 @@ public partial class EnemyMech : Node3D
         m_sceneryObstacleProvider = sceneryObstacleProvider;
         m_sceneTriangles = sceneTriangles;
         Name = $"Enemy-{definition.Specification.DisplayName}-{definition.Specification.GroupId}";
-        MaximumHealth = Math.Max(14, mechDefinition.Tonnage * 2);
-        Health = MaximumHealth;
+        m_damageModel = new MechDamageModel(mechDefinition.Sections);
         // Combat manoeuvres use the authored walking/cruising speed. Running is reserved for later pursuit states.
         m_maximumSpeedMetersPerSecond = (float)(mechDefinition.CruisingSpeedKph / 3.6);
         m_weaponRange = Math.Max(definition.Specification.TargetRange, 120);
@@ -125,7 +125,7 @@ public partial class EnemyMech : Node3D
 
     public MechWarriorMechFile MechDefinition { get; }
 
-    public Texture2D DamageSilhouette { get; }
+    public MechDamageSilhouette DamageSilhouette { get; }
 
     public Node3D Legs { get; }
 
@@ -133,11 +133,17 @@ public partial class EnemyMech : Node3D
 
     public string Description => Definition.Specification.DisplayName;
 
-    public int Health { get; private set; }
+    public int Health => m_damageModel.Health;
 
-    public int MaximumHealth { get; }
+    public int MaximumHealth => m_damageModel.MaximumHealth;
 
     public bool IsDestroyed { get; private set; }
+
+    public MechDamageModel Damage => m_damageModel;
+
+    public bool IsImmobilized =>
+        m_damageModel.IsSectionDestroyed(MechDamageSection.LeftLeg) ||
+        m_damageModel.IsSectionDestroyed(MechDamageSection.RightLeg);
 
     /// <summary>
     /// Whether the mech's reactor is offline and therefore unavailable to target sensors.
@@ -166,6 +172,37 @@ public partial class EnemyMech : Node3D
         ArgumentNullException.ThrowIfNull(mesh);
         ArgumentException.ThrowIfNullOrWhiteSpace(partName);
         m_destructibleParts.Add((mesh, partName));
+    }
+
+    public bool TryRaycastSections(
+        Vector3 origin,
+        Vector3 direction,
+        out MechSectionHit hit) =>
+        MechSectionHitTester.TryFindNearest(
+            this,
+            m_destructibleParts.Where(part => IsAncestorOf(part.Mesh)),
+            origin,
+            direction,
+            out hit);
+
+    public void LogCombatState()
+    {
+        var playerOffset = m_playerMech.TargetPosition - TargetPosition;
+        var desiredYaw = Mathf.Atan2(-playerOffset.X, -playerOffset.Z);
+        var relativeTargetYaw = Mathf.AngleDifference(Rotation.Y, desiredYaw);
+        var limitedTargetYaw = Mathf.Clamp(
+            relativeTargetYaw,
+            -MaximumTorsoYawRadians,
+            MaximumTorsoYawRadians);
+        var destroyed = string.Join(", ", Enum.GetValues<MechDamageSection>()
+            .Where(m_damageModel.IsSectionDestroyed));
+        GD.Print(
+            $"MechRewired: {Description} tracking state: poweredDown={IsPoweredDown}; acquired={m_acquired}; " +
+            $"lineOfSight={m_hasLineOfSight}; immobilized={IsImmobilized}; chassis " +
+            $"{Mathf.RadToDeg(Rotation.Y):F1} degrees; torso {Mathf.RadToDeg(Torso.Rotation.Y):F1} degrees; " +
+            $"target relative {Mathf.RadToDeg(relativeTargetYaw):F1} degrees, limited to " +
+            $"{Mathf.RadToDeg(limitedTargetYaw):F1} degrees (±{Mathf.RadToDeg(MaximumTorsoYawRadians):F0}); " +
+            $"destroyed [{destroyed}].");
     }
 
     public void ConfigureVisuals(
@@ -322,20 +359,32 @@ public partial class EnemyMech : Node3D
         }
     }
 
-    public void ApplyDamage(int damage, Vector3 hitPosition)
+    public void ApplyDamage(
+        int damage,
+        Vector3 hitPosition,
+        MechDamageSection section,
+        bool fromRear)
     {
         if (IsDestroyed || damage <= 0)
         {
             return;
         }
 
-        Health = Math.Max(0, Health - damage);
+        var result = m_damageModel.ApplyDamage(section, damage, fromRear);
         m_combatMovement.NotifyDamage();
         GD.Print(
             $"MechRewired: laser hit {Description} ({Definition.Specification.ConfigurationName}) " +
-            $"for {damage} damage ({Health}/{MaximumHealth}).");
-        if (Health > 0)
+            $"{section}{(result.RearArmorHit ? " rear" : string.Empty)} for {damage} damage " +
+            $"({Health}/{MaximumHealth} aggregate; " +
+            $"{m_damageModel.GetRemaining(section).InternalStructure}/" +
+            $"{m_damageModel.GetMaximum(section).InternalStructure} internal).");
+        if (!result.MechDestroyed)
         {
+            if (result.SectionNewlyDestroyed)
+            {
+                DetachSection(section, hitPosition);
+            }
+
             if (!m_acquired)
             {
                 PowerUp();
@@ -350,28 +399,32 @@ public partial class EnemyMech : Node3D
         }
 
         IsDestroyed = true;
-        MechWreckage.Spawn(
-            GetParent(),
-            m_playerMech,
-            Name,
-            m_destructibleParts,
-            hitPosition,
-            Definition.Specification.GroupId * 7919 + 104729);
+        DetachRemainingMech(hitPosition);
         Legs.Visible = false;
         Torso.Visible = false;
         m_battlefieldEffects.SpawnDestruction(Name, Definition.Specification.GroupId, WorldBounds, hitPosition);
         GD.Print(
             $"MechRewired: destroyed hostile {Description}, piloted by {Definition.Specification.PilotName} " +
-            $"(whole-mech health; component armor pending).");
+            $"({section} destruction; authored sectional armor/internal structure).");
         Destroyed?.Invoke(this);
     }
 
     private void FireLaser()
     {
-        var mount = m_weaponMounts[m_nextWeaponMount % m_weaponMounts.Count];
+        var availableMounts = m_weaponMounts.Where(IsWeaponMountOperational).ToArray();
+        if (availableMounts.Length == 0)
+        {
+            return;
+        }
+
+        var mount = availableMounts[m_nextWeaponMount % availableMounts.Length];
         m_nextWeaponMount++;
         var start = mount.GlobalPosition;
-        var end = m_playerMech.TargetPosition;
+        var aimedEnd = m_playerMech.WorldBounds.GetCenter();
+        var aimDirection = start.DirectionTo(aimedEnd);
+        var end = m_playerMech.TryRaycastSections(start, aimDirection, out var playerHit)
+            ? playerHit.Position
+            : aimedEnd;
         if (!HasLineOfSight(start, end))
         {
             return;
@@ -381,7 +434,12 @@ public partial class EnemyMech : Node3D
         m_laserSound.GlobalPosition = start;
         m_laserSound.Play();
         m_battlefieldEffects.SpawnWeaponImpact(end);
-        m_playerMech.ApplyDamage(LaserDamage, Description);
+        m_playerMech.ApplyDamage(
+            LaserDamage,
+            Description,
+            playerHit?.Section ?? MechDamageSection.CenterTorso,
+            playerHit?.FromRear ?? false,
+            end);
     }
 
     private void PowerUp()
@@ -423,6 +481,11 @@ public partial class EnemyMech : Node3D
         Vector3 planarOffset,
         float elapsed)
     {
+        if (IsImmobilized)
+        {
+            return;
+        }
+
         var radial = planarOffset.Normalized();
         var lateral = new Vector3(radial.Z, 0.0f, -radial.X);
         var direction = (radial * (float)movement.Radial + lateral * (float)movement.Lateral).Normalized();
@@ -471,6 +534,71 @@ public partial class EnemyMech : Node3D
                 $"MechRewired: {Description} combat movement blocked by scenery " +
                 $"'{obstacle?.Name ?? "unknown"}' while {movement.Mode}.");
             m_movementBlockedLogCooldown = 2.0f;
+        }
+    }
+
+    private bool IsWeaponMountOperational(Marker3D mount)
+    {
+        if (mount.Position.X < -0.1f && m_damageModel.IsSectionDestroyed(MechDamageSection.LeftArm))
+        {
+            return false;
+        }
+
+        return mount.Position.X <= 0.1f ||
+               !m_damageModel.IsSectionDestroyed(MechDamageSection.RightArm);
+    }
+
+    private void DetachSection(MechDamageSection section, Vector3 hitPosition)
+    {
+        var bodySections = section switch
+        {
+            MechDamageSection.LeftArm => new[] { MechBodySection.LeftArm },
+            MechDamageSection.RightArm => new[] { MechBodySection.RightArm },
+            MechDamageSection.LeftLeg => new[]
+            {
+                MechBodySection.LeftUpperLeg,
+                MechBodySection.LeftLowerLeg,
+                MechBodySection.LeftFoot
+            },
+            MechDamageSection.RightLeg => new[]
+            {
+                MechBodySection.RightUpperLeg,
+                MechBodySection.RightLowerLeg,
+                MechBodySection.RightFoot
+            },
+            _ => Array.Empty<MechBodySection>()
+        };
+        var parts = m_destructibleParts.Where(part =>
+                IsAncestorOf(part.Mesh) &&
+                bodySections.Contains(MechBodySectionClassifier.Classify(part.PartName)))
+            .ToArray();
+        if (parts.Length == 0)
+        {
+            return;
+        }
+
+        MechWreckage.Spawn(
+            GetParent(),
+            m_playerMech,
+            $"{Name}-{section}",
+            parts,
+            hitPosition,
+            Definition.Specification.GroupId * 7919 + 104729 + (int)section);
+        GD.Print($"MechRewired: {Description} lost {section}; {parts.Length} authored meshes detached.");
+    }
+
+    private void DetachRemainingMech(Vector3 hitPosition)
+    {
+        var remaining = m_destructibleParts.Where(part => IsAncestorOf(part.Mesh)).ToArray();
+        if (remaining.Length > 0)
+        {
+            MechWreckage.Spawn(
+                GetParent(),
+                m_playerMech,
+                Name,
+                remaining,
+                hitPosition,
+                Definition.Specification.GroupId * 7919 + 104729);
         }
     }
 

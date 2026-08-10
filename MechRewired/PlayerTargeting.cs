@@ -145,7 +145,7 @@ public partial class PlayerTargeting : Node
 
     public void SelectUnderReticle()
     {
-        if (!TryRaycast(out var actor, out var enemyMech, out _, out _))
+        if (!TryRaycast(out var actor, out var enemyMech, out _, out _, out _))
         {
             SelectedActor = null;
             SelectedEnemy = null;
@@ -225,24 +225,41 @@ public partial class PlayerTargeting : Node
             actor.SourceResourceName));
     }
 
+    public void LogSelectedEnemyState() => SelectedEnemy?.LogCombatState();
+
     public void FireLaser()
     {
         var aimOrigin = m_playerMech.CockpitCamera.GlobalPosition;
         var direction = -m_playerMech.Torso.GlobalBasis.Z.Normalized();
         var torsoBasis = m_playerMech.Torso.GlobalBasis.Orthonormalized();
+        if (!m_playerMech.IsWeaponSideOperational(m_nextLaserSide))
+        {
+            m_nextLaserSide *= -1;
+        }
+
+        if (!m_playerMech.IsWeaponSideOperational(m_nextLaserSide))
+        {
+            GD.Print("MechRewired: no operational arm-mounted laser remains.");
+            return;
+        }
+
         var start = m_playerMech.CockpitMount.GlobalPosition +
                     torsoBasis.X * (m_nextLaserSide * 2.8f) -
                     torsoBasis.Y * 0.45f -
                     torsoBasis.Z * 1.2f;
         m_nextLaserSide *= -1;
         var end = aimOrigin + direction * LaserRange;
-        if (TryRaycast(out var actor, out var enemyMech, out _, out var hitPosition))
+        if (TryRaycast(out var actor, out var enemyMech, out var enemyHit, out _, out var hitPosition))
         {
             end = hitPosition;
             if (enemyMech != null)
             {
                 m_battlefieldEffects.SpawnWeaponImpact(hitPosition);
-                enemyMech.ApplyDamage(LaserDamage, hitPosition);
+                enemyMech.ApplyDamage(
+                    LaserDamage,
+                    hitPosition,
+                    enemyHit.Section,
+                    enemyHit.FromRear);
                 SelectedEnemy = enemyMech.IsDestroyed ? null : enemyMech;
                 SelectedActor = null;
             }
@@ -280,6 +297,7 @@ public partial class PlayerTargeting : Node
     private bool TryRaycast(
         out BattlefieldActor actor,
         out EnemyMech enemyMech,
+        out MechSectionHit enemyHit,
         out float distance,
         out Vector3 hitPosition)
     {
@@ -298,15 +316,17 @@ public partial class PlayerTargeting : Node
                 out var staticDistance) &&
             staticDistance <= LaserRange;
         enemyMech = null;
+        enemyHit = null;
         var enemyDistance = float.PositiveInfinity;
         foreach (var candidate in m_enemyMechs.Where(candidate => !candidate.IsDestroyed))
         {
-            if (TryIntersectAabb(origin, direction, candidate.WorldBounds, out var candidateDistance) &&
-                candidateDistance <= LaserRange &&
-                candidateDistance < enemyDistance)
+            if (candidate.TryRaycastSections(origin, direction, out var candidateHit) &&
+                candidateHit.Distance <= LaserRange &&
+                candidateHit.Distance < enemyDistance)
             {
                 enemyMech = candidate;
-                enemyDistance = candidateDistance;
+                enemyHit = candidateHit;
+                enemyDistance = candidateHit.Distance;
             }
         }
 
@@ -322,6 +342,7 @@ public partial class PlayerTargeting : Node
         {
             actor = null;
             enemyMech = null;
+            enemyHit = null;
             distance = float.PositiveInfinity;
             hitPosition = default;
             return false;
@@ -333,48 +354,6 @@ public partial class PlayerTargeting : Node
             out actor);
         hitPosition = origin + direction * distance;
         return true;
-    }
-
-    private static bool TryIntersectAabb(Vector3 origin, Vector3 direction, Aabb bounds, out float distance)
-    {
-        var minimumDistance = 0.0f;
-        var maximumDistance = float.PositiveInfinity;
-        for (var axis = 0; axis < 3; axis++)
-        {
-            var axisOrigin = origin[axis];
-            var axisDirection = direction[axis];
-            var minimum = bounds.Position[axis];
-            var maximum = bounds.End[axis];
-            if (Mathf.Abs(axisDirection) < 0.000001f)
-            {
-                if (axisOrigin < minimum || axisOrigin > maximum)
-                {
-                    distance = 0.0f;
-                    return false;
-                }
-
-                continue;
-            }
-
-            var inverseDirection = 1.0f / axisDirection;
-            var near = (minimum - axisOrigin) * inverseDirection;
-            var far = (maximum - axisOrigin) * inverseDirection;
-            if (near > far)
-            {
-                (near, far) = (far, near);
-            }
-
-            minimumDistance = Math.Max(minimumDistance, near);
-            maximumDistance = Math.Min(maximumDistance, far);
-            if (maximumDistance < minimumDistance)
-            {
-                distance = 0.0f;
-                return false;
-            }
-        }
-
-        distance = minimumDistance;
-        return maximumDistance >= 0.0f;
     }
 
     private void OnActorDestroyed(BattlefieldActor actor, Vector3 hitPosition)

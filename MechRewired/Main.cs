@@ -187,7 +187,9 @@ public partial class Main : Node3D
                 $"MechRewired: loaded {playerMechEntry.Path} ({playerMechDefinition.Tonnage} tons; " +
                 $"{playerMechDefinition.WalkingMovementPoints} walking movement points; " +
                 $"{playerMechDefinition.CruisingSpeedKph:F1} km/h cruise; " +
-                $"{playerMechDefinition.MaximumSpeedKph:F1} km/h maximum).");
+                $"{playerMechDefinition.MaximumSpeedKph:F1} km/h maximum; authored armor/internal " +
+                $"{string.Join(", ", playerMechDefinition.Sections.Select(section =>
+                    $"{section.Key} {section.Value.FrontArmor}/{section.Value.RearArmor}/{section.Value.InternalStructure}"))}).");
             var planetEntry = archive.GetEntry(PlanetPath);
             planet = MechWarriorWorldFile.Load(archive.ReadEntry(planetEntry));
             GD.Print(
@@ -773,9 +775,7 @@ public partial class Main : Node3D
 
         var playerMechSounds = PlayerMechSounds.Load(archive);
         var playerMech = new PlayerMech(
-            playerMechDefinition.Tonnage,
-            playerMechDefinition.CruisingSpeedKph,
-            playerMechDefinition.MaximumSpeedKph,
+            playerMechDefinition,
             playerMechSounds);
         AddChild(playerMech);
 
@@ -968,7 +968,8 @@ public partial class Main : Node3D
             SceneTriangles = debugTriangles.AsReadOnly(),
             CockpitCamera = playerMech.CockpitCamera,
             ExternalCamera = playerMech.ExternalCamera,
-            PlayerMech = playerMech
+            PlayerMech = playerMech,
+            PlayerTargeting = playerTargeting
         };
         camera.LookAtFromPosition(camera.Position, target);
         AddChild(camera);
@@ -991,7 +992,7 @@ public partial class Main : Node3D
         var enemyRoot = new Node3D { Name = "EnemyMechs" };
         AddChild(enemyRoot);
         var enemies = new List<EnemyMech>();
-        var damageSilhouettes = new Dictionary<string, Texture2D>(StringComparer.OrdinalIgnoreCase);
+        var damageSilhouettes = new Dictionary<string, MechDamageSilhouette>(StringComparer.OrdinalIgnoreCase);
         foreach (var gamePiece in missionGamePieces.Where(gamePiece =>
                      gamePiece.Star.Disposition == MechWarriorMissionDisposition.Hostile))
         {
@@ -1145,7 +1146,7 @@ public partial class Main : Node3D
         return enemies.AsReadOnly();
     }
 
-    private static Texture2D LoadDamageSilhouette(
+    private static MechDamageSilhouette LoadDamageSilhouette(
         MechWarriorProjectArchive archive,
         string chassisName)
     {
@@ -1157,33 +1158,59 @@ public partial class Main : Node3D
 
         var entry = archive.GetEntry($"SHP/{prefix}DMG6.SHP");
         var shape = MechWarriorShapeImage.Load(archive.ReadEntry(entry));
-        var pixels = new byte[checked(shape.Width * shape.Height * 4)];
+        var anchors = new Dictionary<MechDamageSection, Vector2>
+        {
+            [MechDamageSection.Head] = new(0.50f, 0.07f),
+            [MechDamageSection.CenterTorso] = new(0.50f, 0.30f),
+            [MechDamageSection.LeftTorso] = new(0.37f, 0.31f),
+            [MechDamageSection.RightTorso] = new(0.63f, 0.31f),
+            [MechDamageSection.LeftArm] = new(0.10f, 0.35f),
+            [MechDamageSection.RightArm] = new(0.90f, 0.35f),
+            [MechDamageSection.LeftLeg] = new(0.34f, 0.78f),
+            [MechDamageSection.RightLeg] = new(0.66f, 0.78f)
+        };
+        var sectionPixels = Enum.GetValues<MechDamageSection>().ToDictionary(
+            section => section,
+            _ => new byte[checked(shape.Width * shape.Height * 4)]);
         for (var y = 0; y < shape.Height; y++)
         {
             for (var x = 0; x < shape.Width; x++)
             {
                 var outputIndex = y * shape.Width + x;
                 var sourceY = shape.Height - 1 - y;
+                if (!shape.IsOpaque(x, sourceY))
+                {
+                    continue;
+                }
+
+                var normalized = new Vector2(
+                    (x + 0.5f) / shape.Width,
+                    (y + 0.5f) / shape.Height);
+                var candidates = anchors.Where(anchor =>
+                    anchor.Key != MechDamageSection.Head ||
+                    Mathf.Abs(normalized.X - 0.5f) <= 0.18f);
+                var section = candidates.MinBy(anchor => normalized.DistanceSquaredTo(anchor.Value)).Key;
                 var outputOffset = outputIndex * 4;
+                var pixels = sectionPixels[section];
                 pixels[outputOffset] = byte.MaxValue;
                 pixels[outputOffset + 1] = byte.MaxValue;
                 pixels[outputOffset + 2] = byte.MaxValue;
-                pixels[outputOffset + 3] = shape.IsOpaque(x, sourceY)
-                    ? byte.MaxValue
-                    : byte.MinValue;
+                pixels[outputOffset + 3] = byte.MaxValue;
             }
         }
 
-        var image = Image.CreateFromData(
-            shape.Width,
-            shape.Height,
-            false,
-            Image.Format.Rgba8,
-            pixels);
+        var masks = sectionPixels.ToDictionary(
+            entry => entry.Key,
+            entry => (Texture2D)ImageTexture.CreateFromImage(Image.CreateFromData(
+                shape.Width,
+                shape.Height,
+                false,
+                Image.Format.Rgba8,
+                entry.Value)));
         GD.Print(
             $"MechRewired: decompressed {entry.Path} damage silhouette " +
             $"for {chassisName} ({shape.Width}x{shape.Height}).");
-        return ImageTexture.CreateFromImage(image);
+        return new MechDamageSilhouette(shape.Width, shape.Height, masks);
     }
 
     private static void LoadMechMaterialImages(

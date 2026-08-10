@@ -9,6 +9,7 @@
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
 using Godot;
+using MechRewired.Resources;
 using MechRewired.Simulation;
 
 namespace MechRewired;
@@ -78,33 +79,28 @@ public partial class PlayerMech : Node3D
     private readonly AudioStreamWav m_startRunning;
     private readonly AudioStreamWav m_stopRunning;
     private readonly double m_cruisingSpeedKph;
+    private readonly MechDamageModel m_damageModel;
     private readonly List<(MeshInstance3D Mesh, string PartName)> m_destructibleParts = new();
     private Aabb m_localBounds;
 
     public PlayerMech(
-        int tonnage,
-        double cruisingSpeedKph,
-        double maximumForwardSpeedKph,
+        MechWarriorMechFile mechDefinition,
         PlayerMechSounds sounds)
     {
+        ArgumentNullException.ThrowIfNull(mechDefinition);
         ArgumentNullException.ThrowIfNull(sounds);
-        if (tonnage <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(tonnage));
-        }
-
-        if (cruisingSpeedKph <= 0.0 || cruisingSpeedKph >= maximumForwardSpeedKph)
+        if (mechDefinition.CruisingSpeedKph <= 0.0 ||
+            mechDefinition.CruisingSpeedKph >= mechDefinition.MaximumSpeedKph)
         {
             throw new ArgumentOutOfRangeException(
-                nameof(cruisingSpeedKph),
+                nameof(mechDefinition),
                 "Cruising speed must be positive and below maximum forward speed.");
         }
 
         Name = "PlayerMech";
-        MaximumHealth = tonnage * 2;
-        Health = MaximumHealth;
-        m_cruisingSpeedKph = cruisingSpeedKph;
-        Drive = new MechDrive(new MechDriveProfile(maximumForwardSpeedKph));
+        m_damageModel = new MechDamageModel(mechDefinition.Sections);
+        m_cruisingSpeedKph = mechDefinition.CruisingSpeedKph;
+        Drive = new MechDrive(new MechDriveProfile(mechDefinition.MaximumSpeedKph));
         Legs = new Node3D { Name = "Legs" };
         Torso = new Node3D { Name = "Torso" };
         CockpitMount = new Node3D { Name = "CockpitMount" };
@@ -194,11 +190,21 @@ public partial class PlayerMech : Node3D
 
     public float ActualSpeedKph { get; private set; }
 
-    public int Health { get; private set; }
+    public int Health => m_damageModel.Health;
 
-    public int MaximumHealth { get; }
+    public int MaximumHealth => m_damageModel.MaximumHealth;
 
-    public bool IsDestroyed => Health <= 0;
+    public bool IsDestroyed => m_damageModel.IsDestroyed;
+
+    public MechDamageModel Damage => m_damageModel;
+
+    public bool IsImmobilized =>
+        m_damageModel.IsSectionDestroyed(MechDamageSection.LeftLeg) ||
+        m_damageModel.IsSectionDestroyed(MechDamageSection.RightLeg);
+
+    public bool IsWeaponSideOperational(int side) => side < 0
+        ? !m_damageModel.IsSectionDestroyed(MechDamageSection.LeftArm)
+        : !m_damageModel.IsSectionDestroyed(MechDamageSection.RightArm);
 
     public Vector3 TargetPosition => CockpitMount?.GlobalPosition ?? GlobalPosition + Vector3.Up * 8.0f;
 
@@ -234,7 +240,12 @@ public partial class PlayerMech : Node3D
 
     public event Action Destroyed;
 
-    public void ApplyDamage(int damage, string attacker)
+    public void ApplyDamage(
+        int damage,
+        string attacker,
+        MechDamageSection section,
+        bool fromRear,
+        Vector3 hitPosition)
     {
         if (damage <= 0 || IsDestroyed)
         {
@@ -242,13 +253,15 @@ public partial class PlayerMech : Node3D
         }
 
         var previousHealth = Health;
-        Health = Math.Max(0, Health - damage);
+        var result = m_damageModel.ApplyDamage(section, damage, fromRear);
         PlayDamageImpact();
         m_damageShudderRemaining = DamageShudderDuration;
         m_damageShudderStrength = Mathf.Clamp(damage / 8.0f, 0.5f, 1.25f);
         GD.Print(
-            $"MechRewired: PlayerMech hit by {attacker} for {damage} damage " +
-            $"({Health}/{MaximumHealth} whole-mech health).");
+            $"MechRewired: PlayerMech {section}{(result.RearArmorHit ? " rear" : string.Empty)} " +
+            $"hit by {attacker} for {damage} damage ({Health}/{MaximumHealth} aggregate; " +
+            $"{m_damageModel.GetRemaining(section).InternalStructure}/" +
+            $"{m_damageModel.GetMaximum(section).InternalStructure} internal).");
         var criticalThreshold = MaximumHealth / 3.0f;
         if (Health > 0 && previousHealth > criticalThreshold && Health <= criticalThreshold)
         {
@@ -256,19 +269,22 @@ public partial class PlayerMech : Node3D
             GD.Print("MechRewired: PlayerMech entered critical-health state.");
         }
 
-        if (IsDestroyed)
+        if (result.SectionNewlyDestroyed && !result.MechDestroyed)
+        {
+            DetachSection(section, hitPosition);
+            if (section is MechDamageSection.LeftLeg or MechDamageSection.RightLeg)
+            {
+                LockChassisForLegLoss(section);
+            }
+        }
+
+        if (result.MechDestroyed)
         {
             Drive.SelectStop();
             m_translationLocked = true;
             m_translationLockReason = "destroyed";
             StopOperationalAudio();
-            MechWreckage.Spawn(
-                GetParent(),
-                this,
-                Name,
-                m_destructibleParts,
-                TargetPosition,
-                0x54494D42);
+            DetachRemainingMech(hitPosition);
             Legs.Visible = false;
             Torso.Visible = false;
             GD.Print("MechRewired: PlayerMech destroyed.");
@@ -311,6 +327,17 @@ public partial class PlayerMech : Node3D
         ArgumentException.ThrowIfNullOrWhiteSpace(partName);
         m_destructibleParts.Add((mesh, partName));
     }
+
+    public bool TryRaycastSections(
+        Vector3 origin,
+        Vector3 direction,
+        out MechSectionHit hit) =>
+        MechSectionHitTester.TryFindNearest(
+            this,
+            m_destructibleParts.Where(part => IsAncestorOf(part.Mesh)),
+            origin,
+            direction,
+            out hit);
 
     public void Configure(
         Aabb modelBounds,
@@ -409,6 +436,16 @@ public partial class PlayerMech : Node3D
 
         ApplyKeyboardTorsoAim(delta, isPilotCamera, headLookHeld);
         var torsoAngularSpeed = ApplySmoothedTorsoAim((float)delta);
+        if (IsImmobilized)
+        {
+            m_aligningLegsToTorso = false;
+            ActualSpeedKph = 0.0f;
+            m_mechRig.Advance(0.0f, 0.0f, 0.0f, (float)delta);
+            ApplyDamageShudder((float)delta);
+            UpdateMotorAudio(torsoAngularSpeed, (float)delta);
+            return;
+        }
+
         if (m_aligningLegsToTorso)
         {
             steering = Mathf.Sign(m_torsoYaw);
@@ -430,6 +467,69 @@ public partial class PlayerMech : Node3D
         ApplyDamageShudder((float)delta);
         var chassisAngularSpeed = Mathf.Abs(headingChangeRadians) / (float)delta;
         UpdateMotorAudio(Mathf.Max(torsoAngularSpeed, chassisAngularSpeed), (float)delta);
+    }
+
+    private void LockChassisForLegLoss(MechDamageSection section)
+    {
+        Drive.SelectStop();
+        m_translationLocked = true;
+        m_translationLockReason = $"{section} destroyed";
+        ActualSpeedKph = 0.0f;
+        GD.Print($"MechRewired: PlayerMech {section} destroyed; chassis translation and steering disabled.");
+    }
+
+    private void DetachSection(MechDamageSection section, Vector3 hitPosition)
+    {
+        var bodySections = section switch
+        {
+            MechDamageSection.LeftArm => new[] { MechBodySection.LeftArm },
+            MechDamageSection.RightArm => new[] { MechBodySection.RightArm },
+            MechDamageSection.LeftLeg => new[]
+            {
+                MechBodySection.LeftUpperLeg,
+                MechBodySection.LeftLowerLeg,
+                MechBodySection.LeftFoot
+            },
+            MechDamageSection.RightLeg => new[]
+            {
+                MechBodySection.RightUpperLeg,
+                MechBodySection.RightLowerLeg,
+                MechBodySection.RightFoot
+            },
+            _ => Array.Empty<MechBodySection>()
+        };
+        var parts = m_destructibleParts.Where(part =>
+                IsAncestorOf(part.Mesh) &&
+                bodySections.Contains(MechBodySectionClassifier.Classify(part.PartName)))
+            .ToArray();
+        if (parts.Length == 0)
+        {
+            return;
+        }
+
+        MechWreckage.Spawn(
+            GetParent(),
+            this,
+            $"{Name}-{section}",
+            parts,
+            hitPosition,
+            0x54494D42 + (int)section);
+        GD.Print($"MechRewired: PlayerMech lost {section}; {parts.Length} authored meshes detached.");
+    }
+
+    private void DetachRemainingMech(Vector3 hitPosition)
+    {
+        var remaining = m_destructibleParts.Where(part => IsAncestorOf(part.Mesh)).ToArray();
+        if (remaining.Length > 0)
+        {
+            MechWreckage.Spawn(
+                GetParent(),
+                this,
+                Name,
+                remaining,
+                hitPosition,
+                0x54494D42);
+        }
     }
 
     public override void _UnhandledInput(InputEvent inputEvent)
