@@ -11,6 +11,7 @@
 using System.Buffers.Binary;
 using System.Numerics;
 using System.Text;
+using MechRewired.Simulation;
 
 namespace MechRewired.Resources;
 
@@ -29,11 +30,13 @@ public sealed class MechWarriorMechChassis
     private MechWarriorMechChassis(
         IReadOnlyList<MechWarriorWorldObject> objects,
         IReadOnlyList<int> thingObjectIds,
-        IReadOnlyList<MechWarriorPointOfFire> pointsOfFire)
+        IReadOnlyList<MechWarriorPointOfFire> pointsOfFire,
+        IReadOnlyDictionary<int, MechDamageSection> damageSectionsByObjectId)
     {
         Objects = objects;
         ThingObjectIds = thingObjectIds;
         PointsOfFire = pointsOfFire;
+        DamageSectionsByObjectId = damageSectionsByObjectId;
     }
 
     public IReadOnlyList<MechWarriorWorldObject> Objects { get; }
@@ -41,6 +44,8 @@ public sealed class MechWarriorMechChassis
     public IReadOnlyList<int> ThingObjectIds { get; }
 
     public IReadOnlyList<MechWarriorPointOfFire> PointsOfFire { get; }
+
+    public IReadOnlyDictionary<int, MechDamageSection> DamageSectionsByObjectId { get; }
 
     public static MechWarriorMechChassis Load(ReadOnlySpan<byte> data)
     {
@@ -52,6 +57,7 @@ public sealed class MechWarriorMechChassis
         var objects = new List<MechWarriorWorldObject>();
         var thingObjectIds = new List<int>();
         var pointsOfFire = new List<MechWarriorPointOfFire>();
+        var damageSectionsByObjectId = new Dictionary<int, MechDamageSection>();
         var transformsById = new Dictionary<int, MechWarriorWorldTransform>();
         var representationStarted = false;
         var representationComplete = false;
@@ -117,6 +123,21 @@ public sealed class MechWarriorMechChassis
                         ReadInt16(data, offset + 8),
                         ReadInt16(data, offset + 10)));
                     break;
+
+                case "OBJL":
+                    EnsureTagSize(tagName, tagSize, 12);
+                    var damageObjectId = ReadInt16(data, offset + 8);
+                    var damageSection = ReadDamageSection(data, offset + 10);
+                    if (damageSectionsByObjectId.TryGetValue(damageObjectId, out var existingSection) &&
+                        existingSection != damageSection)
+                    {
+                        throw new InvalidDataException(
+                            $"Mech chassis object {damageObjectId} has conflicting damage groups " +
+                            $"{existingSection} and {damageSection}.");
+                    }
+
+                    damageSectionsByObjectId[damageObjectId] = damageSection;
+                    break;
             }
 
             offset += tagSize;
@@ -130,8 +151,24 @@ public sealed class MechWarriorMechChassis
         return new MechWarriorMechChassis(
             objects.AsReadOnly(),
             thingObjectIds.AsReadOnly(),
-            pointsOfFire.AsReadOnly());
+            pointsOfFire.AsReadOnly(),
+            damageSectionsByObjectId);
     }
+
+    private static MechDamageSection ReadDamageSection(ReadOnlySpan<byte> data, int offset) =>
+        ReadInt16(data, offset) switch
+        {
+            1 => MechDamageSection.Head,
+            2 => MechDamageSection.RightTorso,
+            3 => MechDamageSection.CenterTorso,
+            4 => MechDamageSection.LeftTorso,
+            5 => MechDamageSection.RightArm,
+            6 => MechDamageSection.LeftArm,
+            7 => MechDamageSection.RightLeg,
+            8 => MechDamageSection.LeftLeg,
+            var group => throw new InvalidDataException(
+                $"Mech chassis damage group {group} is outside the supported range 1-8.")
+        };
 
     private static MechWarriorWorldTransform ReadTransform(
         ReadOnlySpan<byte> data,

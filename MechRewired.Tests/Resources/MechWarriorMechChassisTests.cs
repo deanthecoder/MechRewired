@@ -11,6 +11,7 @@
 using System.Numerics;
 using System.Text;
 using MechRewired.Resources;
+using MechRewired.Simulation;
 using NUnit.Framework;
 
 namespace MechRewired.Tests.Resources;
@@ -28,6 +29,7 @@ public sealed class MechWarriorMechChassisTests
             WriteObjectTag(writer, 1, 0, 101, new Vector3(0.0f, 2.0f, 3.0f));
             WriteThingTag(writer, 1);
             WritePointOfFireTag(writer, 1, 7);
+            WriteDamageGroupTag(writer, 1, 6);
             WriteRepresentationTag(writer);
             WriteObjectTag(writer, 2, 0, 102, new Vector3(0.0f, 4.0f, 6.0f));
         });
@@ -44,6 +46,12 @@ public sealed class MechWarriorMechChassisTests
         Assert.That(chassis.Objects.Select(worldObject => worldObject.Id), Does.Not.Contain(2));
         Assert.That(chassis.ThingObjectIds, Is.EqualTo(new[] { 1 }));
         Assert.That(chassis.PointsOfFire, Is.EqualTo(new[] { new MechWarriorPointOfFire(1, 7) }));
+        Assert.That(
+            chassis.DamageSectionsByObjectId,
+            Is.EqualTo(new Dictionary<int, MechDamageSection>
+            {
+                [1] = MechDamageSection.LeftArm
+            }));
     }
 
     private static byte[] WriteChassis(Action<BinaryWriter> writeTags)
@@ -95,6 +103,14 @@ public sealed class MechWarriorMechChassisTests
         writer.Write(12);
         writer.Write(objectId);
         writer.Write(id);
+    }
+
+    private static void WriteDamageGroupTag(BinaryWriter writer, short objectId, short group)
+    {
+        WriteFixedAscii(writer, "OBJL", 4);
+        writer.Write(12);
+        writer.Write(objectId);
+        writer.Write(group);
     }
 
     private static void WriteVector(BinaryWriter writer, Vector3 vector, float scale)

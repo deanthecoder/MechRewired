@@ -40,6 +40,7 @@ public partial class PlayerHud : Control
     private static readonly Color ReachedNavigationAmber = Color.FromHtml("796000");
     private static readonly Color TerrainBlue = Color.FromHtml("1828e8");
     private static readonly Color GaugeRed = Color.FromHtml("e00000");
+    private static readonly Color DestroyedSectionGrey = Color.FromHtml("34383c");
     private static readonly Color GaugeSideShade = new(0.08f, 0.0f, 0.0f, 0.5f);
     private static readonly Color TargetFrame = Color.FromHtml("4b0a00");
 
@@ -733,7 +734,7 @@ public partial class PlayerHud : Control
     {
         var healthFraction = damage.GetHealthFraction(section);
         return healthFraction <= 0.0f
-            ? Colors.Black
+            ? DestroyedSectionGrey
             : healthFraction > 0.66f
                 ? HudGreen
                 : healthFraction > 0.33f

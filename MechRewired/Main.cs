@@ -41,6 +41,7 @@ public partial class Main : Node3D
     private const string ScenarioPath = "BWD/YELLSCN1.BWD";
     private const string PlayerStartPath = "BWD/YELLST01.BWD";
     private const string PlayerMechPath = "MEK/TBR00STD.MEK";
+    private const string PlayerChassisPath = "BWD/TIMBRWLF.BWD";
     private const string LevelAreaPrefix = "YELLARE";
     private static readonly IReadOnlyDictionary<string, string> DamageShapePrefixes =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -939,7 +940,12 @@ public partial class Main : Node3D
             Layer = 10
         };
         AddChild(hudLayer);
-        var playerDamageSilhouette = LoadDamageSilhouette(archive, "Timber Wolf");
+        var playerDamageChassis = MechWarriorMechChassis.Load(
+            archive.ReadEntry(archive.GetEntry(PlayerChassisPath)));
+        var playerDamageSilhouette = LoadDamageSilhouette(
+            archive,
+            "Timber Wolf",
+            playerDamageChassis);
         var playerHud = new PlayerHud(
             playerMech,
             playerDamageSilhouette,
@@ -1008,7 +1014,10 @@ public partial class Main : Node3D
             var mechDefinition = MechWarriorMechFile.Load(archive.ReadEntry(gamePiece.ConfigurationEntry));
             if (!damageSilhouettes.TryGetValue(gamePiece.Specification.ChassisName, out var damageSilhouette))
             {
-                damageSilhouette = LoadDamageSilhouette(archive, gamePiece.Specification.ChassisName);
+                damageSilhouette = LoadDamageSilhouette(
+                    archive,
+                    gamePiece.Specification.ChassisName,
+                    chassis);
                 damageSilhouettes.Add(gamePiece.Specification.ChassisName, damageSilhouette);
             }
 
@@ -1156,7 +1165,8 @@ public partial class Main : Node3D
 
     private static MechDamageSilhouette LoadDamageSilhouette(
         MechWarriorProjectArchive archive,
-        string chassisName)
+        string chassisName,
+        MechWarriorMechChassis chassis)
     {
         if (!DamageShapePrefixes.TryGetValue(chassisName.Replace(" ", string.Empty), out var prefix))
         {
@@ -1166,59 +1176,14 @@ public partial class Main : Node3D
 
         var entry = archive.GetEntry($"SHP/{prefix}DMG6.SHP");
         var shape = MechWarriorShapeImage.Load(archive.ReadEntry(entry));
-        var anchors = new Dictionary<MechDamageSection, Vector2>
-        {
-            [MechDamageSection.Head] = new(0.50f, 0.07f),
-            [MechDamageSection.CenterTorso] = new(0.50f, 0.30f),
-            [MechDamageSection.LeftTorso] = new(0.37f, 0.31f),
-            [MechDamageSection.RightTorso] = new(0.63f, 0.31f),
-            [MechDamageSection.LeftArm] = new(0.10f, 0.35f),
-            [MechDamageSection.RightArm] = new(0.90f, 0.35f),
-            [MechDamageSection.LeftLeg] = new(0.34f, 0.78f),
-            [MechDamageSection.RightLeg] = new(0.66f, 0.78f)
-        };
-        var sectionPixels = Enum.GetValues<MechDamageSection>().ToDictionary(
-            section => section,
-            _ => new byte[checked(shape.Width * shape.Height * 4)]);
-        for (var y = 0; y < shape.Height; y++)
-        {
-            for (var x = 0; x < shape.Width; x++)
-            {
-                var outputIndex = y * shape.Width + x;
-                var sourceY = shape.Height - 1 - y;
-                if (!shape.IsOpaque(x, sourceY))
-                {
-                    continue;
-                }
-
-                var normalized = new Vector2(
-                    (x + 0.5f) / shape.Width,
-                    (y + 0.5f) / shape.Height);
-                var candidates = anchors.Where(anchor =>
-                    anchor.Key != MechDamageSection.Head ||
-                    Mathf.Abs(normalized.X - 0.5f) <= 0.18f);
-                var section = candidates.MinBy(anchor => normalized.DistanceSquaredTo(anchor.Value)).Key;
-                var outputOffset = outputIndex * 4;
-                var pixels = sectionPixels[section];
-                pixels[outputOffset] = byte.MaxValue;
-                pixels[outputOffset + 1] = byte.MaxValue;
-                pixels[outputOffset + 2] = byte.MaxValue;
-                pixels[outputOffset + 3] = byte.MaxValue;
-            }
-        }
-
-        var masks = sectionPixels.ToDictionary(
-            entry => entry.Key,
-            entry => (Texture2D)ImageTexture.CreateFromImage(Image.CreateFromData(
-                shape.Width,
-                shape.Height,
-                false,
-                Image.Format.Rgba8,
-                entry.Value)));
+        var silhouette = MechDamageSilhouetteBuilder.Build(archive, shape, chassis);
+        var authoredSections = chassis.DamageSectionsByObjectId.Values.Distinct().Order().ToArray();
         GD.Print(
             $"MechRewired: decompressed {entry.Path} damage silhouette " +
-            $"for {chassisName} ({shape.Width}x{shape.Height}).");
-        return new MechDamageSilhouette(shape.Width, shape.Height, masks);
+            $"for {chassisName} ({shape.Width}x{shape.Height}); mapped " +
+            $"{chassis.DamageSectionsByObjectId.Count} OBJL objects across " +
+            $"[{string.Join(", ", authoredSections)}].");
+        return silhouette;
     }
 
     private static void LoadMechMaterialImages(
