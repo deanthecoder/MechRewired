@@ -31,7 +31,11 @@ public sealed record PlayerMechSounds(
     AudioStreamWav NavigationPointTone,
     IReadOnlyList<AudioStreamWav> NavigationPointReports,
     AudioStreamWav DisplayZoom,
-    AudioStreamWav MediumLaser,
+    IReadOnlyDictionary<string, AudioStreamWav> WeaponFireSounds,
+    AudioStreamWav MissileLock,
+    AudioStreamWav WeaponUnavailable,
+    AudioStreamWav ChainFire,
+    AudioStreamWav GroupFire,
     IReadOnlyList<AudioStreamWav> WeaponImpacts,
     AudioStreamWav CriticalHit,
     AudioStreamWav DeathExplosion,
@@ -50,7 +54,10 @@ public sealed record PlayerMechSounds(
     private const string EnemyMechDestroyedPath = "SNDS/BET75.SFL";
     private const string NavigationPointTonePath = "SNDS/MECNAVPT.SFL";
     private const string DisplayZoomPath = "SNDS/VIEWZOOM.SFL";
-    private const string MediumLaserPath = "SNDS/MECMLASR.SFL";
+    private const string MissileLockPath = "SNDS/BET73.SFL";
+    private const string WeaponUnavailablePath = "SNDS/MECWPTG1.SFL";
+    private const string ChainFirePath = "SNDS/BET14_1.SFL";
+    private const string GroupFirePath = "SNDS/BET14_2.SFL";
     private const string CriticalHitPath = "SNDS/BET6.SFL";
     private const string DeathExplosionPath = "SNDS/MECEXPBG.SFL";
     private const string MissionFailedPath = "SNDS/GENE001F.SFL";
@@ -68,6 +75,18 @@ public sealed record PlayerMechSounds(
         "SNDS/GENEGOFS.SFL",
         "SNDS/GENEGOGS.SFL"
     ];
+    private static readonly string[] WeaponFireResourceNames =
+    [
+        "MECSLASR.SFL",
+        "MECMLASR.SFL",
+        "MECBLASR.SFL",
+        "MECPLASR.SFL",
+        "MECMGUN1.SFL",
+        "MECBBAAT.SFL",
+        "MECMISNR.SFL"
+    ];
+
+    public AudioStreamWav MediumLaser => WeaponFireSounds["MECMLASR.SFL"];
 
     public static PlayerMechSounds Load(MechWarriorProjectArchive archive)
     {
@@ -93,7 +112,18 @@ public sealed record PlayerMechSounds(
                     $"Pyre Light NAV {index + 1} arrival report"))
                 .ToArray(),
             LoadResource(archive, DisplayZoomPath, true, "cockpit display zoom motor"),
-            LoadResource(archive, MediumLaserPath, false, "medium laser fire"),
+            WeaponFireResourceNames.ToDictionary(
+                resourceName => resourceName,
+                resourceName => LoadResource(
+                    archive,
+                    $"SNDS/{resourceName}",
+                    false,
+                    $"{Path.GetFileNameWithoutExtension(resourceName)} weapon fire"),
+                StringComparer.OrdinalIgnoreCase),
+            LoadResource(archive, MissileLockPath, false, "missile-lock report"),
+            LoadResource(archive, WeaponUnavailablePath, false, "unavailable weapon clunk"),
+            LoadResource(archive, ChainFirePath, false, "chain-fire report"),
+            LoadResource(archive, GroupFirePath, false, "group-fire report"),
             WeaponImpactPaths
                 .Select((path, index) => LoadResource(
                     archive,

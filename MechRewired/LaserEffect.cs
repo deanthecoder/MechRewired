@@ -26,29 +26,36 @@ public partial class LaserEffect : Node3D
     private readonly Vector3 m_start;
     private readonly Vector3 m_direction;
     private readonly float m_distance;
+    private readonly float m_delay;
     private readonly MeshInstance3D m_pulse;
     private readonly OmniLight3D m_light;
     private float m_age;
 
     public LaserEffect(Vector3 start, Vector3 end)
+        : this(start, end, new Color(1.0f, 0.08f, 0.02f), 0.06f, 0.0f)
+    {
+    }
+
+    public LaserEffect(Vector3 start, Vector3 end, Color color, float radius, float delay = 0.0f)
     {
         m_start = start;
         m_distance = start.DistanceTo(end);
+        m_delay = delay;
         m_direction = m_distance > 0.0001f
             ? start.DirectionTo(end)
             : Vector3.Forward;
         var material = new StandardMaterial3D
         {
-            AlbedoColor = new Color(1.0f, 0.08f, 0.02f),
+            AlbedoColor = color,
             EmissionEnabled = true,
-            Emission = new Color(1.0f, 0.015f, 0.0f),
+            Emission = color,
             EmissionEnergyMultiplier = 12.0f,
             CullMode = BaseMaterial3D.CullModeEnum.Disabled
         };
         var pulseMesh = new CylinderMesh
         {
-            TopRadius = 0.06f,
-            BottomRadius = 0.06f,
+            TopRadius = radius,
+            BottomRadius = radius,
             Height = 1.0f,
             RadialSegments = 8,
             Rings = 1
@@ -59,16 +66,17 @@ public partial class LaserEffect : Node3D
             MaterialOverride = material,
             Basis = new Basis(new Quaternion(Vector3.Up, m_direction)),
             Position = start,
+            Visible = delay <= 0.0f,
             ExtraCullMargin = PulseLength,
             CastShadow = GeometryInstance3D.ShadowCastingSetting.Off
         };
         var haloMaterial = new StandardMaterial3D
         {
-            AlbedoColor = new Color(1.0f, 0.05f, 0.01f, 0.22f),
+            AlbedoColor = new Color(color.R, color.G, color.B, 0.22f),
             Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
             BlendMode = BaseMaterial3D.BlendModeEnum.Add,
             EmissionEnabled = true,
-            Emission = new Color(1.0f, 0.01f, 0.0f),
+            Emission = color,
             EmissionEnergyMultiplier = 3.0f,
             ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
             CullMode = BaseMaterial3D.CullModeEnum.Disabled
@@ -77,8 +85,8 @@ public partial class LaserEffect : Node3D
         {
             Mesh = new CylinderMesh
             {
-                TopRadius = 0.22f,
-                BottomRadius = 0.22f,
+                TopRadius = radius * 3.5f,
+                BottomRadius = radius * 3.5f,
                 Height = 1.0f,
                 RadialSegments = 8,
                 Rings = 1
@@ -92,10 +100,11 @@ public partial class LaserEffect : Node3D
         m_light = new OmniLight3D
         {
             Position = start,
-            LightColor = new Color(1.0f, 0.08f, 0.01f),
+            LightColor = color,
             LightEnergy = 5.0f,
             OmniRange = 8.0f,
-            ShadowEnabled = false
+            ShadowEnabled = false,
+            Visible = delay <= 0.0f
         };
         AddChild(m_light);
     }
@@ -103,18 +112,26 @@ public partial class LaserEffect : Node3D
     public override void _Process(double delta)
     {
         m_age += (float)delta;
+        if (m_age < m_delay)
+        {
+            return;
+        }
+
+        m_pulse.Visible = true;
+        m_light.Visible = true;
+        var effectAge = m_age - m_delay;
         var launchLength = Math.Min(PulseLength, m_distance);
         float frontDistance;
         float backDistance;
-        if (m_age < LaunchDurationSeconds)
+        if (effectAge < LaunchDurationSeconds)
         {
-            frontDistance = launchLength * (m_age / LaunchDurationSeconds);
+            frontDistance = launchLength * (effectAge / LaunchDurationSeconds);
             backDistance = 0.0f;
         }
         else
         {
             var travelledDistance =
-                (m_age - LaunchDurationSeconds) * TravelSpeedMetersPerSecond;
+                (effectAge - LaunchDurationSeconds) * TravelSpeedMetersPerSecond;
             frontDistance = Math.Min(launchLength + travelledDistance, m_distance);
             backDistance = Math.Min(travelledDistance, m_distance);
         }

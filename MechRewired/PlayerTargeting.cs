@@ -10,6 +10,8 @@
 
 using Godot;
 using MechRewired.Missions;
+using MechRewired.Resources;
+using MechRewired.Simulation;
 
 namespace MechRewired;
 
@@ -21,10 +23,11 @@ namespace MechRewired;
 /// </remarks>
 public partial class PlayerTargeting : Node
 {
-    private const float LaserRange = 1200.0f;
     private const float TargetingRange = 1000.0f;
     private const float ObjectiveHighlightRange = 300.0f;
-    private const int LaserDamage = 7;
+    private const float MissileLockSeconds = 1.5f;
+    private const float MissileLockConeDegrees = 8.0f;
+    private const int MissilePoolSize = 64;
 
     private readonly PlayerMech m_playerMech;
     private readonly PlayerMission m_playerMission;
@@ -32,11 +35,24 @@ public partial class PlayerTargeting : Node
     private readonly IReadOnlyList<BattlefieldActor> m_actors;
     private readonly IReadOnlyList<EnemyMech> m_enemyMechs;
     private readonly IReadOnlyDictionary<(string SourcePath, int ObjectId), BattlefieldActor> m_actorsByObject;
-    private readonly AudioStreamPlayer m_laserSound;
+    private readonly AudioStreamPlayer m_weaponSound;
+    private readonly AudioStreamPlayer m_missileLockSound;
+    private readonly AudioStreamPlayer m_fireModeSound;
+    private readonly AudioStreamPlayer m_weaponUnavailableSound;
     private readonly AudioStreamPlayer m_enemyPowerUpSound;
     private readonly AudioStreamPlayer m_enemyMechDestroyedSound;
     private readonly BattlefieldEffects m_battlefieldEffects;
-    private int m_nextLaserSide = -1;
+    private readonly double[] m_weaponCooldowns;
+    private readonly List<MissileEffect> m_missilePool = [];
+    private readonly List<PendingMissile> m_pendingMissiles = [];
+    private readonly List<PendingWeaponRepeat> m_pendingWeaponRepeats = [];
+    private readonly Random m_missileLaunchRandom = new();
+    private bool m_advanceAfterWeaponRepeats;
+    private bool m_repeatedFireWasForcedGroup;
+    private float m_missileLockProgress;
+    private EnemyMech m_lockCandidate;
+    private EnemyMech m_lockedEnemy;
+    private int m_lrmAmmo = 120;
 
     public PlayerTargeting(
         PlayerMech playerMech,
@@ -44,9 +60,8 @@ public partial class PlayerTargeting : Node
         IReadOnlyList<DebugTriangle> sceneTriangles,
         IReadOnlyList<BattlefieldActor> actors,
         IReadOnlyList<EnemyMech> enemyMechs,
-        AudioStreamWav laserSound,
-        AudioStreamWav enemyPowerUpSound,
-        AudioStreamWav enemyMechDestroyedSound,
+        MechWarriorMechFile playerDefinition,
+        PlayerMechSounds sounds,
         BattlefieldEffects battlefieldEffects)
     {
         ArgumentNullException.ThrowIfNull(playerMech);
@@ -54,9 +69,14 @@ public partial class PlayerTargeting : Node
         ArgumentNullException.ThrowIfNull(sceneTriangles);
         ArgumentNullException.ThrowIfNull(actors);
         ArgumentNullException.ThrowIfNull(enemyMechs);
-        ArgumentNullException.ThrowIfNull(laserSound);
-        ArgumentNullException.ThrowIfNull(enemyMechDestroyedSound);
+        ArgumentNullException.ThrowIfNull(playerDefinition);
+        ArgumentNullException.ThrowIfNull(sounds);
         ArgumentNullException.ThrowIfNull(battlefieldEffects);
+        if (playerDefinition.Weapons.Count == 0)
+        {
+            throw new InvalidDataException("The player MEK contains no supported mounted weapons.");
+        }
+
         Name = "PlayerTargeting";
         m_playerMech = playerMech;
         m_playerMission = playerMission;
@@ -82,20 +102,41 @@ public partial class PlayerTargeting : Node
 
         m_sceneTriangles = sceneTriangles;
         m_battlefieldEffects = battlefieldEffects;
-        m_laserSound = new AudioStreamPlayer
+        WeaponSelection = new PlayerWeaponSelection(playerDefinition.Weapons);
+        m_weaponCooldowns = new double[playerDefinition.Weapons.Count];
+        m_weaponSound = new AudioStreamPlayer
         {
-            Name = "LaserSound",
-            Stream = laserSound,
-            MaxPolyphony = 8,
+            Name = "WeaponSound",
+            MaxPolyphony = 16,
             VolumeDb = -2.0f
         };
-        AddChild(m_laserSound);
-        if (enemyPowerUpSound != null)
+        AddChild(m_weaponSound);
+        m_missileLockSound = new AudioStreamPlayer
+        {
+            Name = "MissileLock",
+            Stream = sounds.MissileLock,
+            VolumeDb = -1.0f
+        };
+        AddChild(m_missileLockSound);
+        m_fireModeSound = new AudioStreamPlayer
+        {
+            Name = "WeaponFireMode",
+            VolumeDb = -1.0f
+        };
+        AddChild(m_fireModeSound);
+        m_weaponUnavailableSound = new AudioStreamPlayer
+        {
+            Name = "WeaponUnavailable",
+            Stream = sounds.WeaponUnavailable,
+            VolumeDb = -1.0f
+        };
+        AddChild(m_weaponUnavailableSound);
+        if (sounds.EnemyPowerUpDetected != null)
         {
             m_enemyPowerUpSound = new AudioStreamPlayer
             {
                 Name = "EnemyPowerUpWarning",
-                Stream = enemyPowerUpSound,
+                Stream = sounds.EnemyPowerUpDetected,
                 VolumeDb = -1.0f
             };
             AddChild(m_enemyPowerUpSound);
@@ -103,11 +144,25 @@ public partial class PlayerTargeting : Node
         m_enemyMechDestroyedSound = new AudioStreamPlayer
         {
             Name = "EnemyMechDestroyedReport",
-            Stream = enemyMechDestroyedSound,
+            Stream = sounds.EnemyMechDestroyed,
             VolumeDb = -1.0f
         };
         AddChild(m_enemyMechDestroyedSound);
-        playerMech.FireRequested += FireLaser;
+        WeaponFireSounds = sounds.WeaponFireSounds;
+        ChainFireSound = sounds.ChainFire;
+        GroupFireSound = sounds.GroupFire;
+        for (var index = 0; index < MissilePoolSize; index++)
+        {
+            var missile = new MissileEffect(index % 4 == 0);
+            AddChild(missile);
+            m_missilePool.Add(missile);
+        }
+
+        playerMech.FireRequested += () => FireWeapons(false);
+        playerMech.CycleWeaponRequested += CycleWeapon;
+        playerMech.AssignWeaponGroupRequested += AssignWeaponGroup;
+        playerMech.CycleWeaponGroupRequested += CycleWeaponGroup;
+        playerMech.FireWeaponGroupRequested += () => FireWeapons(true);
         playerMech.TargetRequested += SelectUnderReticle;
         playerMech.NextTargetRequested += SelectNextEnemy;
         playerMech.PreviousTargetRequested += SelectPreviousEnemy;
@@ -115,6 +170,27 @@ public partial class PlayerTargeting : Node
         playerMech.ClearTargetRequested += ClearTarget;
         playerMech.InspectTargetRequested += InspectSelectedActor;
     }
+
+    private IReadOnlyDictionary<string, AudioStreamWav> WeaponFireSounds { get; }
+
+    private AudioStreamWav ChainFireSound { get; }
+
+    private AudioStreamWav GroupFireSound { get; }
+
+    public PlayerWeaponSelection WeaponSelection { get; }
+
+    public float MissileLockProgress => m_missileLockProgress / MissileLockSeconds;
+
+    public bool MissileLocked => m_lockedEnemy != null;
+
+    public bool IsMissileLocking => GetSelectedMissile() != null && SelectedEnemy != null;
+
+    public bool IsWeaponReady(int index) => m_weaponCooldowns[index] <= 0.0;
+
+    public bool IsWeaponOperational(int index) => IsWeaponOperational(WeaponSelection.Weapons[index]);
+
+    public int GetWeaponAmmo(int index) =>
+        WeaponSelection.Weapons[index].Specification.Kind == MechWeaponKind.Missile ? m_lrmAmmo : -1;
 
     public BattlefieldActor SelectedActor { get; private set; }
 
@@ -130,22 +206,33 @@ public partial class PlayerTargeting : Node
 
     public override void _Ready()
     {
+        var loadout = string.Join(", ", WeaponSelection.Weapons
+            .GroupBy(weapon => weapon.Specification.Name)
+            .Select(group => $"{group.Count()}x {group.Key}"));
+        var mounts = string.Join(", ", WeaponSelection.Weapons.Select(weapon =>
+            $"{weapon.SourceId}:{weapon.Specification.HudName}@{weapon.Section}"));
         GD.Print(
             $"MechRewired: targeting online ({m_actors.Count} battlefield actors, " +
             $"{m_enemyMechs.Count} hostile mechs; " +
-            $"medium laser {LaserDamage} damage, alternating cockpit-aligned mounts, " +
-            $"{LaserRange:F0}m range).");
+            $"authored player loadout {loadout}; mounts [{mounts}]; {MissilePoolSize} pooled missiles).");
     }
 
     public override void _Process(double delta)
     {
-        _ = delta;
+        for (var index = 0; index < m_weaponCooldowns.Length; index++)
+        {
+            m_weaponCooldowns[index] = Math.Max(0.0, m_weaponCooldowns[index] - delta);
+        }
+
+        UpdateMissileLock((float)delta);
+        UpdatePendingMissiles((float)delta);
+        UpdatePendingWeaponRepeats((float)delta);
         UpdateObjectiveActor();
     }
 
     public void SelectUnderReticle()
     {
-        if (!TryRaycast(out var actor, out var enemyMech, out _, out _, out _))
+        if (!TryRaycast(TargetingRange, out var actor, out var enemyMech, out _, out _, out _))
         {
             SelectedActor = null;
             SelectedEnemy = null;
@@ -227,74 +314,542 @@ public partial class PlayerTargeting : Node
 
     public void LogSelectedEnemyState() => SelectedEnemy?.LogCombatState();
 
-    public void FireLaser()
+    private void FireWeapons(bool forceGroup)
     {
-        var aimOrigin = m_playerMech.CockpitCamera.GlobalPosition;
-        var direction = -m_playerMech.Torso.GlobalBasis.Z.Normalized();
-        var torsoBasis = m_playerMech.Torso.GlobalBasis.Orthonormalized();
-        if (!m_playerMech.IsWeaponSideOperational(m_nextLaserSide))
+        if (m_pendingWeaponRepeats.Count > 0)
         {
-            m_nextLaserSide *= -1;
-        }
-
-        if (!m_playerMech.IsWeaponSideOperational(m_nextLaserSide))
-        {
-            GD.Print("MechRewired: no operational arm-mounted laser remains.");
             return;
         }
 
-        var start = m_playerMech.CockpitMount.GlobalPosition +
-                    torsoBasis.X * (m_nextLaserSide * 2.8f) -
-                    torsoBasis.Y * 0.45f -
-                    torsoBasis.Z * 1.2f;
-        m_nextLaserSide *= -1;
-        var end = aimOrigin + direction * LaserRange;
-        if (TryRaycast(out var actor, out var enemyMech, out var enemyHit, out _, out var hitPosition))
+        var indices = WeaponSelection.GetFireIndices(forceGroup);
+        var fired = false;
+        var fireOrdinal = 0;
+        foreach (var index in indices)
         {
-            end = hitPosition;
-            if (enemyMech != null)
+            if (m_weaponCooldowns[index] > 0.0 || !IsWeaponOperational(WeaponSelection.Weapons[index]))
             {
-                m_battlefieldEffects.SpawnWeaponImpact(hitPosition);
-                enemyMech.ApplyDamage(
-                    LaserDamage,
-                    hitPosition,
-                    enemyHit.Section,
-                    enemyHit.FromRear);
-                SelectedEnemy = enemyMech.IsDestroyed ? null : enemyMech;
-                SelectedActor = null;
+                continue;
             }
-            else if (actor != null)
-            {
-                if (actor.IsDamageable)
-                {
-                    m_battlefieldEffects.SpawnWeaponImpact(hitPosition);
-                    actor.ApplyDamage(LaserDamage, hitPosition, m_sceneTriangles);
-                }
-                else
-                {
-                    GD.Print(
-                        $"MechRewired: laser struck indestructible {actor.Description}; " +
-                        "target or inspect it instead.");
-                }
 
-                SelectedActor = actor.IsDestroyed || !IsSelectable(actor) ? null : actor;
-                SelectedEnemy = null;
+            FireWeapon(index, indices.Count > 1 ? fireOrdinal * 0.07f : 0.0f);
+            if (WeaponSelection.Weapons[index].Specification.Kind == MechWeaponKind.Ballistic)
+            {
+                m_pendingWeaponRepeats.Add(new PendingWeaponRepeat(
+                    index,
+                    4,
+                    (float)WeaponSelection.Weapons[index].Specification.RecycleSeconds));
+            }
+
+            fireOrdinal++;
+            fired = true;
+        }
+
+        if (!fired)
+        {
+            m_weaponUnavailableSound.Play();
+            GD.Print("MechRewired: selected weapon or group is recycling or mounted on a destroyed section.");
+            return;
+        }
+
+        if (m_pendingWeaponRepeats.Count > 0)
+        {
+            m_advanceAfterWeaponRepeats = true;
+            m_repeatedFireWasForcedGroup = forceGroup;
+            return;
+        }
+
+        AdvanceAfterFire(forceGroup);
+    }
+
+    private void AdvanceAfterFire(bool forcedGroup)
+    {
+        WeaponSelection.AdvanceAfterFire(forcedGroup, IsSelectableWeapon);
+        if (!SelectedFireSetContainsMissile())
+        {
+            ResetMissileLock();
+        }
+    }
+
+    private void UpdatePendingWeaponRepeats(float delta)
+    {
+        for (var index = m_pendingWeaponRepeats.Count - 1; index >= 0; index--)
+        {
+            var repeat = m_pendingWeaponRepeats[index];
+            repeat.Delay -= delta;
+            if (repeat.Delay > 0.0f)
+            {
+                continue;
+            }
+
+            FireWeapon(repeat.WeaponIndex);
+            repeat.Remaining--;
+            if (repeat.Remaining <= 0)
+            {
+                m_pendingWeaponRepeats.RemoveAt(index);
             }
             else
             {
-                GD.Print("MechRewired: laser struck non-targetable battlefield geometry.");
+                repeat.Delay += (float)WeaponSelection.Weapons[repeat.WeaponIndex].Specification.RecycleSeconds;
             }
+        }
+
+        if (m_pendingWeaponRepeats.Count == 0 && m_advanceAfterWeaponRepeats)
+        {
+            m_advanceAfterWeaponRepeats = false;
+            AdvanceAfterFire(m_repeatedFireWasForcedGroup);
+        }
+    }
+
+    private void FireWeapon(int index, float visualDelay = 0.0f)
+    {
+        var weapon = WeaponSelection.Weapons[index];
+        m_weaponCooldowns[index] = weapon.Specification.RecycleSeconds;
+        switch (weapon.Specification.Kind)
+        {
+            case MechWeaponKind.Laser:
+            case MechWeaponKind.PulseLaser:
+            case MechWeaponKind.Ballistic:
+                FireDirectWeapon(weapon, visualDelay);
+                break;
+
+            case MechWeaponKind.Missile:
+                QueueMissileSalvo(weapon);
+                break;
+
+            default:
+                throw new ArgumentOutOfRangeException();
+        }
+
+        PlayWeaponSound(weapon.Specification.SoundResourceName);
+        GD.Print(
+            $"MechRewired: fired {weapon.Specification.Name} instance {weapon.SourceId} " +
+            $"from {weapon.Section} (slot {index + 1}/{WeaponSelection.Weapons.Count}).");
+    }
+
+    private void FireDirectWeapon(MechMountedWeapon weapon, float visualDelay)
+    {
+        var aimOrigin = m_playerMech.CockpitCamera.GlobalPosition;
+        var direction = -m_playerMech.Torso.GlobalBasis.Z.Normalized();
+        var start = GetWeaponStart(weapon, 0);
+        var end = aimOrigin + direction * (float)weapon.Specification.RangeMeters;
+        if (TryRaycast(
+                (float)weapon.Specification.RangeMeters,
+                out var actor,
+                out var enemyMech,
+                out var enemyHit,
+                out _,
+                out var hitPosition))
+        {
+            end = hitPosition;
+            ApplyDirectDamage(weapon.Specification.Damage, actor, enemyMech, enemyHit, hitPosition);
         }
         else
         {
-            GD.Print("MechRewired: laser fired; no target hit.");
+            GD.Print($"MechRewired: {weapon.Specification.Name} fired; no target hit.");
         }
 
-        GetParent().AddChild(new LaserEffect(start, end));
-        m_laserSound.Play();
+        var color = ColorFromRgb(weapon.Specification.BeamColorRgb);
+        if (weapon.Specification.Kind == MechWeaponKind.Ballistic)
+        {
+            const int tracerCount = 4;
+            var basis = m_playerMech.Torso.GlobalBasis.Orthonormalized();
+            for (var tracer = 0; tracer < tracerCount; tracer++)
+            {
+                var spread = basis.X * ((m_missileLaunchRandom.NextSingle() - 0.5f) * 0.08f) +
+                             basis.Y * ((m_missileLaunchRandom.NextSingle() - 0.5f) * 0.08f);
+                GetParent().AddChild(new BallisticTracerEffect(
+                    start + spread,
+                    end + spread,
+                    tracer * 0.045f));
+            }
+
+            return;
+        }
+
+        var pulseCount = weapon.Specification.Kind == MechWeaponKind.PulseLaser
+            ? weapon.Specification.ProjectilesPerShot
+            : 1;
+        for (var pulse = 0; pulse < pulseCount; pulse++)
+        {
+            var lateral = m_playerMech.Torso.GlobalBasis.X.Normalized() * ((pulse - (pulseCount - 1) * 0.5f) * 0.05f);
+            GetParent().AddChild(new LaserEffect(
+                start + lateral,
+                end + lateral,
+                color,
+                0.055f,
+                visualDelay));
+        }
+    }
+
+    private void ApplyDirectDamage(
+        int damage,
+        BattlefieldActor actor,
+        EnemyMech enemyMech,
+        MechSectionHit enemyHit,
+        Vector3 hitPosition)
+    {
+        if (enemyMech != null)
+        {
+            m_battlefieldEffects.SpawnWeaponImpact(hitPosition);
+            enemyMech.ApplyDamage(damage, hitPosition, enemyHit.Section, enemyHit.FromRear);
+            SelectedEnemy = enemyMech.IsDestroyed ? null : enemyMech;
+            SelectedActor = null;
+        }
+        else if (actor?.IsDamageable == true)
+        {
+            m_battlefieldEffects.SpawnWeaponImpact(hitPosition);
+            actor.ApplyDamage(damage, hitPosition, m_sceneTriangles);
+            SelectedActor = actor.IsDestroyed || !IsSelectable(actor) ? null : actor;
+            SelectedEnemy = null;
+        }
+        else if (actor != null)
+        {
+            GD.Print(
+                $"MechRewired: weapon struck indestructible {actor.Description}; " +
+                "target or inspect it instead.");
+        }
+        else
+        {
+            GD.Print("MechRewired: weapon struck non-targetable battlefield geometry.");
+        }
+    }
+
+    private void QueueMissileSalvo(MechMountedWeapon weapon)
+    {
+        if (m_lrmAmmo < weapon.Specification.ProjectilesPerShot)
+        {
+            m_weaponUnavailableSound.Play();
+            return;
+        }
+
+        m_lrmAmmo -= weapon.Specification.ProjectilesPerShot;
+        var forward = -m_playerMech.Torso.GlobalBasis.Z.Normalized();
+        var lockedTarget = MissileLocked && ReferenceEquals(SelectedEnemy, m_lockedEnemy)
+            ? m_lockedEnemy
+            : null;
+        Vector3? fixedAimPosition = null;
+        BattlefieldActor aimedActor = null;
+        EnemyMech aimedEnemy = null;
+        MechSectionHit aimedEnemyHit = null;
+        if (lockedTarget == null &&
+            TryRaycast(
+                (float)weapon.Specification.RangeMeters,
+                out aimedActor,
+                out aimedEnemy,
+                out aimedEnemyHit,
+                out _,
+                out var aimPosition))
+        {
+            fixedAimPosition = aimPosition;
+        }
+
+        for (var missile = 0; missile < weapon.Specification.ProjectilesPerShot; missile++)
+        {
+            var start = GetWeaponStart(weapon, missile, weapon.Specification.ProjectilesPerShot);
+            Func<Vector3?> targetPosition = null;
+            Action<Vector3> impact = null;
+            if (lockedTarget != null)
+            {
+                targetPosition = () => lockedTarget.IsDestroyed ? null : lockedTarget.TargetPosition;
+                impact = position => ApplyMissileDamage(lockedTarget, weapon.Specification.Damage, position);
+            }
+            else if (fixedAimPosition.HasValue)
+            {
+                var aim = fixedAimPosition.Value;
+                targetPosition = () => aim;
+                impact = position => ApplyFixedAimMissileDamage(
+                    aimedActor,
+                    aimedEnemy,
+                    aimedEnemyHit,
+                    weapon.Specification.Damage,
+                    position);
+            }
+
+            m_pendingMissiles.Add(new PendingMissile(
+                missile * 0.035f + m_missileLaunchRandom.NextSingle() * 0.015f,
+                start,
+                lockedTarget != null
+                    ? start.DirectionTo(lockedTarget.TargetPosition)
+                    : fixedAimPosition.HasValue
+                        ? start.DirectionTo(fixedAimPosition.Value)
+                        : forward,
+                (float)weapon.Specification.RangeMeters,
+                targetPosition,
+                impact));
+        }
+    }
+
+    private Vector3 GetWeaponStart(MechMountedWeapon weapon, int projectileIndex = 0, int projectileCount = 1)
+    {
+        var side = weapon.Section switch
+        {
+            MechDamageSection.LeftArm or MechDamageSection.LeftTorso => -1,
+            MechDamageSection.RightArm or MechDamageSection.RightTorso => 1,
+            _ => 0
+        };
+        var basis = m_playerMech.Torso.GlobalBasis.Orthonormalized();
+        var rackOffset = Vector3.Zero;
+        if (weapon.Specification.Kind == MechWeaponKind.Missile && projectileCount > 1)
+        {
+            const int missilesPerRing = 10;
+            var ring = projectileIndex / missilesPerRing;
+            var positionOnRing = projectileIndex % missilesPerRing;
+            var angleJitter = (m_missileLaunchRandom.NextSingle() - 0.5f) * 0.35f;
+            var angle = Mathf.Tau * positionOnRing / Math.Min(projectileCount, missilesPerRing) + angleJitter;
+            var radius = 0.45f + ring * 0.38f + m_missileLaunchRandom.NextSingle() * 0.15f;
+            rackOffset = basis.X * (Mathf.Cos(angle) * radius) +
+                         basis.Y * (Mathf.Sin(angle) * radius);
+        }
+
+        return m_playerMech.CockpitMount.GlobalPosition +
+               basis.X * (side * 2.65f) +
+               basis.Y * 0.42f -
+               basis.Z * 1.2f +
+               rackOffset;
+    }
+
+    private bool IsWeaponOperational(MechMountedWeapon weapon) =>
+        !m_playerMech.Damage.IsSectionDestroyed(weapon.Section) &&
+        !m_playerMech.Damage.IsSectionDestroyed(GetExternalWeaponSection(weapon)) &&
+        (weapon.Specification.Kind != MechWeaponKind.Missile ||
+         m_lrmAmmo >= weapon.Specification.ProjectilesPerShot);
+
+    private static MechDamageSection GetExternalWeaponSection(MechMountedWeapon weapon) =>
+        weapon.Specification.Kind == MechWeaponKind.Missile
+            ? weapon.Section switch
+            {
+                MechDamageSection.LeftTorso => MechDamageSection.LeftArm,
+                MechDamageSection.RightTorso => MechDamageSection.RightArm,
+                _ => weapon.Section
+            }
+            : weapon.Section;
+
+    private void PlayWeaponSound(string resourceName)
+    {
+        if (!WeaponFireSounds.TryGetValue(resourceName, out var stream))
+        {
+            GD.PushWarning($"MechRewired: no decoded weapon sound for SNDS/{resourceName}.");
+            return;
+        }
+
+        m_weaponSound.Stream = stream;
+        m_weaponSound.Play();
+    }
+
+    private static Color ColorFromRgb(uint rgb) => new(
+        ((rgb >> 16) & 0xff) / 255.0f,
+        ((rgb >> 8) & 0xff) / 255.0f,
+        (rgb & 0xff) / 255.0f);
+
+    private void CycleWeapon()
+    {
+        WeaponSelection.CycleWeapon(1, IsSelectableWeapon);
+        if (!SelectedFireSetContainsMissile())
+        {
+            ResetMissileLock();
+        }
+
+        LogWeaponSelection();
+    }
+
+    private void AssignWeaponGroup(int group)
+    {
+        WeaponSelection.AssignSelectedToGroup(group);
+        GD.Print(
+            $"MechRewired: assigned {WeaponSelection.SelectedWeapon.Specification.Name} " +
+            $"to weapon group {group + 1}.");
+    }
+
+    private void CycleWeaponGroup()
+    {
+        WeaponSelection.CycleGroup(1, IsSelectableWeapon);
+        ResetMissileLock();
+        GD.Print($"MechRewired: selected weapon group {WeaponSelection.SelectedGroup + 1}.");
+    }
+
+    private void LogWeaponSelection()
+    {
+        var weapon = WeaponSelection.SelectedWeapon;
+        GD.Print(
+            $"MechRewired: selected weapon {WeaponSelection.SelectedWeaponIndex + 1}/" +
+            $"{WeaponSelection.Weapons.Count}: {weapon.Specification.Name} " +
+            $"({weapon.Specification.Damage} damage, {weapon.Specification.RangeMeters:F0}m, " +
+            $"group {WeaponSelection.GetGroup(WeaponSelection.SelectedWeaponIndex) + 1}).");
+    }
+
+    private bool IsSelectableWeapon(int index) => IsWeaponOperational(index);
+
+    private void UpdateMissileLock(float delta)
+    {
+        var missile = GetSelectedMissile();
+        var candidate = missile != null && IsMissileLockCandidate(SelectedEnemy, missile)
+            ? SelectedEnemy
+            : null;
+        if (!ReferenceEquals(candidate, m_lockCandidate))
+        {
+            m_lockCandidate = candidate;
+            m_lockedEnemy = null;
+            m_missileLockProgress = 0.0f;
+        }
+
+        if (candidate == null)
+        {
+            m_missileLockProgress = Math.Max(0.0f, m_missileLockProgress - delta * 2.0f);
+            return;
+        }
+
+        if (ReferenceEquals(m_lockedEnemy, candidate))
+        {
+            return;
+        }
+
+        m_missileLockProgress = Math.Min(MissileLockSeconds, m_missileLockProgress + delta);
+        if (m_missileLockProgress >= MissileLockSeconds)
+        {
+            m_lockedEnemy = candidate;
+            m_missileLockSound.Play();
+            GD.Print($"MechRewired: missile lock acquired on {candidate.Description}.");
+        }
+    }
+
+    private MechMountedWeapon GetSelectedMissile() => WeaponSelection
+        .GetFireIndices()
+        .Select(index => WeaponSelection.Weapons[index])
+        .FirstOrDefault(weapon =>
+            weapon.Specification.Kind == MechWeaponKind.Missile && IsWeaponOperational(weapon));
+
+    private bool SelectedFireSetContainsMissile() => GetSelectedMissile() != null;
+
+    private bool IsMissileLockCandidate(EnemyMech enemy, MechMountedWeapon missile)
+    {
+        if (enemy == null || enemy.IsDestroyed || enemy.IsPoweredDown)
+        {
+            return false;
+        }
+
+        var origin = m_playerMech.CockpitCamera.GlobalPosition;
+        var toTarget = enemy.TargetPosition - origin;
+        if (toTarget.LengthSquared() > missile.Specification.RangeMeters * missile.Specification.RangeMeters)
+        {
+            return false;
+        }
+
+        var bounds = enemy.WorldBounds;
+        var center = bounds.GetCenter();
+        var top = bounds.Position.Y + bounds.Size.Y;
+        Vector3[] aimPoints =
+        [
+            center,
+            new Vector3(center.X, Mathf.Lerp(center.Y, top, 0.65f), center.Z),
+            new Vector3(center.X, Mathf.Lerp(center.Y, top, 0.9f), center.Z)
+        ];
+        var forward = -m_playerMech.Torso.GlobalBasis.Z.Normalized();
+        return aimPoints.Any(point =>
+        {
+            var direction = origin.DirectionTo(point);
+            var angle = Mathf.RadToDeg(forward.AngleTo(direction));
+            return angle <= MissileLockConeDegrees && HasLineOfSight(origin, point);
+        });
+    }
+
+    private bool HasLineOfSight(Vector3 origin, Vector3 target)
+    {
+        var distance = origin.DistanceTo(target);
+        if (distance <= 0.001f)
+        {
+            return true;
+        }
+
+        var candidates = m_sceneTriangles.Where(triangle =>
+            !m_actorsByObject.TryGetValue(
+                (triangle.SourceResourcePath, triangle.ObjectId),
+                out var actor) ||
+            !actor.IsDestroyed);
+        return !DebugTriangleRaycaster.TryFindNearest(
+                   candidates,
+                   origin,
+                   origin.DirectionTo(target),
+                   out _,
+                   out var obstructionDistance) ||
+               obstructionDistance >= distance - 2.0f;
+    }
+
+    private void ResetMissileLock()
+    {
+        m_lockCandidate = null;
+        m_lockedEnemy = null;
+        m_missileLockProgress = 0.0f;
+    }
+
+    private void UpdatePendingMissiles(float delta)
+    {
+        for (var index = m_pendingMissiles.Count - 1; index >= 0; index--)
+        {
+            var pending = m_pendingMissiles[index];
+            pending.Delay -= delta;
+            if (pending.Delay > 0.0f)
+            {
+                continue;
+            }
+
+            var missile = m_missilePool.FirstOrDefault(candidate => !candidate.IsActive) ??
+                          m_missilePool.MaxBy(candidate => candidate.Age);
+            missile.Launch(
+                pending.Start,
+                pending.Direction,
+                pending.Range,
+                pending.TargetPosition,
+                pending.Impact);
+            m_pendingMissiles.RemoveAt(index);
+        }
+    }
+
+    private void ApplyMissileDamage(EnemyMech target, int damage, Vector3 impact)
+    {
+        if (target.IsDestroyed)
+        {
+            return;
+        }
+
+        m_battlefieldEffects.SpawnWeaponImpact(impact);
+        target.ApplyDamage(damage, impact, MechDamageSection.CenterTorso, false);
+        if (target.IsDestroyed && ReferenceEquals(SelectedEnemy, target))
+        {
+            SelectedEnemy = null;
+        }
+    }
+
+    private void ApplyFixedAimMissileDamage(
+        BattlefieldActor actor,
+        EnemyMech enemy,
+        MechSectionHit enemyHit,
+        int damage,
+        Vector3 impact)
+    {
+        m_battlefieldEffects.SpawnWeaponImpact(impact);
+        if (enemy != null && !enemy.IsDestroyed)
+        {
+            enemy.ApplyDamage(damage, impact, enemyHit.Section, enemyHit.FromRear);
+            if (enemy.IsDestroyed && ReferenceEquals(SelectedEnemy, enemy))
+            {
+                SelectedEnemy = null;
+            }
+
+            return;
+        }
+
+        if (actor?.IsDamageable == true)
+        {
+            actor.ApplyDamage(damage, impact, m_sceneTriangles);
+            if (actor.IsDestroyed && ReferenceEquals(SelectedActor, actor))
+            {
+                SelectedActor = null;
+            }
+        }
     }
 
     private bool TryRaycast(
+        float maximumRange,
         out BattlefieldActor actor,
         out EnemyMech enemyMech,
         out MechSectionHit enemyHit,
@@ -314,14 +869,14 @@ public partial class PlayerTargeting : Node
                 direction,
                 out var triangle,
                 out var staticDistance) &&
-            staticDistance <= LaserRange;
+            staticDistance <= maximumRange;
         enemyMech = null;
         enemyHit = null;
         var enemyDistance = float.PositiveInfinity;
         foreach (var candidate in m_enemyMechs.Where(candidate => !candidate.IsDestroyed))
         {
             if (candidate.TryRaycastSections(origin, direction, out var candidateHit) &&
-                candidateHit.Distance <= LaserRange &&
+                candidateHit.Distance <= maximumRange &&
                 candidateHit.Distance < enemyDistance)
             {
                 enemyMech = candidate;
@@ -506,5 +1061,35 @@ public partial class PlayerTargeting : Node
             ? polygonCentroids.Aggregate(Vector3.Zero, (sum, centroid) => sum + centroid) /
               polygonCentroids.Length
             : actor.TargetPosition;
+    }
+
+    private sealed class PendingMissile(
+        float delay,
+        Vector3 start,
+        Vector3 direction,
+        float range,
+        Func<Vector3?> targetPosition,
+        Action<Vector3> impact)
+    {
+        public float Delay { get; set; } = delay;
+
+        public Vector3 Start { get; } = start;
+
+        public Vector3 Direction { get; } = direction;
+
+        public float Range { get; } = range;
+
+        public Func<Vector3?> TargetPosition { get; } = targetPosition;
+
+        public Action<Vector3> Impact { get; } = impact;
+    }
+
+    private sealed class PendingWeaponRepeat(int weaponIndex, int remaining, float delay)
+    {
+        public int WeaponIndex { get; } = weaponIndex;
+
+        public int Remaining { get; set; } = remaining;
+
+        public float Delay { get; set; } = delay;
     }
 }

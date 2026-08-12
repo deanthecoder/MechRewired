@@ -42,6 +42,10 @@ public partial class PlayerMech : Node3D
     private const float LegAlignmentTolerance = 0.005f;
     private const float DamageShudderDuration = 0.55f;
     private const float DamageShudderFrequency = 14.0f;
+    private const float ExternalCameraDistance = 11.76f;
+    private const float ExternalCameraHeight = 9.1f;
+    private const float ExternalCameraPullBackResponse = 2.2f;
+    private const float ExternalCameraOrbitResponse = 1.35f;
 
     private IReadOnlyList<DebugTriangle> m_terrainTriangles = Array.Empty<DebugTriangle>();
     private Func<IReadOnlyList<SceneryObstacle>> m_sceneryObstacleProvider = () => Array.Empty<SceneryObstacle>();
@@ -82,6 +86,9 @@ public partial class PlayerMech : Node3D
     private readonly MechDamageModel m_damageModel;
     private readonly List<(MeshInstance3D Mesh, string PartName)> m_destructibleParts = new();
     private Aabb m_localBounds;
+    private float m_externalCameraYaw;
+    private float m_externalCameraDistance;
+    private float m_externalCameraWorldHeight;
 
     public PlayerMech(
         MechWarriorMechFile mechDefinition,
@@ -225,6 +232,14 @@ public partial class PlayerMech : Node3D
     public Camera3D ExternalCamera { get; private set; }
 
     public event Action FireRequested;
+
+    public event Action CycleWeaponRequested;
+
+    public event Action<int> AssignWeaponGroupRequested;
+
+    public event Action CycleWeaponGroupRequested;
+
+    public event Action FireWeaponGroupRequested;
 
     public event Action TargetRequested;
 
@@ -380,16 +395,14 @@ public partial class PlayerMech : Node3D
         };
         AddChild(ExternalCamera);
         var target = modelBounds.GetCenter();
-        var cameraPosition = new Vector3(0.0f, target.Y + modelBounds.Size.Y * 0.45f, modelBounds.Size.Z * 2.5f + 12.0f);
-        ExternalCamera.Position = cameraPosition;
-        ExternalCamera.LookAt(ToGlobal(target));
+        ExternalCamera.GlobalPosition = ToGlobal(target);
         m_startup.Play();
         m_reactorHum.Play();
         m_deploymentReport.Play();
 
         GD.Print(
             $"MechRewired: player controls ready (1-0 throttle; -/= adjust; Backspace reverses; " +
-            $"Left/Right steer; mouse aims torso; M aligns legs; keypad 5 centers; " +
+            $"Left/Right steer; mouse aims torso; M aligns legs; / centers torso; C toggles follow camera; " +
             $"maximum {Drive.Profile.MaximumForwardSpeedKph:F1} km/h, " +
             $"reverse {Drive.Profile.MaximumForwardSpeedKph * Drive.Profile.ReverseSpeedFactor:F1} km/h).");
     }
@@ -408,6 +421,8 @@ public partial class PlayerMech : Node3D
             UpdateMotorAudio(0.0f, (float)delta);
             return;
         }
+
+        UpdateExternalCamera((float)delta);
 
         var isPilotCamera = CockpitCamera.Current || ExternalCamera.Current;
         UpdateDisplayZoom((float)delta);
@@ -546,13 +561,23 @@ public partial class PlayerMech : Node3D
 
         switch (inputEvent)
         {
+            case InputEventKey { Pressed: true, Echo: false, ShiftPressed: true } groupEvent
+                when TryGetWeaponGroup(groupEvent.Keycode, out var group):
+                AssignWeaponGroupRequested?.Invoke(group);
+                GetViewport().SetInputAsHandled();
+                break;
+
             case InputEventKey { Pressed: true, Echo: false } keyEvent when TryHandleDriveKey(keyEvent.Keycode):
                 GetViewport().SetInputAsHandled();
                 break;
 
-            case InputEventKey { Pressed: true, Echo: false } centerEvent
-                when centerEvent.Keycode is Key.Kp5 or Key.C:
+            case InputEventKey { Pressed: true, Echo: false, Keycode: Key.Slash }:
                 CenterPilotView();
+                GetViewport().SetInputAsHandled();
+                break;
+
+            case InputEventKey { Pressed: true, Echo: false, Keycode: Key.C }:
+                ToggleFollowCamera();
                 GetViewport().SetInputAsHandled();
                 break;
 
@@ -567,6 +592,25 @@ public partial class PlayerMech : Node3D
 
             case InputEventKey { Pressed: true, Echo: false, Keycode: Key.Tab }:
                 RequestWeaponCycle();
+                GetViewport().SetInputAsHandled();
+                break;
+
+            case InputEventKey { Pressed: true, Echo: false, Keycode: Key.Enter }:
+                RequestWeaponCycle();
+                GetViewport().SetInputAsHandled();
+                break;
+
+            case InputEventKey { Pressed: true, Echo: false, Keycode: Key.Backslash }:
+                GetViewport().SetInputAsHandled();
+                break;
+
+            case InputEventKey { Pressed: true, Echo: false, Keycode: Key.Apostrophe }:
+                CycleWeaponGroupRequested?.Invoke();
+                GetViewport().SetInputAsHandled();
+                break;
+
+            case InputEventKey { Pressed: true, Echo: false, Keycode: Key.Semicolon }:
+                FireWeaponGroupRequested?.Invoke();
                 GetViewport().SetInputAsHandled();
                 break;
 
@@ -794,9 +838,21 @@ public partial class PlayerMech : Node3D
 #endif
     }
 
-    private static void RequestWeaponCycle()
+    private void RequestWeaponCycle()
     {
-        GD.Print("MechRewired: medium laser selected (additional weapons not yet implemented).");
+        CycleWeaponRequested?.Invoke();
+    }
+
+    private static bool TryGetWeaponGroup(Key key, out int group)
+    {
+        group = key switch
+        {
+            Key.Key1 => 0,
+            Key.Key2 => 1,
+            Key.Key3 => 2,
+            _ => -1
+        };
+        return group >= 0;
     }
 
     private void RequestFire()
@@ -920,6 +976,61 @@ public partial class PlayerMech : Node3D
         m_targetTorsoPitch = 0.0f;
         CockpitCamera.CenterView();
         GD.Print("MechRewired: centered torso and pilot view.");
+    }
+
+    private void ToggleFollowCamera()
+    {
+        if (CockpitCamera.Current)
+        {
+            var center = ToGlobal(m_localBounds.GetCenter());
+            m_externalCameraYaw = GlobalRotation.Y + m_torsoYaw;
+            m_externalCameraDistance = 0.0f;
+            m_externalCameraWorldHeight = center.Y;
+            ExternalCamera.GlobalPosition = center;
+            ExternalCamera.LookAt(center - Torso.GlobalBasis.Z.Normalized());
+            CockpitCamera.Current = false;
+            ExternalCamera.Current = true;
+            GD.Print("MechRewired: external follow camera engaged.");
+            return;
+        }
+
+        if (ExternalCamera.Current)
+        {
+            ExternalCamera.Current = false;
+            CockpitCamera.Current = true;
+            GD.Print("MechRewired: cockpit camera engaged.");
+        }
+    }
+
+    private void UpdateExternalCamera(float delta)
+    {
+        if (!ExternalCamera.Current)
+        {
+            return;
+        }
+
+        var center = ToGlobal(m_localBounds.GetCenter());
+        var targetYaw = GlobalRotation.Y + m_torsoYaw;
+        var orbitBlend = 1.0f - Mathf.Exp(-ExternalCameraOrbitResponse * delta);
+        m_externalCameraYaw = Mathf.LerpAngle(m_externalCameraYaw, targetYaw, orbitBlend);
+        m_externalCameraDistance = Mathf.Lerp(
+            m_externalCameraDistance,
+            ExternalCameraDistance,
+            1.0f - Mathf.Exp(-ExternalCameraPullBackResponse * delta));
+        var backwards = new Vector3(
+            Mathf.Sin(m_externalCameraYaw),
+            0.0f,
+            Mathf.Cos(m_externalCameraYaw));
+        var desiredHeight = center.Y + ExternalCameraHeight;
+        m_externalCameraWorldHeight = Mathf.Lerp(
+            m_externalCameraWorldHeight,
+            desiredHeight,
+            1.0f - Mathf.Exp(-ExternalCameraPullBackResponse * delta));
+        ExternalCamera.GlobalPosition = new Vector3(
+            center.X + backwards.X * m_externalCameraDistance,
+            m_externalCameraWorldHeight,
+            center.Z + backwards.Z * m_externalCameraDistance);
+        ExternalCamera.LookAt(center + Vector3.Up * 2.0f);
     }
 
     private void AlignLegsToTorso()

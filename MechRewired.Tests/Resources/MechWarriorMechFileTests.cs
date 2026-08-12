@@ -42,9 +42,32 @@ public sealed class MechWarriorMechFileTests
         Assert.That(exception.Message, Does.Contain("344 bytes"));
     }
 
-    private static byte[] CreateMechData()
+    [Test]
+    public void LoadDecodesMountedWeaponIdentitySectionAndUnsetGroup()
     {
-        var data = new byte[0x158];
+        var data = CreateMechData(1);
+        BitConverter.GetBytes(75).CopyTo(data, 0);
+        BitConverter.GetBytes(5).CopyTo(data, 4);
+        BitConverter.GetBytes(1).CopyTo(data, 0x10);
+        BitConverter.GetBytes((ushort)2201).CopyTo(data, 0x158);
+        BitConverter.GetBytes(ushort.MaxValue).CopyTo(data, 0x15d);
+        BitConverter.GetBytes((ushort)2201).CopyTo(data, 0x0e0 + 12);
+
+        var mech = MechWarriorMechFile.Load(data);
+
+        Assert.That(mech.Weapons, Has.Count.EqualTo(1));
+        Assert.That(mech.Weapons[0], Is.EqualTo(new MechMountedWeapon(
+            2201,
+            MechWeaponCatalog.TryGet(2201, out var specification) ? specification : null,
+            MechDamageSection.LeftArm,
+            -1)));
+        Assert.That(mech.AmmoBinCount, Is.Zero);
+        Assert.That(mech.UnsupportedWeaponIds, Is.Empty);
+    }
+
+    private static byte[] CreateMechData(int equipmentRecords = 0)
+    {
+        var data = new byte[0x158 + equipmentRecords * 8];
         int[] offsets = [0x018, 0x068, 0x090, 0x040, 0x0e0, 0x0b8, 0x108, 0x130];
         foreach (var offset in offsets)
         {

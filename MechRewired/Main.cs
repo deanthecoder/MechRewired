@@ -31,6 +31,8 @@ public partial class Main : Node3D
     private const int GeneralIlluminationLevel = 12;
     private const int ObjectIlluminationLevel = 8;
     private const byte MaximumTexturedMechMaterialIndex = 63;
+    private const byte CamoMechMaterialIndex = 0;
+    private const byte FlaggedCamoMechMaterialIndex = 0x70;
     private const float DefaultFogDistance = 1200.0f;
     private const float MinimumFogDistance = 300.0f;
     private const float MaximumFogDistance = 5000.0f;
@@ -187,13 +189,20 @@ public partial class Main : Node3D
             modelParts = loadedParts.AsReadOnly();
             var playerMechEntry = archive.GetEntry(PlayerMechPath);
             playerMechDefinition = MechWarriorMechFile.Load(archive.ReadEntry(playerMechEntry));
+            playerMechDefinition = ApplyPyreLightPlayerLoadout(playerMechDefinition);
             GD.Print(
                 $"MechRewired: loaded {playerMechEntry.Path} ({playerMechDefinition.Tonnage} tons; " +
                 $"{playerMechDefinition.WalkingMovementPoints} walking movement points; " +
                 $"{playerMechDefinition.CruisingSpeedKph:F1} km/h cruise; " +
                 $"{playerMechDefinition.MaximumSpeedKph:F1} km/h maximum; authored armor/internal " +
                 $"{string.Join(", ", playerMechDefinition.Sections.Select(section =>
-                    $"{section.Key} {section.Value.FrontArmor}/{section.Value.RearArmor}/{section.Value.InternalStructure}"))}).");
+                    $"{section.Key} {section.Value.FrontArmor}/{section.Value.RearArmor}/{section.Value.InternalStructure}"))}; " +
+                $"{playerMechDefinition.Weapons.Count} supported weapons, " +
+                $"{playerMechDefinition.AmmoBinCount} ammo bins" +
+                (playerMechDefinition.UnsupportedWeaponIds.Count == 0
+                    ? string.Empty
+                    : $", unsupported weapon IDs [{string.Join(", ", playerMechDefinition.UnsupportedWeaponIds)}]") +
+                ").");
             var planetEntry = archive.GetEntry(PlanetPath);
             planet = MechWarriorWorldFile.Load(archive.ReadEntry(planetEntry));
             GD.Print(
@@ -277,6 +286,30 @@ public partial class Main : Node3D
             GD.PushError($"MechRewired cannot load original game data: {exception.Message}");
             return false;
         }
+    }
+
+    private static MechWarriorMechFile ApplyPyreLightPlayerLoadout(MechWarriorMechFile chassis)
+    {
+        static MechMountedWeapon Weapon(ushort sourceId, MechDamageSection section)
+        {
+            if (!MechWeaponCatalog.TryGet(sourceId, out var specification))
+            {
+                throw new InvalidDataException($"MW2 weapon instance {sourceId} is not supported.");
+            }
+
+            return new MechMountedWeapon(sourceId, specification, section, 0);
+        }
+
+        // Pyre Light's DOS cockpit loadout differs from the general TBR00STD.MEK configuration.
+        return chassis.WithWeapons(
+        [
+            Weapon(2501, MechDamageSection.LeftArm),
+            Weapon(2502, MechDamageSection.RightArm),
+            Weapon(2601, MechDamageSection.LeftTorso),
+            Weapon(2602, MechDamageSection.RightTorso),
+            Weapon(1, MechDamageSection.LeftTorso),
+            Weapon(2, MechDamageSection.RightTorso)
+        ], 1);
     }
 
     private static MissionDefinition LoadMissionDefinition(
@@ -803,10 +836,11 @@ public partial class Main : Node3D
         var materialImages = new Dictionary<byte, MechWarriorIndexedImage>();
         foreach (var materialIndex in usedMaterialIndices)
         {
+            var textureMaterialIndex = ResolveMechTextureMaterialIndex(materialIndex);
             // Values above the DOS mech texture slots are polygon rendering flags. Their low byte can
             // collide with unrelated later entries in the wider material table (for example 240/0x1f0).
-            if (materialIndex > MaximumTexturedMechMaterialIndex ||
-                !materialMap.Images.TryGetValue(materialIndex, out var materialImage))
+            if (textureMaterialIndex > MaximumTexturedMechMaterialIndex ||
+                !materialMap.Images.TryGetValue(textureMaterialIndex, out var materialImage))
             {
                 continue;
             }
@@ -928,9 +962,8 @@ public partial class Main : Node3D
             debugTriangles.AsReadOnly(),
             battlefieldActors,
             enemyMechs,
-            playerMechSounds.MediumLaser,
-            playerMechSounds.EnemyPowerUpDetected,
-            playerMechSounds.EnemyMechDestroyed,
+            playerMechDefinition,
+            playerMechSounds,
             battlefieldEffects);
         AddChild(playerTargeting);
 
@@ -1195,9 +1228,10 @@ public partial class Main : Node3D
     {
         foreach (var materialIndex in materialIndices.Distinct())
         {
-            if (materialIndex > MaximumTexturedMechMaterialIndex ||
+            var textureMaterialIndex = ResolveMechTextureMaterialIndex(materialIndex);
+            if (textureMaterialIndex > MaximumTexturedMechMaterialIndex ||
                 materialImages.ContainsKey(materialIndex) ||
-                !materialMap.Images.TryGetValue(materialIndex, out var materialImage))
+                !materialMap.Images.TryGetValue(textureMaterialIndex, out var materialImage))
             {
                 continue;
             }
@@ -1209,6 +1243,13 @@ public partial class Main : Node3D
                 $"to {imageEntry.Path} ('{materialImage.Name}').");
         }
     }
+
+    // Timber Wolf arm barrels use 0x70 for camouflaged housing sides; their separate end caps retain
+    // material 15 (V1DGNHOL), which supplies the original twin gun openings.
+    private static byte ResolveMechTextureMaterialIndex(byte materialIndex) =>
+        materialIndex == FlaggedCamoMechMaterialIndex
+            ? CamoMechMaterialIndex
+            : materialIndex;
 
     private static bool IsDescendantOf(
         int objectId,

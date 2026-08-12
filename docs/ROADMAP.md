@@ -18,14 +18,13 @@ This phase is complete when a recognizable original battlefield can be explored 
 
 - Prevent the player mech walking through scenery and mission actors. — transformed vertical-wall triangle collision implemented; vertical clearance and sliding refinements remain
 - Decode the original `MW2MECH.CPI`/`VWSP` cockpit and view definitions, then replace or validate the procedural cockpit frame against them. - Not a priority.
-- Implement the remaining targeting and combat systems: heat, armor and location-based damage.
-- Add section-aware player/target colors to the original chassis-specific damage silhouettes. Treat the current 2×-tonnage whole-mech health as temporary.
+- Implement heat, ammunition depletion and shutdown/override behavior using the decoded loadout data.
 
 This phase is complete when the player can pilot one mech around the battlefield and destroy a stationary target.
 
 ## 3. Original mission gameplay
 
-- Decode full MEK armor and weapon loadouts, replacing temporary tonnage-based whole-mech health and medium lasers.
+- Apply decoded MEK weapon loadouts to enemy mechs; the player weapon table and Timber Wolf lasers, machine guns and LRM launchers are implemented.
 - Assemble the player mech from its authored chassis BWD hierarchy and map decoded MEK weapons to its `POFO` firing-point markers, replacing the current cockpit-relative laser origins so cockpit and external views share the correct barrel and missile-rack exits.
 - Replace the current Pyre Light-specific resource constants with a scenario-driven mission definition that resolves the planet, battlefield, deployment, NAV sequence, enemy groups and music from the original data.
 - Decode the remaining mission metadata (`MTBL`, `TSK` and `AFFL`) and compare Pyre Light with structurally different missions before settling the runtime model. — MTBL fixed records and Pyre Light trigger/goal flags decoded; comparison, TSK and AFFL remain
@@ -41,7 +40,6 @@ This phase is complete when one original mission can be played from deployment t
 
 - Add terrain-aware leg IK after the shared `MechRig` gait is in place.
 - Improve cockpit shadow quality, stabilize nearby building shadows and tune shadow darkness for the dusk palette.
-- Add emissive missile and weapon lighting.
 - Tune particles for explosions, smoke, sparks, dust and damage feedback. — dust and damage scaling remain
 - Complete fuller task animation for BWD-authored Wolf DropShip set-pieces.
 - Tune exploding structure chunks. — visual tuning remains

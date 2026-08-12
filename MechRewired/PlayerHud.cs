@@ -141,6 +141,7 @@ public partial class PlayerHud : Control
 
         DrawRadar();
         DrawCompass();
+        DrawWeapons();
         DrawAltimeter();
         DrawNavigationTarget();
         DrawSpeed();
@@ -509,11 +510,70 @@ public partial class PlayerHud : Control
         var inner = 7.0f * m_scale;
         var outer = 22.0f * m_scale;
         var width = LineWidth(2.0f);
-        DrawLine(center + Vector2.Left * outer, center + Vector2.Left * inner, HudGreen, width);
-        DrawLine(center + Vector2.Right * inner, center + Vector2.Right * outer, HudGreen, width);
-        DrawLine(center + Vector2.Up * outer, center + Vector2.Up * inner, HudGreen, width);
-        DrawLine(center + Vector2.Down * inner, center + Vector2.Down * outer, HudGreen, width);
-        DrawArc(center, 13.0f * m_scale, 0.0f, Mathf.Tau, 24, HudGreen, width);
+        var color = m_targeting.MissileLocked ? GaugeRed : HudGreen;
+        DrawLine(center + Vector2.Left * outer, center + Vector2.Left * inner, color, width);
+        DrawLine(center + Vector2.Right * inner, center + Vector2.Right * outer, color, width);
+        DrawLine(center + Vector2.Up * outer, center + Vector2.Up * inner, color, width);
+        DrawLine(center + Vector2.Down * inner, center + Vector2.Down * outer, color, width);
+        DrawArc(center, 13.0f * m_scale, 0.0f, Mathf.Tau, 24, color, width);
+    }
+
+    private void DrawWeapons()
+    {
+        const float firstColumnX = 925.0f;
+        const float columnWidth = 145.0f;
+        const float firstBaselineY = 57.0f;
+        const float rowHeight = 27.0f;
+        var selection = m_targeting.WeaponSelection;
+        var columns = PlayerWeaponSelection.BuildColumns(selection.Weapons);
+        for (var column = 0; column < columns.Count; column++)
+        {
+            for (var row = 0; row < columns[column].Count; row++)
+            {
+                var index = columns[column][row];
+                var x = firstColumnX + column * columnWidth;
+                var y = firstBaselineY + row * rowHeight;
+                var weapon = selection.Weapons[index];
+                var operational = m_targeting.IsWeaponOperational(index);
+                var groupColor = selection.GetGroup(index) switch
+                {
+                    0 => HudGreen,
+                    1 => Colors.White,
+                    2 => RadarAmber,
+                    _ => HudGreen
+                };
+                var weaponColor = !operational
+                    ? Colors.Black
+                    : !m_targeting.IsWeaponReady(index)
+                        ? GaugeRed
+                        : groupColor;
+                DrawText(
+                    new Vector2(x, y),
+                    weapon.Specification.HudName,
+                    weaponColor,
+                    19);
+                if (weapon.Specification.Kind == MechWeaponKind.Missile)
+                {
+                    DrawText(
+                        new Vector2(x + 105.0f, y),
+                        $"{m_targeting.GetWeaponAmmo(index)}",
+                        weaponColor,
+                        16);
+                }
+
+                if (index == selection.SelectedWeaponIndex)
+                {
+                    DrawRect(
+                        new Rect2(
+                            Point(x - 5.0f, y - 19.0f),
+                            new Vector2(142.0f, 24.0f) * m_scale),
+                        weaponColor,
+                        false,
+                        LineWidth(2.0f));
+                }
+            }
+        }
+
     }
 
     private void DrawSelectedTarget()
