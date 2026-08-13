@@ -53,6 +53,6 @@ public sealed class MechWarriorLuminosityTable
             throw new ArgumentOutOfRangeException(nameof(illuminationLevel));
         }
 
-        return m_paletteIndices[illuminationLevel * PaletteColorCount + paletteIndex];
+        return m_paletteIndices[paletteIndex * LevelCount + illuminationLevel];
     }
 }

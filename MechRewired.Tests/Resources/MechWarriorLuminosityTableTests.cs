@@ -27,7 +27,7 @@ public sealed class MechWarriorLuminosityTableTests
     {
         var data = new byte[MechWarriorLuminosityTable.LevelCount *
                             MechWarriorLuminosityTable.PaletteColorCount];
-        data[3 * MechWarriorLuminosityTable.PaletteColorCount + 70] = 65;
+        data[70 * MechWarriorLuminosityTable.LevelCount + 3] = 65;
 
         var table = MechWarriorLuminosityTable.Load(data);
 

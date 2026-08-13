@@ -399,20 +399,20 @@ public partial class Main : Node3D
     {
         var skyTopColor = ToGodotColor(palette[SkyTopPaletteIndex]);
         var skyHorizonColor = ToGodotColor(palette[SkyHorizonPaletteIndex]);
-        var groundColor = ToGodotColor(palette[77]);
         var skyMaterial = new ProceduralSkyMaterial
         {
             SkyTopColor = skyTopColor,
             SkyHorizonColor = skyHorizonColor,
             SkyCurve = 0.35f,
-            GroundBottomColor = groundColor,
+            GroundBottomColor = skyHorizonColor,
             GroundHorizonColor = skyHorizonColor,
             GroundCurve = 0.2f,
             SunAngleMax = 1.5f,
             SunCurve = 0.08f,
             UseDebanding = true
         };
-        var ambientEnergy = Math.Clamp((planet.Lighting?.AmbientLevel ?? 128) / 256.0f, 0.35f, 1.0f);
+        var ambientEnergy = Math.Clamp((planet.Lighting?.AmbientLevel ?? 50) / 100.0f, 0.0f, 1.0f);
+        var directionalEnergy = 1.0f - ambientEnergy;
         m_environment = new Godot.Environment
         {
             BackgroundMode = Godot.Environment.BGMode.Sky,
@@ -436,7 +436,7 @@ public partial class Main : Node3D
             GlowBloom = 0.05f,
             GlowHdrThreshold = 1.5f
         };
-        SetFogDistance(planet.ViewDistance ?? DefaultFogDistance);
+        ConfigureDepthCue(planet.Lighting?.ShadeDistance, planet.ViewDistance);
         var environment = new WorldEnvironment
         {
             Environment = m_environment
@@ -448,7 +448,7 @@ public partial class Main : Node3D
         {
             RotationDegrees = new Vector3(-sunElevation, FallbackSunAzimuthDegrees, 0.0f),
             LightColor = ToGodotColor(palette[17]),
-            LightEnergy = 1.6f,
+            LightEnergy = directionalEnergy,
             ShadowEnabled = true,
             ShadowOpacity = 0.9f,
             ShadowBlur = 0.6f,
@@ -465,9 +465,10 @@ public partial class Main : Node3D
         GD.Print(
             $"MechRewired: rendered Pyre Light atmosphere (time {planet.TimeOfDay}; " +
             $"palette sky {SkyTopPaletteIndex}-{SkyHorizonPaletteIndex}; ambient {ambientEnergy:F2}; " +
+            $"directional {directionalEnergy:F2}; " +
             $"sun elevation {sunElevation:F1} degrees at {FallbackSunAzimuthDegrees:F0}-degree " +
             $"mirrored fallback azimuth; 8192px 32-bit directional shadows to " +
-            $"{DirectionalShadowDistance:F0}m at 90% opacity; depth fog " +
+            $"{DirectionalShadowDistance:F0}m at 90% opacity; depth cue " +
             $"{m_environment.FogDepthBegin:F0}-{m_environment.FogDepthEnd:F0}m).");
 
         var levelRoot = new Node3D
@@ -765,7 +766,13 @@ public partial class Main : Node3D
             $"{renderedActorComponentCount} active actor components, {renderedDebrisCount} ground-settled debris objects, " +
             $"{meshCache.Count} unique models; luminosity levels {GeneralIlluminationLevel} terrain / " +
             $"{ObjectIlluminationLevel} objects).");
-        AddImplicitGround(levelRoot, worldBounds, terrainPaletteCounts, palette, debugTriangles);
+        AddImplicitGround(
+            levelRoot,
+            worldBounds,
+            terrainPaletteCounts,
+            palette,
+            luminosityTable,
+            debugTriangles);
         BattlefieldPhysics.AddTerrainCollision(levelRoot, debugTriangles);
         battlefieldEffects.ConfigureTerrain(debugTriangles.AsReadOnly());
         LoadAmbientEffects(archive, battlefieldEffects, battlefieldEffectSounds.AmbientFire);
@@ -1699,16 +1706,26 @@ public partial class Main : Node3D
         return bounds;
     }
 
-    private void SetFogDistance(float distance)
+    private void ConfigureDepthCue(float? shadeDistance, float? viewDistance)
     {
-        var fogDistance = Mathf.Clamp(distance, MinimumFogDistance, MaximumFogDistance);
         if (m_environment == null)
         {
             return;
         }
 
-        m_environment.FogDepthBegin = fogDistance * 0.25f;
-        m_environment.FogDepthEnd = fogDistance;
+        var visibleDistance = Mathf.Clamp(
+            viewDistance ?? DefaultFogDistance,
+            MinimumFogDistance,
+            MaximumFogDistance);
+        var depthCueDistance = shadeDistance is > 0.0f
+            ? Mathf.Min(shadeDistance.Value, visibleDistance)
+            : visibleDistance;
+
+        // MW2 applies its palette depth cue from the viewer outward. The authored LITE shade
+        // distance controls when terrain has fully converged on the horizon colour; VDIST is
+        // the farther visibility limit, rather than the point where the colour shift starts.
+        m_environment.FogDepthBegin = 0.0f;
+        m_environment.FogDepthEnd = depthCueDistance;
     }
 
     private static float FindDeploymentSurfaceHeight(
@@ -1918,11 +1935,15 @@ public partial class Main : Node3D
         Aabb worldBounds,
         IReadOnlyDictionary<byte, int> terrainPaletteCounts,
         MechWarriorPalette palette,
+        MechWarriorLuminosityTable luminosityTable,
         ICollection<DebugTriangle> debugTriangles)
     {
         const float margin = 1000.0f;
-        var paletteIndex = terrainPaletteCounts.MaxBy(entry => entry.Value).Key;
-        var color = palette[paletteIndex];
+        var sourcePaletteIndex = terrainPaletteCounts.MaxBy(entry => entry.Value).Key;
+        var litPaletteIndex = luminosityTable.GetPaletteIndex(
+            sourcePaletteIndex,
+            GeneralIlluminationLevel);
+        var groundColor = ToGodotColor(palette[litPaletteIndex]);
         var center = worldBounds.GetCenter();
         var size = new Vector2(worldBounds.Size.X + margin * 2.0f, worldBounds.Size.Z + margin * 2.0f);
         var ground = new MeshInstance3D
@@ -1934,7 +1955,7 @@ public partial class Main : Node3D
                 Size = size,
                 Material = new StandardMaterial3D
                 {
-                    AlbedoColor = new Color(color.R / 255.0f, color.G / 255.0f, color.B / 255.0f),
+                    AlbedoColor = groundColor,
                     Roughness = 0.95f
                 }
             }
@@ -1959,7 +1980,7 @@ public partial class Main : Node3D
         GD.Print(
             $"MechRewired: added implicit ground plane at Y={ImplicitGroundHeight:F2} " +
             $"({size.X:F0} × {size.Y:F0}, " +
-            $"palette index {paletteIndex}).");
+            $"terrain palette index {sourcePaletteIndex} -> luminosity palette index {litPaletteIndex}).");
     }
 
     /// <summary>
