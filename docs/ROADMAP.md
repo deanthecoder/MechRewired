@@ -24,7 +24,7 @@ This phase is complete when the player can pilot one mech around the battlefield
 
 ## 3. Original mission gameplay
 
-- Apply decoded MEK weapon loadouts to enemy mechs; the player weapon table and Timber Wolf lasers, machine guns and LRM launchers are implemented.
+- Apply decoded MEK weapon loadouts to enemy mechs; the player weapon table and Pyre Light Mad Dog lasers, machine guns and LRM launchers are implemented.
 - Assemble the player mech from its authored chassis BWD hierarchy and map decoded MEK weapons to its `POFO` firing-point markers, replacing the current cockpit-relative laser origins so cockpit and external views share the correct barrel and missile-rack exits.
 - Replace the current Pyre Light-specific resource constants with a scenario-driven mission definition that resolves the planet, battlefield, deployment, NAV sequence, enemy groups and music from the original data.
 - Decode the remaining mission metadata (`MTBL`, `TSK` and `AFFL`) and compare Pyre Light with structurally different missions before settling the runtime model. — MTBL fixed records and Pyre Light trigger/goal flags decoded; comparison, TSK and AFFL remain

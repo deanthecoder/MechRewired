@@ -356,6 +356,7 @@ public partial class PlayerMech : Node3D
 
     public void Configure(
         Aabb modelBounds,
+        Vector3 torsoPivot,
         IReadOnlyList<DebugTriangle> sceneTriangles,
         Func<IReadOnlyList<SceneryObstacle>> sceneryObstacleProvider)
     {
@@ -371,7 +372,7 @@ public partial class PlayerMech : Node3D
         m_sceneryObstacleProvider = sceneryObstacleProvider;
         var cockpitHeight = modelBounds.Position.Y + modelBounds.Size.Y - 0.8f;
         var cockpitFront = modelBounds.Position.Z - 0.15f;
-        CockpitMount.Position = new Vector3(0.0f, cockpitHeight, cockpitFront);
+        CockpitMount.Position = new Vector3(0.0f, cockpitHeight, cockpitFront) - torsoPivot;
         Cockpit = new PlayerCockpit();
         CockpitMount.AddChild(Cockpit);
 

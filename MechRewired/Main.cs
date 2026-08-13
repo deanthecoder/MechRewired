@@ -42,8 +42,9 @@ public partial class Main : Node3D
     private const string PlanetPath = "BWD/YELLPLT1.BWD";
     private const string ScenarioPath = "BWD/YELLSCN1.BWD";
     private const string PlayerStartPath = "BWD/YELLST01.BWD";
-    private const string PlayerMechPath = "MEK/TBR00STD.MEK";
-    private const string PlayerChassisPath = "BWD/TIMBRWLF.BWD";
+    private const string PlayerMechPath = "MEK/MDG00STD.MEK";
+    private const string PlayerChassisPath = "BWD/MADDOG.BWD";
+    private const string PlayerChassisName = "Mad Dog";
     private const string LevelAreaPrefix = "YELLARE";
     private static readonly IReadOnlyDictionary<string, string> DamageShapePrefixes =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -86,7 +87,7 @@ public partial class Main : Node3D
         if (!TryLoadGameData(
                 out var archive,
                 out var palette,
-                out var modelParts,
+                out var playerChassis,
                 out var level,
                 out var planet,
                 out var luminosityTable,
@@ -104,7 +105,7 @@ public partial class Main : Node3D
             BuildScene(
                 archive,
                 palette,
-                modelParts,
+                playerChassis,
                 level,
                 planet,
                 luminosityTable,
@@ -138,7 +139,7 @@ public partial class Main : Node3D
     private static bool TryLoadGameData(
         out MechWarriorProjectArchive archive,
         out MechWarriorPalette palette,
-        out IReadOnlyList<(MechWarriorModelPartDefinition Definition, MechWarriorModel Model)> modelParts,
+        out MechWarriorMechChassis playerChassis,
         out MechWarriorLevel level,
         out MechWarriorWorldFile planet,
         out MechWarriorLuminosityTable luminosityTable,
@@ -150,7 +151,7 @@ public partial class Main : Node3D
     {
         archive = null;
         palette = null;
-        modelParts = null;
+        playerChassis = null;
         level = null;
         planet = null;
         luminosityTable = null;
@@ -175,18 +176,12 @@ public partial class Main : Node3D
             palette = MechWarriorPalette.Load(archive.ReadEntry(paletteEntry));
             GD.Print($"MechRewired: loaded {paletteEntry.Path} ({palette.Colors.Count} colors).");
 
-            var loadedParts = new List<(MechWarriorModelPartDefinition, MechWarriorModel)>();
-            foreach (var definition in TimberWolfModelDefinition.Parts)
-            {
-                var modelEntry = archive.GetEntry(definition.ResourcePath);
-                var model = MechWarriorModel.Load(archive.ReadEntry(modelEntry));
-                loadedParts.Add((definition, model));
-                GD.Print(
-                    $"MechRewired: loaded {modelEntry.Path} (subtype {model.Subtype}, " +
-                    $"{model.Vertices.Count} vertices, {model.Polygons.Count} polygons).");
-            }
-
-            modelParts = loadedParts.AsReadOnly();
+            var playerChassisEntry = archive.GetEntry(PlayerChassisPath);
+            playerChassis = MechWarriorMechChassis.Load(archive.ReadEntry(playerChassisEntry));
+            GD.Print(
+                $"MechRewired: loaded {playerChassisEntry.Path} player chassis " +
+                $"({playerChassis.Objects.Count} authored objects, " +
+                $"{playerChassis.PointsOfFire.Count} firing points).");
             var playerMechEntry = archive.GetEntry(PlayerMechPath);
             playerMechDefinition = MechWarriorMechFile.Load(archive.ReadEntry(playerMechEntry));
             playerMechDefinition = ApplyPyreLightPlayerLoadout(playerMechDefinition);
@@ -300,7 +295,8 @@ public partial class Main : Node3D
             return new MechMountedWeapon(sourceId, specification, section, 0);
         }
 
-        // Pyre Light's DOS cockpit loadout differs from the general TBR00STD.MEK configuration.
+        // Preserve the weapon set observed in the original Pyre Light cockpit while the remaining
+        // MDG00STD configuration continues to supply the Mad Dog's authored movement and armor.
         return chassis.WithWeapons(
         [
             Weapon(2501, MechDamageSection.LeftArm),
@@ -391,7 +387,7 @@ public partial class Main : Node3D
     private void BuildScene(
         MechWarriorProjectArchive archive,
         MechWarriorPalette palette,
-        IReadOnlyList<(MechWarriorModelPartDefinition Definition, MechWarriorModel Model)> modelParts,
+        MechWarriorMechChassis playerChassis,
         MechWarriorLevel level,
         MechWarriorWorldFile planet,
         MechWarriorLuminosityTable luminosityTable,
@@ -825,77 +821,99 @@ public partial class Main : Node3D
         var hasBounds = false;
         var triangleCount = 0;
         var vertexCount = 0;
+        var renderedPartCount = 0;
         var materialMapEntry = archive.GetEntry("BWD/MW2_MAP1.BWD");
         var materialMap = MechWarriorMaterialMap.Load(archive.ReadEntry(materialMapEntry), 1);
-        var usedMaterialIndices = modelParts
-            .SelectMany(part => part.Model.Polygons)
-            .Select(polygon => polygon.MaterialIndex)
-            .Distinct()
-            .Order()
-            .ToArray();
         var materialImages = new Dictionary<byte, MechWarriorIndexedImage>();
-        foreach (var materialIndex in usedMaterialIndices)
+        var playerObjectsById = playerChassis.Objects.ToDictionary(chassisObject => chassisObject.Id);
+        var playerTorsoObjectId = playerChassis.ThingObjectIds
+            .FirstOrDefault(id => playerObjectsById.ContainsKey(id));
+        var playerTorsoPivot = playerTorsoObjectId != 0
+            ? MechWarriorCoordinateSystem.ToGodotPosition(
+                playerObjectsById[playerTorsoObjectId].Transform.Translation)
+            : Vector3.Zero;
+        playerMech.Torso.Position = playerTorsoPivot;
+        foreach (var chassisObject in playerChassis.Objects.Where(chassisObject =>
+                     chassisObject.ModelResourceIndex >= 0))
         {
-            var textureMaterialIndex = ResolveMechTextureMaterialIndex(materialIndex);
-            // Values above the DOS mech texture slots are polygon rendering flags. Their low byte can
-            // collide with unrelated later entries in the wider material table (for example 240/0x1f0).
-            if (textureMaterialIndex > MaximumTexturedMechMaterialIndex ||
-                !materialMap.Images.TryGetValue(textureMaterialIndex, out var materialImage))
+            var modelEntry = archive.GetEntry("POLY", chassisObject.ModelResourceIndex);
+            if (modelEntry.Name.StartsWith("DUMMY", StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
 
-            var imageEntry = archive.GetEntry("CEL", materialImage.ImageResourceIndex);
-            var indexedImage = MechWarriorIndexedImage.Load(archive.ReadEntry(imageEntry));
-            materialImages.Add(materialIndex, indexedImage);
-            GD.Print(
-                $"MechRewired: mapped WTB material {materialIndex} through {materialMapEntry.Path} to " +
-                $"{imageEntry.Path} ({indexedImage.Width}x{indexedImage.Height} indexed texture; " +
-                $"'{materialImage.Name}').");
-        }
-
-        foreach (var (definition, model) in modelParts)
-        {
+            var model = MechWarriorModel.LoadAll(archive.ReadEntry(modelEntry))
+                .MaxBy(candidate => candidate.Polygons.Count) ??
+                throw new InvalidDataException($"{modelEntry.Path} contains no mech model.");
+            LoadMechMaterialImages(
+                archive,
+                materialMapEntry,
+                materialMap,
+                materialImages,
+                model.Polygons.Select(polygon => polygon.MaterialIndex));
+            var isTorsoPart = playerTorsoObjectId != 0 &&
+                              IsDescendantOf(chassisObject.Id, playerTorsoObjectId, playerObjectsById);
+            var partPosition = MechWarriorCoordinateSystem.ToGodotPosition(
+                chassisObject.Transform.Translation);
+            var localPosition = isTorsoPart ? partPosition - playerTorsoPivot : partPosition;
+            var partRotation = MechWarriorCoordinateSystem.ToGodotRotation(
+                chassisObject.Transform.RotationDegrees);
+            var partScale = MechWarriorCoordinateSystem.ToGodotScale(chassisObject.Transform.Scale);
+            var partParent = isTorsoPart ? playerMech.Torso : playerMech.Legs;
             var renderMesh = MechWarriorModelMeshBuilder.Build(
                 model,
                 palette,
                 luminosityTable,
                 GeneralIlluminationLevel,
                 materialImages);
-            var partPosition = MechWarriorCoordinateSystem.ToGodotPosition(definition.Translation);
             var modelInstance = new MeshInstance3D
             {
-                Name = definition.Name,
+                Name = modelEntry.Name,
                 Mesh = renderMesh,
-                Position = partPosition,
+                Position = localPosition,
+                RotationDegrees = partRotation,
+                Scale = partScale,
                 Layers = PlayerMech.ExteriorRenderLayer,
-                CastShadow = definition.Name.EndsWith("Decal", StringComparison.Ordinal)
+                CastShadow = modelEntry.Name.Contains("DEC", StringComparison.OrdinalIgnoreCase)
                     ? GeometryInstance3D.ShadowCastingSetting.Off
                     : GeometryInstance3D.ShadowCastingSetting.DoubleSided
             };
-            playerMech.GetPartParent(definition.Name).AddChild(modelInstance);
-            playerMech.RegisterGaitPart(modelInstance, definition.Name);
-            playerMech.RegisterDestructiblePart(modelInstance, definition.Name);
+            partParent.AddChild(modelInstance);
+            playerMech.RegisterGaitPart(modelInstance, modelEntry.Name);
+            playerMech.RegisterDestructiblePart(modelInstance, modelEntry.Name);
             modelInstance.AddToGroup(DebugCamera.SolidMeshGroup);
 
             var wireframeInstance = new MeshInstance3D
             {
-                Name = $"{definition.Name}Wireframe",
+                Name = $"{modelEntry.Name}Wireframe",
                 Mesh = MechWarriorModelMeshBuilder.BuildWireframe(model),
-                Position = partPosition,
+                Position = localPosition,
+                RotationDegrees = partRotation,
+                Scale = partScale,
                 Visible = false,
                 Layers = PlayerMech.ExteriorRenderLayer
             };
-            playerMech.GetPartParent(definition.Name).AddChild(wireframeInstance);
-            playerMech.RegisterGaitPart(wireframeInstance, definition.Name);
+            partParent.AddChild(wireframeInstance);
+            playerMech.RegisterGaitPart(wireframeInstance, modelEntry.Name);
             wireframeInstance.AddToGroup(DebugCamera.WireframeMeshGroup);
 
-            var partBounds = renderMesh.GetAabb();
-            partBounds.Position += partPosition;
+            var absoluteTransform = isTorsoPart
+                ? new Transform3D(Basis.Identity, playerTorsoPivot) * modelInstance.Transform
+                : modelInstance.Transform;
+            var partBounds = absoluteTransform * renderMesh.GetAabb();
             bounds = hasBounds ? bounds.Merge(partBounds) : partBounds;
             hasBounds = true;
+            renderedPartCount++;
             vertexCount += model.Vertices.Count;
             triangleCount += model.Polygons.Sum(polygon => polygon.VertexIndices.Count - 2);
+            GD.Print(
+                $"MechRewired: loaded player {modelEntry.Path} (subtype {model.Subtype}, " +
+                $"{model.Vertices.Count} vertices, {model.Polygons.Count} polygons).");
+        }
+
+        if (!hasBounds)
+        {
+            throw new InvalidDataException($"{PlayerChassisPath} contains no supported renderable mech parts.");
         }
 
         var deploymentPosition = MechWarriorCoordinateSystem.ToGodotPosition(playerStart.Position);
@@ -908,6 +926,7 @@ public partial class Main : Node3D
             new System.Numerics.Vector3(0.0f, playerStart.StartingAngle, 0.0f));
         playerMech.Configure(
             bounds,
+            playerTorsoPivot,
             debugTriangles.AsReadOnly(),
             () => GetSceneryObstacles(staticSceneryObstacles, battlefieldActors));
         AddChild(new PlayerDeathSequence(
@@ -973,12 +992,10 @@ public partial class Main : Node3D
             Layer = 10
         };
         AddChild(hudLayer);
-        var playerDamageChassis = MechWarriorMechChassis.Load(
-            archive.ReadEntry(archive.GetEntry(PlayerChassisPath)));
         var playerDamageSilhouette = LoadDamageSilhouette(
             archive,
-            "Timber Wolf",
-            playerDamageChassis);
+            PlayerChassisName,
+            playerChassis);
         var playerHud = new PlayerHud(
             playerMech,
             playerDamageSilhouette,
@@ -996,10 +1013,10 @@ public partial class Main : Node3D
         hudLayer.AddChild(playerHud);
 
         GD.Print(
-            $"MechRewired: deployed PlayerMech Timber Wolf at MW2 " +
+            $"MechRewired: deployed PlayerMech {PlayerChassisName} at MW2 " +
             $"({playerStart.Position.X:F2}, {playerStart.Position.Y:F2}, {playerStart.Position.Z:F2}), " +
             $"heading {playerStart.StartingAngle} degrees, feet at rendered Y={surfaceHeight:F2} " +
-            $"({modelParts.Count} parts, {vertexCount} source vertices, " +
+            $"({renderedPartCount} parts, {vertexCount} source vertices, " +
             $"{triangleCount} triangles, scale {MechWarriorModelMeshBuilder.SourceUnitScale}).");
 
         var target = playerMech.ToGlobal(bounds.GetCenter());
