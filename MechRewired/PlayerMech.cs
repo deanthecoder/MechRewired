@@ -683,7 +683,6 @@ public partial class PlayerMech : Node3D
                 break;
 
             case InputEventMouseMotion mouseMotion when Input.MouseMode == Input.MouseModeEnum.Captured:
-                m_aligningLegsToTorso = false;
                 m_targetTorsoYaw = Mathf.Clamp(
                     m_targetTorsoYaw - mouseMotion.Relative.X * MouseSensitivity,
                     -MaximumTorsoYaw,
@@ -947,7 +946,6 @@ public partial class PlayerMech : Node3D
             return;
         }
 
-        m_aligningLegsToTorso = false;
         m_targetTorsoYaw = Mathf.Clamp(
             m_targetTorsoYaw + yawInput * KeyboardTorsoSpeed * (float)delta,
             -MaximumTorsoYaw,
@@ -1036,6 +1034,13 @@ public partial class PlayerMech : Node3D
 
     private void AlignLegsToTorso()
     {
+        if (m_aligningLegsToTorso)
+        {
+            m_aligningLegsToTorso = false;
+            GD.Print("MechRewired: cancelled legs-to-torso alignment.");
+            return;
+        }
+
         if (Mathf.Abs(m_torsoYaw) <= LegAlignmentTolerance)
         {
             GD.Print("MechRewired: legs already aligned with torso.");
