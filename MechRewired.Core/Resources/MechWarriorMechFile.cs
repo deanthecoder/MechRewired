@@ -21,6 +21,7 @@ public sealed class MechWarriorMechFile
     private const int BaseFileSize = 0x158;
     private const int WeaponCountOffset = 0x10;
     private const int AmmoCountOffset = 0x14;
+    private const int HeatSinkCountOffset = 0x0c;
     private const int EquipmentRecordSize = 8;
     private const int CriticalSlotsOffset = 12;
     private const double MovementPointSpeedKph = 10.8;
@@ -52,6 +53,7 @@ public sealed class MechWarriorMechFile
     private MechWarriorMechFile(
         int tonnage,
         int walkingMovementPoints,
+        int heatSinkCount,
         IReadOnlyDictionary<MechDamageSection, MechSectionArmor> sections,
         IReadOnlyList<MechMountedWeapon> weapons,
         IReadOnlyList<ushort> unsupportedWeaponIds,
@@ -59,6 +61,7 @@ public sealed class MechWarriorMechFile
     {
         Tonnage = tonnage;
         WalkingMovementPoints = walkingMovementPoints;
+        HeatSinkCount = heatSinkCount;
         Sections = sections;
         Weapons = weapons;
         UnsupportedWeaponIds = unsupportedWeaponIds;
@@ -68,6 +71,9 @@ public sealed class MechWarriorMechFile
     public int Tonnage { get; }
 
     public int WalkingMovementPoints { get; }
+
+    /// <summary>The number of heat sinks configured in the original MEK header.</summary>
+    public int HeatSinkCount { get; }
 
     public int RunningMovementPoints => (int)Math.Ceiling(WalkingMovementPoints * 1.5);
 
@@ -87,6 +93,7 @@ public sealed class MechWarriorMechFile
         new(
             Tonnage,
             WalkingMovementPoints,
+            HeatSinkCount,
             Sections,
             weapons,
             [],
@@ -105,6 +112,7 @@ public sealed class MechWarriorMechFile
         using var reader = new BinaryReader(stream);
         var tonnage = reader.ReadInt32();
         var walkingMovementPoints = reader.ReadInt32();
+        var heatSinkCount = BitConverter.ToInt32(data, HeatSinkCountOffset);
         if (tonnage <= 0)
         {
             throw new InvalidDataException($"The MEK tonnage must be positive; found {tonnage}.");
@@ -114,6 +122,12 @@ public sealed class MechWarriorMechFile
         {
             throw new InvalidDataException(
                 $"The MEK walking movement points must be positive; found {walkingMovementPoints}.");
+        }
+
+        if (heatSinkCount <= 0)
+        {
+            throw new InvalidDataException(
+                $"The MEK heat-sink count must be positive; found {heatSinkCount}.");
         }
 
         var sections = SectionOffsets.ToDictionary(
@@ -166,6 +180,7 @@ public sealed class MechWarriorMechFile
         return new MechWarriorMechFile(
             tonnage,
             walkingMovementPoints,
+            heatSinkCount,
             sections,
             weapons.AsReadOnly(),
             unsupportedWeaponIds.AsReadOnly(),

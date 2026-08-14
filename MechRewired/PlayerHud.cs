@@ -40,6 +40,8 @@ public partial class PlayerHud : Control
     private static readonly Color ReachedNavigationAmber = Color.FromHtml("796000");
     private static readonly Color TerrainBlue = Color.FromHtml("1828e8");
     private static readonly Color GaugeRed = Color.FromHtml("e00000");
+    private static readonly Color GaugeBlueShade = Color.FromHtml("101a9e");
+    private static readonly Color GaugeBlueInnerShade = Color.FromHtml("1522bc");
     private static readonly Color DestroyedSectionGrey = Color.FromHtml("34383c");
     private static readonly Color GaugeSideShade = new(0.08f, 0.0f, 0.0f, 0.5f);
     private static readonly Color TargetFrame = Color.FromHtml("4b0a00");
@@ -142,6 +144,7 @@ public partial class PlayerHud : Control
         DrawRadar();
         DrawCompass();
         DrawWeapons();
+        DrawHeat();
         DrawAltimeter();
         DrawNavigationTarget();
         DrawSpeed();
@@ -574,6 +577,117 @@ public partial class PlayerHud : Control
             }
         }
 
+    }
+
+    private void DrawHeat()
+    {
+        const float heatGaugeLeft = 430.0f;
+        const float gaugeTop = 646.0f;
+        const float gaugeWidth = 190.0f;
+        const float gaugeHeight = 15.0f;
+        const float rateGaugeLeft = 655.0f;
+        const float rateGaugeWidth = 150.0f;
+        var heatGauge = new Rect2(
+            Point(heatGaugeLeft, gaugeTop),
+            new Vector2(gaugeWidth, gaugeHeight) * m_scale);
+        DrawBlueGauge(heatGauge);
+        DrawThermalFillFromEdges(
+            heatGaugeLeft,
+            gaugeTop,
+            gaugeWidth,
+            gaugeHeight,
+            (float)Math.Clamp(m_targeting.HeatFraction * 2.0, 0.0, 2.0));
+        DrawCenteredText(heatGaugeLeft + gaugeWidth * 0.5f, 691.0f, "Heat", HudGreen, 24);
+
+        var rateGauge = new Rect2(
+            Point(rateGaugeLeft, gaugeTop),
+            new Vector2(rateGaugeWidth, gaugeHeight) * m_scale);
+        DrawBlueGauge(rateGauge);
+        DrawThermalFillFromLeft(
+            rateGaugeLeft,
+            gaugeTop,
+            rateGaugeWidth,
+            gaugeHeight,
+            (float)Math.Clamp(m_targeting.HeatRate / 20.0, 0.0, 2.0));
+        DrawCenteredText(rateGaugeLeft + rateGaugeWidth * 0.5f, 691.0f, "dH/dT", HudGreen, 24);
+    }
+
+    private void DrawBlueGauge(Rect2 gauge)
+    {
+        DrawRect(gauge, TerrainBlue);
+        DrawGaugeShading(gauge);
+    }
+
+    private void DrawGaugeShading(Rect2 gauge)
+    {
+        var lineWidth = LineWidth(1.0f);
+        var top = gauge.Position;
+        var firstInnerLine = top + Vector2.Down * lineWidth;
+        var lastInnerLine = top + Vector2.Down * (gauge.Size.Y - lineWidth * 2.0f);
+        var bottom = top + Vector2.Down * (gauge.Size.Y - lineWidth);
+        DrawLine(top, top + Vector2.Right * gauge.Size.X, GaugeBlueShade, lineWidth);
+        DrawLine(
+            firstInnerLine,
+            firstInnerLine + Vector2.Right * gauge.Size.X,
+            GaugeBlueInnerShade,
+            lineWidth);
+        DrawLine(
+            lastInnerLine,
+            lastInnerLine + Vector2.Right * gauge.Size.X,
+            GaugeBlueInnerShade,
+            lineWidth);
+        DrawLine(
+            bottom,
+            bottom + Vector2.Right * gauge.Size.X,
+            GaugeBlueShade,
+            lineWidth);
+    }
+
+    private void DrawThermalFillFromEdges(
+        float left,
+        float top,
+        float width,
+        float height,
+        float thermalProgress)
+    {
+        var yellowWidth = width * 0.5f * Math.Min(thermalProgress, 1.0f);
+        DrawThermalStrip(left, top, yellowWidth, height, RadarAmber);
+        DrawThermalStrip(left + width - yellowWidth, top, yellowWidth, height, RadarAmber);
+        var redWidth = width * 0.5f * Math.Max(thermalProgress - 1.0f, 0.0f);
+        DrawThermalStrip(left, top, redWidth, height, GaugeRed);
+        DrawThermalStrip(left + width - redWidth, top, redWidth, height, GaugeRed);
+    }
+
+    private void DrawThermalFillFromLeft(
+        float left,
+        float top,
+        float width,
+        float height,
+        float thermalProgress)
+    {
+        DrawThermalStrip(left, top, width * Math.Min(thermalProgress, 1.0f), height, RadarAmber);
+        DrawThermalStrip(left, top, width * Math.Max(thermalProgress - 1.0f, 0.0f), height, GaugeRed);
+    }
+
+    private void DrawThermalStrip(float left, float top, float width, float height, Color color)
+    {
+        if (width <= 0.0f)
+        {
+            return;
+        }
+
+        DrawRect(
+            new Rect2(Point(left, top), new Vector2(width, height) * m_scale),
+            color);
+        var edgeHeight = Math.Min(1.0f, height * 0.25f);
+        DrawRect(
+            new Rect2(Point(left, top), new Vector2(width, edgeHeight) * m_scale),
+            color.Lightened(0.12f));
+        DrawRect(
+            new Rect2(
+                Point(left, top + height - edgeHeight),
+                new Vector2(width, edgeHeight) * m_scale),
+            color.Darkened(0.25f));
     }
 
     private void DrawSelectedTarget()

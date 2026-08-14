@@ -28,6 +28,7 @@ public sealed class MechWarriorMechFileTests
 
         Assert.That(mech.Tonnage, Is.EqualTo(75));
         Assert.That(mech.WalkingMovementPoints, Is.EqualTo(5));
+        Assert.That(mech.HeatSinkCount, Is.EqualTo(20));
         Assert.That(mech.CruisingSpeedKph, Is.EqualTo(54.0));
         Assert.That(mech.MaximumSpeedKph, Is.EqualTo(86.4));
         Assert.That(mech.Sections[MechDamageSection.CenterTorso], Is.EqualTo(new MechSectionArmor(40, 12, 30)));
@@ -79,6 +80,7 @@ public sealed class MechWarriorMechFileTests
         BitConverter.GetBytes(40).CopyTo(data, 0x068);
         BitConverter.GetBytes(12).CopyTo(data, 0x06c);
         BitConverter.GetBytes(30).CopyTo(data, 0x070);
+        BitConverter.GetBytes(20).CopyTo(data, 0x0c);
         return data;
     }
 }

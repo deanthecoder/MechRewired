@@ -27,7 +27,8 @@ public sealed record MechWeaponSpecification(
     double RecycleSeconds,
     int ProjectilesPerShot,
     string SoundResourceName,
-    uint BeamColorRgb = 0);
+    uint BeamColorRgb = 0,
+    int Heat = 0);
 
 public sealed record MechMountedWeapon(
     ushort SourceId,
@@ -43,41 +44,41 @@ public static class MechWeaponCatalog
     private static readonly IReadOnlyList<CatalogEntry> Entries =
     [
         new(0, 99, new MechWeaponSpecification(
-            "LRM 20", "LRM20", MechWeaponKind.Missile, 1, 630, 10.0, 20, "MECBBAAT.SFL")),
+            "LRM 20", "LRM20", MechWeaponKind.Missile, 1, 630, 10.0, 20, "MECBBAAT.SFL", Heat: 6)),
         new(100, 199, new MechWeaponSpecification(
-            "LRM 15", "LRM15", MechWeaponKind.Missile, 1, 630, 5.5, 15, "MECBBAAT.SFL")),
+            "LRM 15", "LRM15", MechWeaponKind.Missile, 1, 630, 5.5, 15, "MECBBAAT.SFL", Heat: 5)),
         new(200, 299, new MechWeaponSpecification(
-            "LRM 10", "LRM10", MechWeaponKind.Missile, 1, 630, 5.0, 10, "MECBBAAT.SFL")),
+            "LRM 10", "LRM10", MechWeaponKind.Missile, 1, 630, 5.0, 10, "MECBBAAT.SFL", Heat: 4)),
         new(300, 399, new MechWeaponSpecification(
-            "LRM 5", "LRM5", MechWeaponKind.Missile, 1, 630, 4.5, 5, "MECBBAAT.SFL")),
+            "LRM 5", "LRM5", MechWeaponKind.Missile, 1, 630, 4.5, 5, "MECBBAAT.SFL", Heat: 2)),
         new(400, 499, new MechWeaponSpecification(
-            "SRM 6", "SRM6", MechWeaponKind.Missile, 2, 270, 4.0, 6, "MECBBAAT.SFL")),
+            "SRM 6", "SRM6", MechWeaponKind.Missile, 2, 270, 4.0, 6, "MECBBAAT.SFL", Heat: 4)),
         new(500, 599, new MechWeaponSpecification(
-            "SRM 4", "SRM4", MechWeaponKind.Missile, 2, 270, 3.5, 4, "MECBBAAT.SFL")),
+            "SRM 4", "SRM4", MechWeaponKind.Missile, 2, 270, 3.5, 4, "MECBBAAT.SFL", Heat: 3)),
         new(600, 699, new MechWeaponSpecification(
-            "SRM 2", "SRM2", MechWeaponKind.Missile, 2, 270, 3.0, 2, "MECBBAAT.SFL")),
+            "SRM 2", "SRM2", MechWeaponKind.Missile, 2, 270, 3.0, 2, "MECBBAAT.SFL", Heat: 2)),
         new(700, 799, new MechWeaponSpecification(
-            "Streak SRM 6", "SSRM6", MechWeaponKind.Missile, 2, 360, 4.0, 6, "MECBBAAT.SFL")),
+            "Streak SRM 6", "SSRM6", MechWeaponKind.Missile, 2, 360, 4.0, 6, "MECBBAAT.SFL", Heat: 4)),
         new(800, 899, new MechWeaponSpecification(
-            "Streak SRM 4", "SSRM4", MechWeaponKind.Missile, 2, 360, 3.5, 4, "MECBBAAT.SFL")),
+            "Streak SRM 4", "SSRM4", MechWeaponKind.Missile, 2, 360, 3.5, 4, "MECBBAAT.SFL", Heat: 3)),
         new(900, 999, new MechWeaponSpecification(
-            "Streak SRM 2", "SSRM2", MechWeaponKind.Missile, 2, 360, 3.0, 2, "MECBBAAT.SFL")),
+            "Streak SRM 2", "SSRM2", MechWeaponKind.Missile, 2, 360, 3.0, 2, "MECBBAAT.SFL", Heat: 2)),
         new(1000, 1099, new MechWeaponSpecification(
             "Machine Gun", "MGUN", MechWeaponKind.Ballistic, 1, 270, 0.18, 1, "MECMGUN1.SFL", 0xffd060)),
         new(2100, 2199, new MechWeaponSpecification(
-            "ER PPC", "ERPPC", MechWeaponKind.Laser, 15, 690, 7.5, 1, "MECMISNR.SFL", 0xe8f8ff)),
+            "ER PPC", "ERPPC", MechWeaponKind.Laser, 15, 690, 7.5, 1, "MECMISNR.SFL", 0xe8f8ff, 15)),
         new(2200, 2299, new MechWeaponSpecification(
-            "ER Large Laser", "ERLLAS", MechWeaponKind.Laser, 10, 750, 6.0, 1, "MECBLASR.SFL", 0x3080ff)),
+            "ER Large Laser", "ERLLAS", MechWeaponKind.Laser, 10, 750, 6.0, 1, "MECBLASR.SFL", 0x3080ff, 12)),
         new(2300, 2399, new MechWeaponSpecification(
-            "ER Medium Laser", "ERMLAS", MechWeaponKind.Laser, 7, 450, 4.0, 1, "MECMLASR.SFL", 0x30ff50)),
+            "ER Medium Laser", "ERMLAS", MechWeaponKind.Laser, 7, 450, 4.0, 1, "MECMLASR.SFL", 0x30ff50, 5)),
         new(2400, 2499, new MechWeaponSpecification(
-            "ER Small Laser", "ERSLAS", MechWeaponKind.Laser, 5, 180, 3.0, 1, "MECSLASR.SFL", 0xff3020)),
+            "ER Small Laser", "ERSLAS", MechWeaponKind.Laser, 5, 180, 3.0, 1, "MECSLASR.SFL", 0xff3020, 2)),
         new(2500, 2599, new MechWeaponSpecification(
-            "Large Pulse Laser", "LPLAS", MechWeaponKind.PulseLaser, 10, 600, 6.0, 3, "MECPLASR.SFL", 0x3080ff)),
+            "Large Pulse Laser", "LPLAS", MechWeaponKind.PulseLaser, 10, 600, 6.0, 3, "MECPLASR.SFL", 0x3080ff, 10)),
         new(2600, 2699, new MechWeaponSpecification(
-            "Medium Pulse Laser", "MPLAS", MechWeaponKind.PulseLaser, 7, 360, 5.0, 3, "MECPLASR.SFL", 0x30ff50)),
+            "Medium Pulse Laser", "MPLAS", MechWeaponKind.PulseLaser, 7, 360, 5.0, 3, "MECPLASR.SFL", 0x30ff50, 4)),
         new(2700, 2799, new MechWeaponSpecification(
-            "Small Pulse Laser", "SPLAS", MechWeaponKind.PulseLaser, 3, 180, 4.0, 3, "MECPLASR.SFL", 0xff3020))
+            "Small Pulse Laser", "SPLAS", MechWeaponKind.PulseLaser, 3, 180, 4.0, 3, "MECPLASR.SFL", 0xff3020, 2))
     ];
 
     public static bool TryGet(ushort sourceId, out MechWeaponSpecification specification)

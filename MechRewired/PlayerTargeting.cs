@@ -42,6 +42,7 @@ public partial class PlayerTargeting : Node
     private readonly AudioStreamPlayer m_enemyPowerUpSound;
     private readonly AudioStreamPlayer m_enemyMechDestroyedSound;
     private readonly BattlefieldEffects m_battlefieldEffects;
+    private readonly MechHeat m_heat;
     private readonly double[] m_weaponCooldowns;
     private readonly List<MissileEffect> m_missilePool = [];
     private readonly List<PendingMissile> m_pendingMissiles = [];
@@ -103,6 +104,9 @@ public partial class PlayerTargeting : Node
         m_sceneTriangles = sceneTriangles;
         m_battlefieldEffects = battlefieldEffects;
         WeaponSelection = new PlayerWeaponSelection(playerDefinition.Weapons);
+        m_heat = new MechHeat(
+            maximumHeat: MechHeat.GetCriticalHeatThreshold(playerDefinition.HeatSinkCount),
+            coolingPerSecond: playerDefinition.HeatSinkCount / 10.0);
         m_weaponCooldowns = new double[playerDefinition.Weapons.Count];
         m_weaponSound = new AudioStreamPlayer
         {
@@ -192,6 +196,14 @@ public partial class PlayerTargeting : Node
     public int GetWeaponAmmo(int index) =>
         WeaponSelection.Weapons[index].Specification.Kind == MechWeaponKind.Missile ? m_lrmAmmo : -1;
 
+    public double Heat => m_heat.CurrentHeat;
+
+    public double MaximumHeat => m_heat.MaximumHeat;
+
+    public double HeatFraction => m_heat.Fraction;
+
+    public double HeatRate => m_heat.HeatRate;
+
     public BattlefieldActor SelectedActor { get; private set; }
 
     public EnemyMech SelectedEnemy { get; private set; }
@@ -214,11 +226,13 @@ public partial class PlayerTargeting : Node
         GD.Print(
             $"MechRewired: targeting online ({m_actors.Count} battlefield actors, " +
             $"{m_enemyMechs.Count} hostile mechs; " +
-            $"authored player loadout {loadout}; mounts [{mounts}]; {MissilePoolSize} pooled missiles).");
+            $"authored player loadout {loadout}; mounts [{mounts}]; " +
+            $"cooling {m_heat.CoolingPerSecond:F1} heat/s; {MissilePoolSize} pooled missiles).");
     }
 
     public override void _Process(double delta)
     {
+        m_heat.Advance(delta);
         for (var index = 0; index < m_weaponCooldowns.Length; index++)
         {
             m_weaponCooldowns[index] = Math.Max(0.0, m_weaponCooldowns[index] - delta);
@@ -404,6 +418,7 @@ public partial class PlayerTargeting : Node
     {
         var weapon = WeaponSelection.Weapons[index];
         m_weaponCooldowns[index] = weapon.Specification.RecycleSeconds;
+        m_heat.Add(weapon.Specification.Heat);
         switch (weapon.Specification.Kind)
         {
             case MechWeaponKind.Laser:
@@ -423,7 +438,8 @@ public partial class PlayerTargeting : Node
         PlayWeaponSound(weapon.Specification.SoundResourceName);
         GD.Print(
             $"MechRewired: fired {weapon.Specification.Name} instance {weapon.SourceId} " +
-            $"from {weapon.Section} (slot {index + 1}/{WeaponSelection.Weapons.Count}).");
+            $"from {weapon.Section} (slot {index + 1}/{WeaponSelection.Weapons.Count}); " +
+            $"heat {m_heat.CurrentHeat:F1}/{m_heat.MaximumHeat:F0}.");
     }
 
     private void FireDirectWeapon(MechMountedWeapon weapon, float visualDelay)

@@ -192,7 +192,7 @@ public partial class Main : Node3D
                 $"{playerMechDefinition.MaximumSpeedKph:F1} km/h maximum; authored armor/internal " +
                 $"{string.Join(", ", playerMechDefinition.Sections.Select(section =>
                     $"{section.Key} {section.Value.FrontArmor}/{section.Value.RearArmor}/{section.Value.InternalStructure}"))}; " +
-                $"{playerMechDefinition.Weapons.Count} supported weapons, " +
+                $"{playerMechDefinition.HeatSinkCount} heat sinks, {playerMechDefinition.Weapons.Count} supported weapons, " +
                 $"{playerMechDefinition.AmmoBinCount} ammo bins" +
                 (playerMechDefinition.UnsupportedWeaponIds.Count == 0
                     ? string.Empty
