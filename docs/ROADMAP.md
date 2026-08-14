@@ -18,7 +18,7 @@ This phase is complete when a recognizable original battlefield can be explored 
 
 - Prevent the player mech walking through scenery and mission actors. — transformed vertical-wall triangle collision implemented; vertical clearance and sliding refinements remain
 - Decode the original `MW2MECH.CPI`/`VWSP` cockpit and view definitions, then replace or validate the procedural cockpit frame against them. - Not a priority.
-- Implement heat, ammunition depletion and shutdown/override behavior using the decoded loadout data.
+- Implement heat and shutdown/override behavior using the decoded loadout data. — heat threshold, warning, manual shutdown/restart and override implemented; ammunition depletion remains
 
 This phase is complete when the player can pilot one mech around the battlefield and destroy a stationary target.
 

@@ -108,4 +108,18 @@ public sealed class MechDriveTests
             Assert.That(stoppedStep.HeadingChangeDegrees, Is.EqualTo(Profile.StationaryTurnRateDegreesPerSecond));
         });
     }
+
+    [Test]
+    public void StopImmediatelyClearsMomentumAndThrottle()
+    {
+        var drive = new MechDrive(Profile);
+        drive.SetThrottleKey(0);
+        drive.Advance(1.0, 0.0);
+
+        drive.StopImmediately();
+
+        Assert.That(drive.CurrentSpeedKph, Is.Zero);
+        Assert.That(drive.TargetSpeedKph, Is.Zero);
+        Assert.That(drive.ThrottlePercent, Is.Zero);
+    }
 }

@@ -26,6 +26,7 @@ public partial class PlayerHud : Control
     private const float ReferenceWidth = 1280.0f;
     private const float ReferenceHeight = 720.0f;
     private const float RadarRadius = 91.0f;
+    private const float RadarPowerTransitionSeconds = 0.35f;
     private const float CompassScale = 0.75f;
     private const float CompassPixelsPerDegree = 3.2f * CompassScale;
     private const float AltimeterPixelsPerMeter = 14.0f;
@@ -54,6 +55,7 @@ public partial class PlayerHud : Control
     private int m_radarRangeIndex = 1;
     private float m_scale = 1.0f;
     private Vector2 m_offset;
+    private float m_radarPower = 1.0f;
 
     public PlayerHud(
         PlayerMech playerMech,
@@ -90,6 +92,12 @@ public partial class PlayerHud : Control
         {
             Visible = shouldBeVisible;
         }
+
+        var radarTarget = m_targeting.IsShutdown ? 0.0f : 1.0f;
+        m_radarPower = Mathf.MoveToward(
+            m_radarPower,
+            radarTarget,
+            (float)delta / RadarPowerTransitionSeconds);
 
         if (Visible)
         {
@@ -142,6 +150,11 @@ public partial class PlayerHud : Control
             (Size.Y - ReferenceHeight * m_scale) * 0.5f);
 
         DrawRadar();
+        if (m_targeting.IsShutdown)
+        {
+            return;
+        }
+
         DrawCompass();
         DrawWeapons();
         DrawHeat();
@@ -162,9 +175,19 @@ public partial class PlayerHud : Control
     private void DrawRadar()
     {
         var center = Point(155.0f, 117.0f);
-        var radius = RadarRadius * m_scale;
+        var radius = RadarRadius * m_scale * m_radarPower;
+        if (radius <= 0.01f)
+        {
+            return;
+        }
+
         var playerPosition = center;
         DrawArc(center, radius, 0.0f, Mathf.Tau, 64, RadarAmber, LineWidth(2.0f), false);
+        if (m_targeting.IsShutdown || m_radarPower < 0.999f)
+        {
+            return;
+        }
+
         DrawText(new Vector2(24.0f, 42.0f), $"R: {RadarRanges[m_radarRangeIndex] / 1000.0f:F1}Km", HudGreen, 24);
 
         DrawLine(

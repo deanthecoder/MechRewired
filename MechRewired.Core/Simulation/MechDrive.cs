@@ -86,6 +86,13 @@ public sealed class MechDrive
         IsReversing = false;
     }
 
+    /// <summary>Stops the chassis immediately, as when the reactor powers down.</summary>
+    public void StopImmediately()
+    {
+        SelectStop();
+        CurrentSpeedKph = 0.0;
+    }
+
     public MechDriveStep Advance(double seconds, double steering)
     {
         if (seconds < 0.0)

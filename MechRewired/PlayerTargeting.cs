@@ -27,9 +27,11 @@ public partial class PlayerTargeting : Node
     private const float ObjectiveHighlightRange = 300.0f;
     private const float MissileLockSeconds = 1.5f;
     private const float MissileLockConeDegrees = 8.0f;
+    private const float HeatWarningFraction = 0.8f;
     private const int MissilePoolSize = 64;
 
     private readonly PlayerMech m_playerMech;
+    private readonly PlayerMechSounds m_playerMechSounds;
     private readonly PlayerMission m_playerMission;
     private readonly IReadOnlyList<DebugTriangle> m_sceneTriangles;
     private readonly IReadOnlyList<BattlefieldActor> m_actors;
@@ -41,6 +43,8 @@ public partial class PlayerTargeting : Node
     private readonly AudioStreamPlayer m_weaponUnavailableSound;
     private readonly AudioStreamPlayer m_enemyPowerUpSound;
     private readonly AudioStreamPlayer m_enemyMechDestroyedSound;
+    private readonly AudioStreamPlayer m_thermalReportSound;
+    private readonly AudioStreamPlayer m_shutdownEffectSound;
     private readonly BattlefieldEffects m_battlefieldEffects;
     private readonly MechHeat m_heat;
     private readonly double[] m_weaponCooldowns;
@@ -54,6 +58,7 @@ public partial class PlayerTargeting : Node
     private EnemyMech m_lockCandidate;
     private EnemyMech m_lockedEnemy;
     private int m_lrmAmmo = 120;
+    private bool m_heatWarningReported;
 
     public PlayerTargeting(
         PlayerMech playerMech,
@@ -80,6 +85,7 @@ public partial class PlayerTargeting : Node
 
         Name = "PlayerTargeting";
         m_playerMech = playerMech;
+        m_playerMechSounds = sounds;
         m_playerMission = playerMission;
         m_actors = actors;
         m_enemyMechs = enemyMechs;
@@ -152,6 +158,19 @@ public partial class PlayerTargeting : Node
             VolumeDb = -1.0f
         };
         AddChild(m_enemyMechDestroyedSound);
+        m_thermalReportSound = new AudioStreamPlayer
+        {
+            Name = "ThermalReport",
+            VolumeDb = -1.0f
+        };
+        AddChild(m_thermalReportSound);
+        m_shutdownEffectSound = new AudioStreamPlayer
+        {
+            Name = "ShutdownEffect",
+            Stream = sounds.ShutdownEffect,
+            VolumeDb = -2.0f
+        };
+        AddChild(m_shutdownEffectSound);
         WeaponFireSounds = sounds.WeaponFireSounds;
         ChainFireSound = sounds.ChainFire;
         GroupFireSound = sounds.GroupFire;
@@ -173,6 +192,8 @@ public partial class PlayerTargeting : Node
         playerMech.NearestEnemyTargetRequested += SelectNearestEnemy;
         playerMech.ClearTargetRequested += ClearTarget;
         playerMech.InspectTargetRequested += InspectSelectedActor;
+        playerMech.ShutdownRequested += ToggleShutdown;
+        playerMech.ShutdownOverrideRequested += ToggleShutdownOverride;
     }
 
     private IReadOnlyDictionary<string, AudioStreamWav> WeaponFireSounds { get; }
@@ -204,6 +225,10 @@ public partial class PlayerTargeting : Node
 
     public double HeatRate => m_heat.HeatRate;
 
+    public bool IsShutdown => m_playerMech.IsShutdown;
+
+    public bool IsShutdownOverride => m_playerMech.IsShutdownOverride;
+
     public BattlefieldActor SelectedActor { get; private set; }
 
     public EnemyMech SelectedEnemy { get; private set; }
@@ -227,12 +252,14 @@ public partial class PlayerTargeting : Node
             $"MechRewired: targeting online ({m_actors.Count} battlefield actors, " +
             $"{m_enemyMechs.Count} hostile mechs; " +
             $"authored player loadout {loadout}; mounts [{mounts}]; " +
-            $"cooling {m_heat.CoolingPerSecond:F1} heat/s; {MissilePoolSize} pooled missiles).");
+            $"cooling {m_heat.CoolingPerSecond:F1} heat/s; " +
+            $"critical heat {m_heat.MaximumHeat:F0}; {MissilePoolSize} pooled missiles).");
     }
 
     public override void _Process(double delta)
     {
         m_heat.Advance(delta);
+        EvaluateHeatState();
         for (var index = 0; index < m_weaponCooldowns.Length; index++)
         {
             m_weaponCooldowns[index] = Math.Max(0.0, m_weaponCooldowns[index] - delta);
@@ -328,8 +355,111 @@ public partial class PlayerTargeting : Node
 
     public void LogSelectedEnemyState() => SelectedEnemy?.LogCombatState();
 
+    private void EvaluateHeatState()
+    {
+        if (m_heat.CurrentHeat < m_heat.MaximumHeat * HeatWarningFraction)
+        {
+            m_heatWarningReported = false;
+            return;
+        }
+
+        if (!m_heatWarningReported)
+        {
+            m_heatWarningReported = true;
+            PlayThermalReport(m_playerMechSounds.HeatCritical);
+            GD.Print(
+                $"MechRewired: heat level critical ({m_heat.CurrentHeat:F1}/{m_heat.MaximumHeat:F0}).");
+        }
+
+        if (m_playerMech.IsShutdown)
+        {
+            return;
+        }
+
+        if (!m_playerMech.IsShutdownOverride && m_heat.CurrentHeat >= m_heat.MaximumHeat)
+        {
+            InitiateThermalShutdown("critical heat threshold exceeded");
+        }
+        else if (m_playerMech.IsShutdownOverride &&
+                 m_heat.CurrentHeat >= m_heat.MaximumOverrideHeat)
+        {
+            m_playerMech.SetShutdownOverride(false);
+            InitiateThermalShutdown("override heat limit exceeded");
+        }
+    }
+
+    private void ToggleShutdown()
+    {
+        if (m_playerMech.IsShutdown)
+        {
+            if (m_heat.CurrentHeat >= m_heat.MaximumHeat)
+            {
+                GD.Print(
+                    $"MechRewired: restart denied; heat remains critical " +
+                    $"({m_heat.CurrentHeat:F1}/{m_heat.MaximumHeat:F0}).");
+                return;
+            }
+
+            m_playerMech.SetShutdownState(false, "manual restart");
+            m_heatWarningReported = m_heat.CurrentHeat >= m_heat.MaximumHeat * HeatWarningFraction;
+            return;
+        }
+
+        CancelPendingWeaponRepeats();
+        PlayThermalReport(m_playerMechSounds.ShuttingDown);
+        m_shutdownEffectSound.Play();
+        m_playerMech.SetShutdownState(true, "manual shutdown");
+    }
+
+    private void ToggleShutdownOverride()
+    {
+        if (m_playerMech.IsShutdown)
+        {
+            GD.Print("MechRewired: shutdown override ignored while the reactor is offline.");
+            return;
+        }
+
+        var enabled = !m_playerMech.IsShutdownOverride;
+        m_playerMech.SetShutdownOverride(enabled);
+        if (enabled)
+        {
+            PlayThermalReport(m_playerMechSounds.ShutdownOverride);
+        }
+        else
+        {
+            EvaluateHeatState();
+        }
+    }
+
+    private void InitiateThermalShutdown(string reason)
+    {
+        CancelPendingWeaponRepeats();
+        PlayThermalReport(m_playerMechSounds.ThermalShutdown);
+        m_shutdownEffectSound.Play();
+        m_playerMech.SetShutdownState(true, reason);
+    }
+
+    private void CancelPendingWeaponRepeats()
+    {
+        m_pendingWeaponRepeats.Clear();
+        m_advanceAfterWeaponRepeats = false;
+    }
+
+    private void PlayThermalReport(AudioStreamWav report)
+    {
+        m_thermalReportSound.Stream = report;
+        m_thermalReportSound.Play();
+    }
+
     private void FireWeapons(bool forceGroup)
     {
+        if (m_playerMech.IsShutdown)
+        {
+            m_weaponUnavailableSound.Play();
+            GD.Print("MechRewired: weapon fire ignored; PlayerMech reactor is shut down.");
+            return;
+        }
+
         if (m_pendingWeaponRepeats.Count > 0)
         {
             return;
@@ -346,6 +476,12 @@ public partial class PlayerTargeting : Node
             }
 
             FireWeapon(index, indices.Count > 1 ? fireOrdinal * 0.07f : 0.0f);
+            if (m_playerMech.IsShutdown)
+            {
+                fired = true;
+                break;
+            }
+
             if (WeaponSelection.Weapons[index].Specification.Kind == MechWeaponKind.Ballistic)
             {
                 m_pendingWeaponRepeats.Add(new PendingWeaponRepeat(
@@ -386,6 +522,13 @@ public partial class PlayerTargeting : Node
 
     private void UpdatePendingWeaponRepeats(float delta)
     {
+        if (m_playerMech.IsShutdown)
+        {
+            m_pendingWeaponRepeats.Clear();
+            m_advanceAfterWeaponRepeats = false;
+            return;
+        }
+
         for (var index = m_pendingWeaponRepeats.Count - 1; index >= 0; index--)
         {
             var repeat = m_pendingWeaponRepeats[index];
@@ -418,7 +561,8 @@ public partial class PlayerTargeting : Node
     {
         var weapon = WeaponSelection.Weapons[index];
         m_weaponCooldowns[index] = weapon.Specification.RecycleSeconds;
-        m_heat.Add(weapon.Specification.Heat);
+        m_heat.Add(weapon.Specification.Heat, m_playerMech.IsShutdownOverride);
+        EvaluateHeatState();
         switch (weapon.Specification.Kind)
         {
             case MechWeaponKind.Laser:

@@ -38,6 +38,11 @@ public sealed record PlayerMechSounds(
     AudioStreamWav GroupFire,
     IReadOnlyList<AudioStreamWav> WeaponImpacts,
     AudioStreamWav CriticalHit,
+    AudioStreamWav HeatCritical,
+    AudioStreamWav ThermalShutdown,
+    AudioStreamWav ShutdownOverride,
+    AudioStreamWav ShuttingDown,
+    AudioStreamWav ShutdownEffect,
     AudioStreamWav DeathExplosion,
     AudioStreamWav MissionFailed)
 {
@@ -59,6 +64,11 @@ public sealed record PlayerMechSounds(
     private const string ChainFirePath = "SNDS/BET14_1.SFL";
     private const string GroupFirePath = "SNDS/BET14_2.SFL";
     private const string CriticalHitPath = "SNDS/BET6.SFL";
+    private const string HeatCriticalPath = "SNDS/BET7.SFL";
+    private const string ThermalShutdownPath = "SNDS/BET8.SFL";
+    private const string ShutdownOverridePath = "SNDS/BET9.SFL";
+    private const string ShuttingDownPath = "SNDS/BET11_1.SFL";
+    private const string ShutdownEffectPath = "SNDS/MECSHTD1.SFL";
     private const string DeathExplosionPath = "SNDS/MECEXPBG.SFL";
     private const string MissionFailedPath = "SNDS/GENE001F.SFL";
     private static readonly string[] WeaponImpactPaths =
@@ -132,6 +142,11 @@ public sealed record PlayerMechSounds(
                     $"weapon impact {index + 1}"))
                 .ToArray(),
             LoadResource(archive, CriticalHitPath, false, "critical-hit report"),
+            LoadResource(archive, HeatCriticalPath, false, "heat-critical report"),
+            LoadResource(archive, ThermalShutdownPath, false, "thermal shutdown report"),
+            LoadResource(archive, ShutdownOverridePath, false, "shutdown override report"),
+            LoadResource(archive, ShuttingDownPath, false, "manual shutdown report"),
+            LoadResource(archive, ShutdownEffectPath, false, "mech shutdown effect"),
             LoadResource(archive, DeathExplosionPath, false, "player mech destruction explosion"),
             LoadResource(archive, MissionFailedPath, false, "mission failed report"));
     }

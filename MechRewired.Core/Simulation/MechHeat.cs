@@ -47,6 +47,8 @@ public sealed class MechHeat
 
     public double CurrentHeat { get; private set; }
 
+    public double MaximumOverrideHeat => MaximumHeat * 2.0;
+
     /// <summary>
     /// A short-smoothed net heat-flow rate for the cockpit's dH/dT gauge.
     /// </summary>
@@ -67,14 +69,15 @@ public sealed class MechHeat
         return BaseCriticalHeat + effectiveHeatSinkCount;
     }
 
-    public void Add(double heat)
+    public void Add(double heat, bool allowOverrideHeat = false)
     {
         if (heat < 0.0)
         {
             throw new ArgumentOutOfRangeException(nameof(heat), heat, "Generated heat cannot be negative.");
         }
 
-        CurrentHeat = Math.Min(MaximumHeat, CurrentHeat + heat);
+        var maximum = allowOverrideHeat ? MaximumOverrideHeat : MaximumHeat;
+        CurrentHeat = Math.Min(maximum, CurrentHeat + heat);
         m_generatedSinceLastAdvance += heat;
     }
 

@@ -49,4 +49,15 @@ public sealed class MechHeatTests
 
         Assert.That(heat.CurrentHeat, Is.EqualTo(25.0));
     }
+
+    [Test]
+    public void OverrideAllowsHeatToReachTheFatalDoubleThreshold()
+    {
+        var heat = new MechHeat(25.0, 2.0);
+
+        heat.Add(60.0, allowOverrideHeat: true);
+
+        Assert.That(heat.CurrentHeat, Is.EqualTo(50.0));
+        Assert.That(heat.MaximumOverrideHeat, Is.EqualTo(50.0));
+    }
 }

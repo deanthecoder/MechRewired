@@ -67,6 +67,8 @@ public partial class PlayerMech : Node3D
     private float m_damageShudderRemaining;
     private float m_damageShudderStrength;
     private int m_nextDamageImpact;
+    private bool m_shutdown;
+    private bool m_shutdownOverride;
     private readonly AudioStreamPlayer m_torsoMotor;
     private readonly MechRig m_mechRig;
     private readonly AudioStreamPlayer m_footfall;
@@ -204,6 +206,10 @@ public partial class PlayerMech : Node3D
 
     public bool IsDestroyed => m_damageModel.IsDestroyed;
 
+    public bool IsShutdown => m_shutdown;
+
+    public bool IsShutdownOverride => m_shutdownOverride;
+
     public MechDamageModel Damage => m_damageModel;
 
     public bool IsImmobilized =>
@@ -253,6 +259,10 @@ public partial class PlayerMech : Node3D
     public event Action ClearTargetRequested;
 
     public event Action InspectTargetRequested;
+
+    public event Action ShutdownRequested;
+
+    public event Action ShutdownOverrideRequested;
 
     public event Action Destroyed;
 
@@ -326,6 +336,41 @@ public partial class PlayerMech : Node3D
         GD.Print(
             "MechRewired: extraction reached; PlayerMech braking to 0 km/h with translation controls locked " +
             "(steering and torso controls remain active).");
+    }
+
+    public void SetShutdownState(bool shutdown, string reason)
+    {
+        if (m_shutdown == shutdown)
+        {
+            return;
+        }
+
+        m_shutdown = shutdown;
+        if (shutdown)
+        {
+            Drive.StopImmediately();
+            m_aligningLegsToTorso = false;
+            ActualSpeedKph = 0.0f;
+            StopOperationalAudio();
+        }
+        else
+        {
+            m_startup.Play();
+            m_reactorHum.Play();
+        }
+
+        GD.Print($"MechRewired: PlayerMech {(shutdown ? "shutdown" : "restarted")} ({reason}).");
+    }
+
+    public void SetShutdownOverride(bool enabled)
+    {
+        if (m_shutdownOverride == enabled)
+        {
+            return;
+        }
+
+        m_shutdownOverride = enabled;
+        GD.Print($"MechRewired: PlayerMech shutdown override {(enabled ? "enabled" : "disabled")}.");
     }
 
     public Node3D GetPartParent(string partName) => partName switch
@@ -456,6 +501,14 @@ public partial class PlayerMech : Node3D
 
         var isPilotCamera = CockpitCamera.Current || ExternalCamera.Current;
         UpdateDisplayZoom((float)delta);
+        if (IsShutdown)
+        {
+            ActualSpeedKph = 0.0f;
+            m_mechRig.Advance(0.0f, 0.0f, 0.0f, (float)delta);
+            UpdateMotorAudio(0.0f, (float)delta);
+            return;
+        }
+
         var headLookHeld = Input.IsPhysicalKeyPressed(Key.Shift);
         var steering = 0.0;
         var manualSteering = false;
@@ -601,6 +654,16 @@ public partial class PlayerMech : Node3D
                 GetViewport().SetInputAsHandled();
                 break;
 
+            case InputEventKey { Pressed: true, Echo: false, Keycode: Key.S }:
+                ShutdownRequested?.Invoke();
+                GetViewport().SetInputAsHandled();
+                break;
+
+            case InputEventKey { Pressed: true, Echo: false, Keycode: Key.O }:
+                ShutdownOverrideRequested?.Invoke();
+                GetViewport().SetInputAsHandled();
+                break;
+
             case InputEventKey { Pressed: true, Echo: false, Keycode: Key.Slash }:
                 CenterPilotView();
                 GetViewport().SetInputAsHandled();
@@ -711,7 +774,8 @@ public partial class PlayerMech : Node3D
                 GetViewport().SetInputAsHandled();
                 break;
 
-            case InputEventMouseMotion mouseMotion when Input.MouseMode == Input.MouseModeEnum.Captured:
+            case InputEventMouseMotion mouseMotion
+                when Input.MouseMode == Input.MouseModeEnum.Captured && !IsShutdown:
                 m_targetTorsoYaw = Mathf.Clamp(
                     m_targetTorsoYaw - mouseMotion.Relative.X * MouseSensitivity,
                     -MaximumTorsoYaw,
@@ -738,7 +802,8 @@ public partial class PlayerMech : Node3D
             $"target {Drive.TargetSpeedKph:F1} km/h; torso yaw {Mathf.RadToDeg(m_torsoYaw):F1} degrees, " +
             $"pitch {Mathf.RadToDeg(m_torsoPitch):F1} degrees (target " +
             $"{Mathf.RadToDeg(m_targetTorsoYaw):F1}, {Mathf.RadToDeg(m_targetTorsoPitch):F1}); " +
-            $"health {Health}/{MaximumHealth}; translation lock " +
+            $"health {Health}/{MaximumHealth}; power {(IsShutdown ? "shutdown" : "online")}" +
+            $"{(IsShutdownOverride ? ", override" : string.Empty)}; translation lock " +
             $"{(m_translationLocked ? m_translationLockReason : "none")}.");
         if (m_slopeBlocked || m_sceneryBlocked)
         {
@@ -808,6 +873,13 @@ public partial class PlayerMech : Node3D
             GD.Print(
                 $"MechRewired: PlayerMech translation command ignored; movement locked for " +
                 $"{m_translationLockReason} (health {Health}/{MaximumHealth}).");
+            return true;
+        }
+
+        if (IsShutdown &&
+            (throttleKey >= 0 || key is Key.Equal or Key.Minus or Key.Backspace or Key.Quoteleft))
+        {
+            GD.Print("MechRewired: PlayerMech translation command ignored; reactor is shut down.");
             return true;
         }
 
@@ -886,7 +958,7 @@ public partial class PlayerMech : Node3D
 
     private void RequestFire()
     {
-        if (!IsDestroyed)
+        if (!IsDestroyed && !IsShutdown)
         {
             FireRequested?.Invoke();
         }
