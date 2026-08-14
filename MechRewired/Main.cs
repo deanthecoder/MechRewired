@@ -934,6 +934,7 @@ public partial class Main : Node3D
         playerMech.Configure(
             bounds,
             playerTorsoPivot,
+            BuildWeaponMounts(playerChassis, playerObjectsById, playerTorsoObjectId),
             debugTriangles.AsReadOnly(),
             () => GetSceneryObstacles(staticSceneryObstacles, battlefieldActors));
         AddChild(new PlayerDeathSequence(
@@ -1178,19 +1179,19 @@ public partial class Main : Node3D
                     $"{gamePiece.ChassisEntry.Path} contains no supported renderable mech parts.");
             }
 
-            var authoredWeaponMounts = chassis.PointsOfFire
-                .Select(point => objectsById.GetValueOrDefault(point.ObjectId))
-                .Where(mechObject =>
-                    mechObject != null &&
-                    (torsoObjectId == 0 || IsDescendantOf(mechObject.Id, torsoObjectId, objectsById)))
-                .Select(mechObject => MechWarriorCoordinateSystem.ToGodotPosition(
-                    mechObject.Transform.Translation))
-                .Distinct()
-                .OrderBy(position => position.X)
+            var configuredWeaponSections = mechDefinition.Weapons
+                .Select(weapon => weapon.Section)
+                .ToHashSet();
+            var authoredWeaponMounts = BuildWeaponMounts(chassis, objectsById, torsoObjectId);
+            var weaponMounts = authoredWeaponMounts
+                .Where(mount => configuredWeaponSections.Contains(mount.Section))
                 .ToArray();
-            var weaponMounts = authoredWeaponMounts.Length > 2
-                ? new[] { authoredWeaponMounts[0], authoredWeaponMounts[^1] }
-                : authoredWeaponMounts;
+            if (weaponMounts.Length == 0)
+            {
+                weaponMounts = authoredWeaponMounts
+                    .Where(mount => mount.Section is MechDamageSection.LeftArm or MechDamageSection.RightArm)
+                    .ToArray();
+            }
             enemy.ConfigureVisuals(bounds, torsoPivot, weaponMounts);
             var spawnPosition = MechWarriorCoordinateSystem.ToGodotPosition(gamePiece.SpawnPoint.Position);
             spawnPosition.Y = FindDeploymentSurfaceHeight(debugTriangles, spawnPosition) - bounds.Position.Y;
@@ -1274,6 +1275,31 @@ public partial class Main : Node3D
         materialIndex == FlaggedCamoMechMaterialIndex
             ? CamoMechMaterialIndex
             : materialIndex;
+
+    private static IReadOnlyList<MechWeaponMountDefinition> BuildWeaponMounts(
+        MechWarriorMechChassis chassis,
+        IReadOnlyDictionary<int, MechWarriorWorldObject> objectsById,
+        int torsoObjectId)
+    {
+        var mounts = new List<MechWeaponMountDefinition>(chassis.PointsOfFire.Count);
+        foreach (var point in chassis.PointsOfFire)
+        {
+            if (!objectsById.TryGetValue(point.ObjectId, out var chassisObject))
+            {
+                GD.PushWarning(
+                    $"MechRewired: chassis POFO {point.Id} refers to missing object {point.ObjectId}.");
+                continue;
+            }
+
+            mounts.Add(new MechWeaponMountDefinition(
+                point.Id,
+                point.Section,
+                MechWarriorCoordinateSystem.ToGodotPosition(chassisObject.Transform.Translation),
+                torsoObjectId != 0 && IsDescendantOf(chassisObject.Id, torsoObjectId, objectsById)));
+        }
+
+        return mounts.AsReadOnly();
+    }
 
     private static bool IsDescendantOf(
         int objectId,

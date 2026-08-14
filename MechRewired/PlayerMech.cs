@@ -85,6 +85,7 @@ public partial class PlayerMech : Node3D
     private readonly double m_cruisingSpeedKph;
     private readonly MechDamageModel m_damageModel;
     private readonly List<(MeshInstance3D Mesh, string PartName)> m_destructibleParts = new();
+    private readonly Dictionary<MechDamageSection, Marker3D> m_weaponMounts = new();
     private Aabb m_localBounds;
     private float m_externalCameraYaw;
     private float m_externalCameraDistance;
@@ -357,9 +358,11 @@ public partial class PlayerMech : Node3D
     public void Configure(
         Aabb modelBounds,
         Vector3 torsoPivot,
+        IReadOnlyList<MechWeaponMountDefinition> weaponMounts,
         IReadOnlyList<DebugTriangle> sceneTriangles,
         Func<IReadOnlyList<SceneryObstacle>> sceneryObstacleProvider)
     {
+        ArgumentNullException.ThrowIfNull(weaponMounts);
         ArgumentNullException.ThrowIfNull(sceneryObstacleProvider);
         m_localBounds = modelBounds;
         m_modelBottomY = modelBounds.Position.Y;
@@ -370,6 +373,19 @@ public partial class PlayerMech : Node3D
                 triangle.ResourcePath.StartsWith("POLY/T_", StringComparison.Ordinal))
             .ToArray();
         m_sceneryObstacleProvider = sceneryObstacleProvider;
+        foreach (var definition in weaponMounts)
+        {
+            var mount = new Marker3D
+            {
+                Name = $"WeaponMount{definition.Id}-{definition.Section}",
+                Position = definition.RotatesWithTorso
+                    ? definition.Position - torsoPivot
+                    : definition.Position
+            };
+            (definition.RotatesWithTorso ? Torso : Legs).AddChild(mount);
+            m_weaponMounts[definition.Section] = mount;
+        }
+
         var cockpitHeight = modelBounds.Position.Y + modelBounds.Size.Y - 0.8f;
         var cockpitFront = modelBounds.Position.Z - 0.15f;
         CockpitMount.Position = new Vector3(0.0f, cockpitHeight, cockpitFront) - torsoPivot;
@@ -406,6 +422,19 @@ public partial class PlayerMech : Node3D
             $"Left/Right steer; mouse aims torso; M aligns legs; / centers torso; C toggles follow camera; " +
             $"maximum {Drive.Profile.MaximumForwardSpeedKph:F1} km/h, " +
             $"reverse {Drive.Profile.MaximumForwardSpeedKph * Drive.Profile.ReverseSpeedFactor:F1} km/h).");
+    }
+
+    public bool TryGetWeaponOrigin(MechMountedWeapon weapon, out Vector3 origin)
+    {
+        ArgumentNullException.ThrowIfNull(weapon);
+        if (m_weaponMounts.TryGetValue(weapon.Section, out var mount))
+        {
+            origin = mount.GlobalPosition;
+            return true;
+        }
+
+        origin = default;
+        return false;
     }
 
     public override void _PhysicsProcess(double delta)

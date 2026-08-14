@@ -45,7 +45,7 @@ public partial class EnemyMech : Node3D
     private readonly MechRig m_mechRig;
     private readonly EnemyCombatMovement m_combatMovement;
     private readonly MechDamageModel m_damageModel;
-    private readonly List<Marker3D> m_weaponMounts = new();
+    private readonly List<(Marker3D Marker, MechDamageSection Section)> m_weaponMounts = new();
     private readonly List<(MeshInstance3D Mesh, string PartName)> m_destructibleParts = new();
     private Aabb m_localBounds;
     private float m_modelBottomY;
@@ -208,21 +208,23 @@ public partial class EnemyMech : Node3D
     public void ConfigureVisuals(
         Aabb localBounds,
         Vector3 torsoPivot,
-        IReadOnlyList<Vector3> weaponMountPositions)
+        IReadOnlyList<MechWeaponMountDefinition> weaponMounts)
     {
         m_localBounds = localBounds;
         m_modelBottomY = localBounds.Position.Y;
         m_footprintRadius = Mathf.Max(localBounds.Size.X, localBounds.Size.Z) * 0.35f;
         Torso.Position = torsoPivot;
-        foreach (var position in weaponMountPositions)
+        foreach (var definition in weaponMounts)
         {
             var mount = new Marker3D
             {
-                Name = $"WeaponMount{m_weaponMounts.Count}",
-                Position = position - torsoPivot
+                Name = $"WeaponMount{definition.Id}-{definition.Section}",
+                Position = definition.RotatesWithTorso
+                    ? definition.Position - torsoPivot
+                    : definition.Position
             };
-            Torso.AddChild(mount);
-            m_weaponMounts.Add(mount);
+            (definition.RotatesWithTorso ? Torso : Legs).AddChild(mount);
+            m_weaponMounts.Add((mount, definition.Section));
         }
 
         if (m_weaponMounts.Count == 0)
@@ -233,7 +235,7 @@ public partial class EnemyMech : Node3D
                 Position = new Vector3(localBounds.Size.X * 0.45f, localBounds.Size.Y * 0.65f, -localBounds.Size.Z * 0.45f)
             };
             Torso.AddChild(fallback);
-            m_weaponMounts.Add(fallback);
+            m_weaponMounts.Add((fallback, MechDamageSection.CenterTorso));
         }
     }
 
@@ -419,7 +421,7 @@ public partial class EnemyMech : Node3D
 
         var mount = availableMounts[m_nextWeaponMount % availableMounts.Length];
         m_nextWeaponMount++;
-        var start = mount.GlobalPosition;
+        var start = mount.Marker.GlobalPosition;
         var aimedEnd = m_playerMech.WorldBounds.GetCenter();
         var aimDirection = start.DirectionTo(aimedEnd);
         var end = m_playerMech.TryRaycastSections(start, aimDirection, out var playerHit)
@@ -537,16 +539,8 @@ public partial class EnemyMech : Node3D
         }
     }
 
-    private bool IsWeaponMountOperational(Marker3D mount)
-    {
-        if (mount.Position.X < -0.1f && m_damageModel.IsSectionDestroyed(MechDamageSection.LeftArm))
-        {
-            return false;
-        }
-
-        return mount.Position.X <= 0.1f ||
-               !m_damageModel.IsSectionDestroyed(MechDamageSection.RightArm);
-    }
+    private bool IsWeaponMountOperational((Marker3D Marker, MechDamageSection Section) mount) =>
+        !m_damageModel.IsSectionDestroyed(mount.Section);
 
     private void DetachSection(MechDamageSection section, Vector3 hitPosition)
     {

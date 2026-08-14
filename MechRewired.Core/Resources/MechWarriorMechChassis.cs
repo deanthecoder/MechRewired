@@ -223,4 +223,21 @@ public sealed class MechWarriorMechChassis
 /// <summary>
 /// Associates a weapon firing-point identifier with its chassis object marker.
 /// </summary>
-public sealed record MechWarriorPointOfFire(int ObjectId, int Id);
+public sealed record MechWarriorPointOfFire(int ObjectId, int Id)
+{
+    /// <summary>
+    /// The chassis damage section whose authored weapon muzzle this marker represents.
+    /// </summary>
+    public MechDamageSection Section => Id switch
+    {
+        0 => MechDamageSection.Head,
+        1 => MechDamageSection.RightTorso,
+        2 => MechDamageSection.CenterTorso,
+        3 => MechDamageSection.LeftTorso,
+        4 => MechDamageSection.RightArm,
+        5 => MechDamageSection.LeftArm,
+        6 => MechDamageSection.RightLeg,
+        7 => MechDamageSection.LeftLeg,
+        _ => throw new InvalidDataException($"Mech chassis POFO identifier {Id} is outside the supported range 0-7.")
+    };
+}

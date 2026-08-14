@@ -601,6 +601,11 @@ public partial class PlayerTargeting : Node
                          basis.Y * (Mathf.Sin(angle) * radius);
         }
 
+        if (m_playerMech.TryGetWeaponOrigin(weapon, out var authoredOrigin))
+        {
+            return authoredOrigin + rackOffset;
+        }
+
         return m_playerMech.CockpitMount.GlobalPosition +
                basis.X * (side * 2.65f) +
                basis.Y * 0.42f -

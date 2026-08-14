@@ -46,6 +46,7 @@ public sealed class MechWarriorMechChassisTests
         Assert.That(chassis.Objects.Select(worldObject => worldObject.Id), Does.Not.Contain(2));
         Assert.That(chassis.ThingObjectIds, Is.EqualTo(new[] { 1 }));
         Assert.That(chassis.PointsOfFire, Is.EqualTo(new[] { new MechWarriorPointOfFire(1, 7) }));
+        Assert.That(chassis.PointsOfFire[0].Section, Is.EqualTo(MechDamageSection.LeftLeg));
         Assert.That(
             chassis.DamageSectionsByObjectId,
             Is.EqualTo(new Dictionary<int, MechDamageSection>
