@@ -37,15 +37,10 @@ public partial class Main : Node3D
     private const float MinimumFogDistance = 300.0f;
     private const float MaximumFogDistance = 5000.0f;
     private const float MinimumSceneryObstacleHeight = 5.0f;
-    private const string PalettePath = "PAL/YELL_DA.COL";
-    private const string LevelPath = "BWD/YELLWLD1.BWD";
-    private const string PlanetPath = "BWD/YELLPLT1.BWD";
-    private const string ScenarioPath = "BWD/YELLSCN1.BWD";
-    private const string PlayerStartPath = "BWD/YELLST01.BWD";
+    private const string DefaultScenarioPath = "BWD/YELLSCN1.BWD";
     private const string PlayerMechPath = "MEK/MDG00STD.MEK";
     private const string PlayerChassisPath = "BWD/MADDOG.BWD";
     private const string PlayerChassisName = "Mad Dog";
-    private const string LevelAreaPrefix = "YELLARE";
     private static readonly IReadOnlyDictionary<string, string> DamageShapePrefixes =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -95,7 +90,8 @@ public partial class Main : Node3D
                 out var navigationPoints,
                 out var missionDefinition,
                 out var playerMechDefinition,
-                out var missionGamePieces))
+                out var missionGamePieces,
+                out var missionResources))
         {
             return;
         }
@@ -113,7 +109,8 @@ public partial class Main : Node3D
                 navigationPoints,
                 missionDefinition,
                 playerMechDefinition,
-                missionGamePieces);
+                missionGamePieces,
+                missionResources);
         }
         catch (Exception exception)
         {
@@ -147,7 +144,8 @@ public partial class Main : Node3D
         out IReadOnlyList<MechWarriorMissionNavigationPoint> navigationPoints,
         out MissionDefinition missionDefinition,
         out MechWarriorMechFile playerMechDefinition,
-        out IReadOnlyList<MechWarriorMissionGamePiece> missionGamePieces)
+        out IReadOnlyList<MechWarriorMissionGamePiece> missionGamePieces,
+        out MechWarriorMissionResources missionResources)
     {
         archive = null;
         palette = null;
@@ -160,6 +158,7 @@ public partial class Main : Node3D
         missionDefinition = null;
         playerMechDefinition = null;
         missionGamePieces = null;
+        missionResources = null;
         try
         {
             var projectDirectory = new DirectoryInfo(ProjectSettings.GlobalizePath("res://"));
@@ -172,7 +171,16 @@ public partial class Main : Node3D
                 $"MechRewired: indexed {archive.Entries.Count:N0} resources from {projectArchive.Name} " +
                 $"({projectArchive.Length:N0} bytes).");
 
-            var paletteEntry = archive.GetEntry(PalettePath);
+            var resolvedMissionResources = MechWarriorMissionResources.Load(archive, DefaultScenarioPath);
+            missionResources = resolvedMissionResources;
+            GD.Print(
+                $"MechRewired: resolved mission {missionResources.ScenarioEntry.Path} " +
+                $"(prefix {missionResources.MissionPrefix}; palette {missionResources.PaletteEntry.Path}; " +
+                $"world {missionResources.Level.Entry.Path}; planet {missionResources.Planet.Entry.Path}; " +
+                $"deployment {missionResources.PlayerStart.Entry.Path}; " +
+                $"{missionResources.NavigationPoints.Count} navigation references).");
+
+            var paletteEntry = missionResources.PaletteEntry;
             palette = MechWarriorPalette.Load(archive.ReadEntry(paletteEntry));
             GD.Print($"MechRewired: loaded {paletteEntry.Path} ({palette.Colors.Count} colors).");
 
@@ -198,7 +206,7 @@ public partial class Main : Node3D
                     ? string.Empty
                     : $", unsupported weapon IDs [{string.Join(", ", playerMechDefinition.UnsupportedWeaponIds)}]") +
                 ").");
-            var planetEntry = archive.GetEntry(PlanetPath);
+            var planetEntry = missionResources.Planet.Entry;
             planet = MechWarriorWorldFile.Load(archive.ReadEntry(planetEntry));
             GD.Print(
                 $"MechRewired: loaded {planetEntry.Path} (time {planet.TimeOfDay}; " +
@@ -211,8 +219,10 @@ public partial class Main : Node3D
                 $"MechRewired: loaded {luminosityEntry.Path} " +
                 $"({MechWarriorLuminosityTable.LevelCount} illumination levels).");
 
-            var playerStartEntry = archive.GetEntry(PlayerStartPath);
-            var playerStartWorld = MechWarriorWorldFile.Load(archive.ReadEntry(playerStartEntry));
+            var playerStartEntry = missionResources.PlayerStart.Entry;
+            var playerStartWorld = MechWarriorWorldFile.Load(
+                archive.ReadEntry(playerStartEntry),
+                missionResources.PlayerStart.Include.Transform);
             if (playerStartWorld.NavPoints.Count != 1)
             {
                 throw new InvalidDataException(
@@ -227,10 +237,10 @@ public partial class Main : Node3D
                 $"radius {playerStart.Radius}; action 0x{playerStart.ActionFlags:X4}; " +
                 $"'{playerStart.Description}').");
 
-            var scenarioEntry = archive.GetEntry(ScenarioPath);
-            var scenario = MechWarriorWorldFile.Load(archive.ReadEntry(scenarioEntry));
+            var scenarioEntry = missionResources.ScenarioEntry;
+            var scenario = missionResources.Scenario;
             missionDefinition = LoadMissionDefinition(scenarioEntry, scenario);
-            navigationPoints = LoadMissionNavigationPoints(archive, scenarioEntry, scenario);
+            navigationPoints = LoadMissionNavigationPoints(archive, missionResources);
             missionGamePieces = MechWarriorMissionGamePieceLoader.Load(archive, scenario);
             foreach (var gamePiece in missionGamePieces)
             {
@@ -247,8 +257,8 @@ public partial class Main : Node3D
 
             level = MechWarriorLevel.Load(
                 archive,
-                LevelPath,
-                include => include.Name.StartsWith(LevelAreaPrefix, StringComparison.OrdinalIgnoreCase));
+                missionResources.Level.Entry.Path,
+                include => include.Name.StartsWith(resolvedMissionResources.AreaPrefix, StringComparison.OrdinalIgnoreCase));
             foreach (var source in level.Sources)
             {
                 GD.Print($"MechRewired: loaded {source.Entry.Path} ({source.ObjectCount} objects).");
@@ -271,7 +281,7 @@ public partial class Main : Node3D
             }
 
             GD.Print(
-                $"MechRewired: assembled Pyre Light world ({level.Sources.Count} BWD resources, " +
+                $"MechRewired: assembled {missionResources.MissionPrefix} mission world ({level.Sources.Count} BWD resources, " +
                 $"{level.TerrainObjects.Count} terrain objects, {level.SceneryObjects.Count} scenery objects, " +
                 $"{level.DebrisObjects.Count} debris objects, {level.Actors.Count} actors).");
             return true;
@@ -340,17 +350,15 @@ public partial class Main : Node3D
 
     private static IReadOnlyList<MechWarriorMissionNavigationPoint> LoadMissionNavigationPoints(
         MechWarriorProjectArchive archive,
-        MechWarriorProjectEntry scenarioEntry,
-        MechWarriorWorldFile scenario)
+        MechWarriorMissionResources missionResources)
     {
         var navigationPoints = new List<MechWarriorMissionNavigationPoint>();
-        foreach (var include in scenario.Includes.Where(include =>
-                     include.Name.StartsWith("YELLNAV", StringComparison.OrdinalIgnoreCase)))
+        foreach (var navigationResource in missionResources.NavigationPoints)
         {
-            var navigationEntry = archive.GetEntry("BWD", include.ResourceIndex);
+            var navigationEntry = navigationResource.Entry;
             var navigationWorld = MechWarriorWorldFile.Load(
                 archive.ReadEntry(navigationEntry),
-                include.Transform);
+                navigationResource.Include.Transform);
             if (navigationWorld.NavPoints.Count != 1)
             {
                 throw new InvalidDataException(
@@ -376,11 +384,13 @@ public partial class Main : Node3D
 
         if (navigationPoints.Count == 0)
         {
-            throw new InvalidDataException($"{scenarioEntry.Path} contains no named navigation includes.");
+            throw new InvalidDataException(
+                $"{missionResources.ScenarioEntry.Path} contains no named navigation includes.");
         }
 
         GD.Print(
-            $"MechRewired: loaded {navigationPoints.Count} mission navigation points from {scenarioEntry.Path}.");
+            $"MechRewired: loaded {navigationPoints.Count} mission navigation points from " +
+            $"{missionResources.ScenarioEntry.Path}.");
         return navigationPoints.AsReadOnly();
     }
 
@@ -395,7 +405,8 @@ public partial class Main : Node3D
         IReadOnlyList<MechWarriorMissionNavigationPoint> navigationPoints,
         MissionDefinition missionDefinition,
         MechWarriorMechFile playerMechDefinition,
-        IReadOnlyList<MechWarriorMissionGamePiece> missionGamePieces)
+        IReadOnlyList<MechWarriorMissionGamePiece> missionGamePieces,
+        MechWarriorMissionResources missionResources)
     {
         var skyTopColor = ToGodotColor(palette[SkyTopPaletteIndex]);
         var skyHorizonColor = ToGodotColor(palette[SkyHorizonPaletteIndex]);
@@ -463,7 +474,7 @@ public partial class Main : Node3D
         };
         AddChild(light);
         GD.Print(
-            $"MechRewired: rendered Pyre Light atmosphere (time {planet.TimeOfDay}; " +
+            $"MechRewired: rendered mission atmosphere (time {planet.TimeOfDay}; " +
             $"palette sky {SkyTopPaletteIndex}-{SkyHorizonPaletteIndex}; ambient {ambientEnergy:F2}; " +
             $"directional {directionalEnergy:F2}; " +
             $"sun elevation {sunElevation:F1} degrees at {FallbackSunAzimuthDegrees:F0}-degree " +
@@ -473,7 +484,7 @@ public partial class Main : Node3D
 
         var levelRoot = new Node3D
         {
-            Name = "PyreLight"
+            Name = "MissionWorld"
         };
         AddChild(levelRoot);
 
@@ -762,7 +773,7 @@ public partial class Main : Node3D
         }
 
         GD.Print(
-            $"MechRewired: rendered Pyre Light world ({renderedInstanceCount} instances, " +
+            $"MechRewired: rendered mission world ({renderedInstanceCount} instances, " +
             $"{renderedActorComponentCount} active actor components, {renderedDebrisCount} ground-settled debris objects, " +
             $"{meshCache.Count} unique models; luminosity levels {GeneralIlluminationLevel} terrain / " +
             $"{ObjectIlluminationLevel} objects).");
@@ -775,7 +786,11 @@ public partial class Main : Node3D
             debugTriangles);
         BattlefieldPhysics.AddTerrainCollision(levelRoot, debugTriangles);
         battlefieldEffects.ConfigureTerrain(debugTriangles.AsReadOnly());
-        LoadAmbientEffects(archive, battlefieldEffects, battlefieldEffectSounds.AmbientFire);
+        LoadAmbientEffects(
+            archive,
+            missionResources.Level.Entry.Path,
+            battlefieldEffects,
+            battlefieldEffectSounds.AmbientFire);
         var playerRotation = MechWarriorCoordinateSystem.ToGodotRotation(
             new System.Numerics.Vector3(0.0f, playerStart.StartingAngle, 0.0f));
         var playerBasis = Basis.FromEuler(playerRotation * (Mathf.Pi / 180.0f));
@@ -811,6 +826,7 @@ public partial class Main : Node3D
         extractionAnchor.Y = FindDeploymentSurfaceHeight(debugTriangles, extractionAnchor);
         var missionDropShips = LoadMissionDropShips(
             archive,
+            missionResources.Level.Entry.Path,
             levelRoot,
             palette,
             luminosityTable,
@@ -1325,6 +1341,7 @@ public partial class Main : Node3D
 
     private static IReadOnlyList<MissionDropShipSetPiece> LoadMissionDropShips(
         MechWarriorProjectArchive archive,
+        string levelPath,
         Node3D levelRoot,
         MechWarriorPalette palette,
         MechWarriorLuminosityTable luminosityTable,
@@ -1332,7 +1349,7 @@ public partial class Main : Node3D
         Vector3 extractionAnchor,
         Vector3 deploymentDirection)
     {
-        var levelEntry = archive.GetEntry(LevelPath);
+        var levelEntry = archive.GetEntry(levelPath);
         var levelWorld = MechWarriorWorldFile.Load(archive.ReadEntry(levelEntry));
         var dropShips = new List<MissionDropShipSetPiece>();
         foreach (var include in levelWorld.Includes)
@@ -1551,10 +1568,11 @@ public partial class Main : Node3D
 
     private static void LoadAmbientEffects(
         MechWarriorProjectArchive archive,
+        string levelPath,
         BattlefieldEffects battlefieldEffects,
         IReadOnlyDictionary<string, AudioStreamWav> ambientSounds)
     {
-        var levelEntry = archive.GetEntry(LevelPath);
+        var levelEntry = archive.GetEntry(levelPath);
         var levelWorld = MechWarriorWorldFile.Load(archive.ReadEntry(levelEntry));
         var totalLoadedCount = 0;
         foreach (var include in levelWorld.Includes)
