@@ -935,11 +935,13 @@ public partial class Main : Node3D
             BuildWeaponMounts(playerChassis, playerObjectsById, playerTorsoObjectId),
             debugTriangles.AsReadOnly(),
             () => GetSceneryObstacles(staticSceneryObstacles, battlefieldActors));
+        var playerMission = new PlayerMission(archive, missionDefinition);
+        AddChild(playerMission);
         AddChild(new PlayerDeathSequence(
             playerMech,
             battlefieldEffects,
             playerMechSounds.DeathExplosion,
-            playerMechSounds.MissionFailed));
+            playerMission.Fail));
         battlefieldEffects.ConfigureObserver(playerMech);
         foreach (var battlefieldActor in battlefieldActors)
         {
@@ -968,16 +970,6 @@ public partial class Main : Node3D
             playerMechSounds.NavigationPointTone,
             playerMechSounds.NavigationPointReports);
         AddChild(playerNavigation);
-        var playerMission = new PlayerMission(archive, missionDefinition);
-        AddChild(playerMission);
-        playerMission.MissionCompleted += () =>
-        {
-            playerMech.LockMovementForExtraction();
-            foreach (var dropShip in missionDropShips)
-            {
-                dropShip.BeginExtraction();
-            }
-        };
         playerNavigation.NavigationPointReached += index => playerMission.Apply(new MissionEvent(
             MissionEventKind.NavigationPointReached,
             navigationPoints[index].ResourceName));
@@ -1017,6 +1009,38 @@ public partial class Main : Node3D
             MouseFilter = Control.MouseFilterEnum.Ignore
         };
         hudLayer.AddChild(playerHud);
+        var missionDebrief = new MissionDebrief(playerMission);
+        AddChild(missionDebrief);
+        playerMission.MissionResolved += outcome =>
+        {
+            if (outcome == MissionOutcome.Failed)
+            {
+                missionDebrief.Present(outcome);
+            }
+        };
+        playerMission.MissionCompleted += () =>
+        {
+            playerMech.LockMovementForExtraction();
+            if (missionDropShips.Count == 0)
+            {
+                missionDebrief.Present(MissionOutcome.Successful);
+                return;
+            }
+
+            var landedDropShips = 0;
+            foreach (var dropShip in missionDropShips)
+            {
+                dropShip.ExtractionLanded += () =>
+                {
+                    landedDropShips++;
+                    if (landedDropShips == missionDropShips.Count)
+                    {
+                        missionDebrief.Present(MissionOutcome.Successful);
+                    }
+                };
+                dropShip.BeginExtraction();
+            }
+        };
 
         GD.Print(
             $"MechRewired: deployed PlayerMech {playerChassisName} at MW2 " +
@@ -2099,6 +2123,8 @@ public partial class Main : Node3D
         private bool m_extracting;
         private bool m_active;
 
+        public event Action ExtractionLanded;
+
         public MissionDropShipSetPiece(
             string sourceName,
             Vector3 deploymentAnchor,
@@ -2239,6 +2265,7 @@ public partial class Main : Node3D
             m_engine?.Stop();
             SetEngineFlamesVisible(false);
             GD.Print($"MechRewired: extraction dropship {m_sourceName} landed.");
+            ExtractionLanded?.Invoke();
         }
 
         private void UpdateAnimatedColors(float delta)

@@ -34,9 +34,11 @@ public sealed class MissionRuntime
 
     public MissionDefinition Definition { get; }
 
-    public bool IsComplete => Definition.Objectives
-        .Where(objective => !objective.IsOptional)
-        .All(objective => GetState(objective.Id) == MissionObjectiveState.Completed);
+    public MissionOutcome Outcome { get; private set; }
+
+    public bool IsComplete => Outcome == MissionOutcome.Successful;
+
+    public bool IsResolved => Outcome != MissionOutcome.Active;
 
     public MissionObjectiveState GetState(string objectiveId)
     {
@@ -53,6 +55,11 @@ public sealed class MissionRuntime
     {
         ArgumentNullException.ThrowIfNull(missionEvent);
         ArgumentException.ThrowIfNullOrWhiteSpace(missionEvent.TargetResourceName);
+        if (IsResolved)
+        {
+            return Array.Empty<MissionObjectiveTransition>();
+        }
+
         var transitions = new List<MissionObjectiveTransition>();
         foreach (var objective in Definition.Objectives.Where(objective =>
                      GetState(objective.Id) == MissionObjectiveState.Active &&
@@ -77,7 +84,26 @@ public sealed class MissionRuntime
                 MissionObjectiveState.Active));
         }
 
+        if (Definition.Objectives
+            .Where(objective => !objective.IsOptional)
+            .All(objective => GetState(objective.Id) == MissionObjectiveState.Completed))
+        {
+            Outcome = MissionOutcome.Successful;
+        }
+
         return transitions.AsReadOnly();
+    }
+
+    /// <summary>Fails this attempt without changing the decoded objective definition.</summary>
+    public bool Fail()
+    {
+        if (IsResolved)
+        {
+            return false;
+        }
+
+        Outcome = MissionOutcome.Failed;
+        return true;
     }
 
     private static bool IsSatisfiedBy(MissionObjectiveDefinition objective, MissionEvent missionEvent)

@@ -54,6 +54,28 @@ public sealed class MissionRuntimeTests
             Assert.That(extractTransitions.Select(transition => transition.Objective.Id),
                 Is.EqualTo(new[] { extract.Id }));
             Assert.That(runtime.IsComplete, Is.True);
+            Assert.That(runtime.Outcome, Is.EqualTo(MissionOutcome.Successful));
+        });
+    }
+
+    [Test]
+    public void FailureResolvesTheAttemptAndIgnoresLaterEvents()
+    {
+        var definition = CreateDefinition();
+        var runtime = new MissionRuntime(definition);
+
+        var failed = runtime.Fail();
+        var transitions = runtime.Apply(new MissionEvent(
+            MissionEventKind.TargetDestroyed,
+            "YELLARE6"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(failed, Is.True);
+            Assert.That(runtime.Outcome, Is.EqualTo(MissionOutcome.Failed));
+            Assert.That(transitions, Is.Empty);
+            Assert.That(runtime.GetState(definition.Objectives[0].Id), Is.EqualTo(MissionObjectiveState.Active));
+            Assert.That(runtime.Fail(), Is.False);
         });
     }
 

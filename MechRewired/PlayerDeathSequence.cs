@@ -21,7 +21,7 @@ public partial class PlayerDeathSequence : Node
     private readonly PlayerMech m_playerMech;
     private readonly BattlefieldEffects m_battlefieldEffects;
     private readonly AudioStreamWav m_deathExplosion;
-    private readonly AudioStreamPlayer m_missionFailed;
+    private readonly Func<bool> m_failMission;
     private readonly ColorRect m_fade;
     private PlayerDeathTimeline m_timeline;
     private float m_orbitRadius;
@@ -29,25 +29,18 @@ public partial class PlayerDeathSequence : Node
     private float m_startingHeight;
     private bool m_active;
     private bool m_restartRequested;
-    private bool m_missionFailedPlayed;
 
     public PlayerDeathSequence(
         PlayerMech playerMech,
         BattlefieldEffects battlefieldEffects,
         AudioStreamWav deathExplosion,
-        AudioStreamWav missionFailed)
+        Func<bool> failMission)
     {
         m_playerMech = playerMech ?? throw new ArgumentNullException(nameof(playerMech));
         m_battlefieldEffects = battlefieldEffects ?? throw new ArgumentNullException(nameof(battlefieldEffects));
         m_deathExplosion = deathExplosion ?? throw new ArgumentNullException(nameof(deathExplosion));
-        ArgumentNullException.ThrowIfNull(missionFailed);
+        m_failMission = failMission ?? throw new ArgumentNullException(nameof(failMission));
         Name = "PlayerDeathSequence";
-        m_missionFailed = new AudioStreamPlayer
-        {
-            Name = "MissionFailedReport",
-            Stream = missionFailed
-        };
-        AddChild(m_missionFailed);
         var fadeLayer = new CanvasLayer
         {
             Name = "DeathFadeLayer",
@@ -88,12 +81,6 @@ public partial class PlayerDeathSequence : Node
             Mathf.Cos(angle) * m_orbitRadius);
         camera.LookAt(target);
         m_fade.Color = new Color(0.0f, 0.0f, 0.0f, (float)frame.FadeOpacity);
-        if (!m_missionFailedPlayed && frame.FadeOpacity > 0.0)
-        {
-            m_missionFailedPlayed = true;
-            m_missionFailed.Play();
-        }
-
         if (!frame.ShouldRestart)
         {
             return;
@@ -111,6 +98,11 @@ public partial class PlayerDeathSequence : Node
     private void Begin()
     {
         if (m_active)
+        {
+            return;
+        }
+
+        if (!m_failMission())
         {
             return;
         }

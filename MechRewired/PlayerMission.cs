@@ -29,6 +29,7 @@ public partial class PlayerMission : Node
     private readonly IReadOnlyDictionary<string, AudioStreamWav> m_completionReports;
     private readonly IReadOnlyList<AudioStreamWav> m_extractionReadyReports;
     private readonly AudioStreamWav m_successReport;
+    private readonly AudioStreamWav m_failureReport;
     private readonly AudioStreamPlayer m_reportPlayer;
     private readonly Queue<AudioStreamWav> m_reportQueue = new();
     private bool m_completionReported;
@@ -45,6 +46,10 @@ public partial class PlayerMission : Node
             archive,
             definition.SuccessReport,
             "mission success report");
+        m_failureReport = LoadReport(
+            archive,
+            definition.FailureReport,
+            "mission failure report");
         m_extractionReadyReports =
         [
             PlayerMechSounds.LoadResource(
@@ -107,6 +112,7 @@ public partial class PlayerMission : Node
             m_statusMessageRemaining = StatusMessageSeconds;
             GD.Print("MechRewired: all required mission objectives complete.");
             MissionCompleted?.Invoke();
+            MissionResolved?.Invoke(MissionOutcome.Successful);
             if (m_successReport != null)
             {
                 var timer = GetTree().CreateTimer(SuccessReportDelaySeconds);
@@ -120,10 +126,35 @@ public partial class PlayerMission : Node
 
     public string StatusMessage { get; private set; } = string.Empty;
 
+    public MissionOutcome Outcome => m_runtime.Outcome;
+
+    public IReadOnlyList<MissionObjectiveDefinition> Objectives => m_runtime.Definition.Objectives;
+
     /// <summary>
     /// Raised once when all required data-driven mission objectives complete.
     /// </summary>
     public event Action MissionCompleted;
+
+    /// <summary>Raised once after either the decoded objectives succeed or the player attempt fails.</summary>
+    public event Action<MissionOutcome> MissionResolved;
+
+    /// <summary>Fails the current attempt and plays its archive-authored failure report where present.</summary>
+    public bool Fail()
+    {
+        if (!m_runtime.Fail())
+        {
+            return false;
+        }
+
+        StatusMessage = "MISSION FAILED";
+        m_statusMessageRemaining = StatusMessageSeconds;
+        GD.Print("MechRewired: mission failed before all required objectives completed.");
+        QueueReport(m_failureReport);
+        MissionResolved?.Invoke(MissionOutcome.Failed);
+        return true;
+    }
+
+    public MissionObjectiveState GetState(string objectiveId) => m_runtime.GetState(objectiveId);
 
     public bool IsActiveObjectiveTarget(BattlefieldActor actor)
     {
