@@ -25,7 +25,7 @@ namespace MechRewired.Tests.Missions;
 public sealed class MissionRuntimeTests
 {
     [Test]
-    public void RequiredObjectivesActivateInTableOrder()
+    public void PrimaryObjectivesActivateTogetherAndGateExtraction()
     {
         var definition = CreateDefinition();
         var runtime = new MissionRuntime(definition);
@@ -45,8 +45,10 @@ public sealed class MissionRuntimeTests
 
         Assert.Multiple(() =>
         {
+            Assert.That(runtime.GetState(destroy.Id), Is.EqualTo(MissionObjectiveState.Completed));
+            Assert.That(runtime.GetState(inspect.Id), Is.EqualTo(MissionObjectiveState.Completed));
             Assert.That(destroyTransitions.Select(transition => transition.Objective.Id),
-                Is.EqualTo(new[] { destroy.Id, inspect.Id }));
+                Is.EqualTo(new[] { destroy.Id }));
             Assert.That(inspectTransitions.Select(transition => transition.Objective.Id),
                 Is.EqualTo(new[] { inspect.Id, extract.Id }));
             Assert.That(extractTransitions.Select(transition => transition.Objective.Id),
@@ -56,7 +58,7 @@ public sealed class MissionRuntimeTests
     }
 
     [Test]
-    public void LockedObjectiveIgnoresEarlyMatchingEvent()
+    public void PrimaryObjectiveCompletesInAnyOrder()
     {
         var definition = CreateDefinition();
         var runtime = new MissionRuntime(definition);
@@ -67,8 +69,10 @@ public sealed class MissionRuntimeTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(transitions, Is.Empty);
-            Assert.That(runtime.GetState(definition.Objectives[1].Id), Is.EqualTo(MissionObjectiveState.Locked));
+            Assert.That(transitions.Select(transition => transition.Objective.Id),
+                Is.EqualTo(new[] { definition.Objectives[1].Id }));
+            Assert.That(runtime.GetState(definition.Objectives[1].Id), Is.EqualTo(MissionObjectiveState.Completed));
+            Assert.That(runtime.GetState(definition.Objectives[2].Id), Is.EqualTo(MissionObjectiveState.Locked));
         });
     }
 

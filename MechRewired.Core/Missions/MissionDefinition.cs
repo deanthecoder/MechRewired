@@ -51,7 +51,7 @@ public sealed class MissionDefinition
     {
         ArgumentNullException.ThrowIfNull(table);
         var objectives = new List<MissionObjectiveDefinition>();
-        string previousRequiredId = null;
+        var requiredNonExtractionIds = new List<string>();
         foreach (var entry in table.Entries)
         {
             if (string.IsNullOrWhiteSpace(entry.Description) ||
@@ -64,9 +64,9 @@ public sealed class MissionDefinition
 
             var id = $"mtbl-{table.Index}-{entry.Index}";
             IReadOnlyList<string> prerequisites = Array.Empty<string>();
-            if (!isOptional && previousRequiredId != null)
+            if (!isOptional && kind == MissionObjectiveKind.Extract)
             {
-                prerequisites = new[] { previousRequiredId };
+                prerequisites = requiredNonExtractionIds.ToArray();
             }
 
             objectives.Add(new MissionObjectiveDefinition(
@@ -77,9 +77,9 @@ public sealed class MissionDefinition
                 isOptional,
                 prerequisites,
                 entry.SuccessReport));
-            if (!isOptional)
+            if (!isOptional && kind != MissionObjectiveKind.Extract)
             {
-                previousRequiredId = id;
+                requiredNonExtractionIds.Add(id);
             }
         }
 
