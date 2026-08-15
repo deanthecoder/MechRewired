@@ -617,7 +617,23 @@ public partial class Main : Node3D
                         Position = locatorPosition
                     };
                     locator.AddChild(CreateAnimatedLocatorLight(colors));
-                    levelRoot.AddChild(locator);
+                    if (TryFindOwningActor(
+                            actorComponents,
+                            levelObject,
+                            out var locatorActor,
+                            out var destroyedWithActor))
+                    {
+                        locatorActor.AddRepresentation(locator, destroyedWithActor);
+                        GD.Print(
+                            $"MechRewired: attached map-authored colour locator " +
+                            $"{levelObject.SourceEntry.Path} object {levelObject.Id} to " +
+                            $"{locatorActor.Description} ({(destroyedWithActor ? "wreckage" : "active")} representation)."
+                        );
+                    }
+                    else
+                    {
+                        levelRoot.AddChild(locator);
+                    }
                     GD.Print(
                         $"MechRewired: rendered map-authored colour locator {levelObject.SourceEntry.Path} " +
                         $"object {levelObject.Id} ({levelObject.ModelEntry.Name}; {colors.Length} frames).");
@@ -1481,6 +1497,29 @@ public partial class Main : Node3D
                 material.CullMode = BaseMaterial3D.CullModeEnum.Disabled;
             }
         }
+    }
+
+    private static bool TryFindOwningActor(
+        IReadOnlyDictionary<(string SourcePath, int ObjectId), (BattlefieldActor Actor, bool Destroyed)> actorComponents,
+        MechWarriorLevelObject levelObject,
+        out BattlefieldActor actor,
+        out bool destroyed)
+    {
+        if (actorComponents.TryGetValue(
+                (levelObject.SourceEntry.Path, levelObject.Id),
+                out var directComponent) ||
+            levelObject.RelativeToId >= 0 && actorComponents.TryGetValue(
+                (levelObject.SourceEntry.Path, levelObject.RelativeToId),
+                out directComponent))
+        {
+            actor = directComponent.Actor;
+            destroyed = directComponent.Destroyed;
+            return true;
+        }
+
+        actor = null;
+        destroyed = false;
+        return false;
     }
 
     private static IReadOnlyDictionary<int, Color[]> LoadDropShipColorTasks(
