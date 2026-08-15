@@ -305,7 +305,7 @@ public partial class Main : Node3D
             Weapon(2602, MechDamageSection.RightTorso),
             Weapon(1, MechDamageSection.LeftTorso),
             Weapon(2, MechDamageSection.RightTorso)
-        ], 1);
+        ]);
     }
 
     private static MissionDefinition LoadMissionDefinition(
@@ -957,7 +957,7 @@ public partial class Main : Node3D
             materialImages,
             missionGamePieces,
             playerMech,
-            playerMechSounds.MediumLaser,
+            playerMechSounds.WeaponFireSounds,
             battlefieldEffects,
             () => GetSceneryObstacles(staticSceneryObstacles, battlefieldActors),
             debugTriangles.AsReadOnly());
@@ -1056,7 +1056,7 @@ public partial class Main : Node3D
         Dictionary<byte, MechWarriorIndexedImage> materialImages,
         IReadOnlyList<MechWarriorMissionGamePiece> missionGamePieces,
         PlayerMech playerMech,
-        AudioStreamWav laserSound,
+        IReadOnlyDictionary<string, AudioStreamWav> weaponSounds,
         BattlefieldEffects battlefieldEffects,
         Func<IReadOnlyList<SceneryObstacle>> sceneryObstacleProvider,
         IReadOnlyList<DebugTriangle> debugTriangles)
@@ -1084,7 +1084,7 @@ public partial class Main : Node3D
                 mechDefinition,
                 playerMech,
                 battlefieldEffects,
-                laserSound,
+                weaponSounds,
                 damageSilhouette,
                 position => FindDeploymentSurfaceHeight(debugTriangles, position),
                 sceneryObstacleProvider,
@@ -1211,12 +1211,13 @@ public partial class Main : Node3D
                 $"{gamePiece.ConfigurationEntry.Name} at rendered ({enemy.Position.X:F2}, {enemy.Position.Y:F2}, " +
                 $"{enemy.Position.Z:F2}); {renderedParts} parts, {renderedPolygons} polygons, " +
                 $"{animatedGaitParts} articulated gait parts, {weaponMounts.Length} firing points, " +
-                $"{enemy.Health} whole-mech health, {mechDefinition.CruisingSpeedKph:F1} km/h tactical speed.");
+                $"weapons [{enemy.WeaponLoadout}], {enemy.Health} whole-mech health, " +
+                $"{mechDefinition.CruisingSpeedKph:F1} km/h tactical speed.");
         }
 
         GD.Print(
             $"MechRewired: hostile force deployed dormant ({enemies.Count} data-driven mechs; " +
-            "GPS acquire ranges, sensor cone/line of sight, chassis/torso tracking, MEK movement, medium lasers; " +
+            "GPS acquire ranges, sensor cone/line of sight, chassis/torso tracking, MEK movement and weapons; " +
             "shared procedural gait).");
         return enemies.AsReadOnly();
     }

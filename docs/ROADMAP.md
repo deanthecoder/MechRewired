@@ -18,13 +18,13 @@ This phase is complete when a recognizable original battlefield can be explored 
 
 - Prevent the player mech walking through scenery and mission actors. — transformed vertical-wall triangle collision implemented; vertical clearance and sliding refinements remain
 - Decode the original `MW2MECH.CPI`/`VWSP` cockpit and view definitions, then replace or validate the procedural cockpit frame against them. - Not a priority.
-- Implement heat and shutdown/override behavior using the decoded loadout data. — heat threshold, warning, manual shutdown/restart and override implemented; ammunition depletion remains
+- Implement heat and shutdown/override behavior using the decoded loadout data. — heat threshold, warning, manual shutdown/restart and override, plus per-weapon MEK ammo-bin depletion, are implemented
 
 This phase is complete when the player can pilot one mech around the battlefield and destroy a stationary target.
 
 ## 3. Original mission gameplay
 
-- Apply decoded MEK weapon loadouts to enemy mechs; the player weapon table and Pyre Light Mad Dog lasers, machine guns and LRM launchers are implemented.
+- Apply decoded MEK weapon loadouts to enemy mechs; player and hostile weapons now use their authored damage, range, recycle, ammunition and section availability.
 - Assemble the player mech from its authored chassis BWD hierarchy and map decoded MEK weapons to its `POFO` firing-point markers, replacing the current cockpit-relative laser origins so cockpit and external views share the correct barrel and missile-rack exits.
 - Replace the current Pyre Light-specific resource constants with a scenario-driven mission definition that resolves the planet, battlefield, deployment, NAV sequence, enemy groups and music from the original data.
 - Decode the remaining mission metadata (`MTBL`, `TSK` and `AFFL`) and compare Pyre Light with structurally different missions before settling the runtime model. — MTBL fixed records and Pyre Light trigger/goal flags decoded; comparison, TSK and AFFL remain

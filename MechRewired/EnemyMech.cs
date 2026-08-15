@@ -15,11 +15,11 @@ using MechRewired.Simulation;
 namespace MechRewired;
 
 /// <summary>
-/// Runs the first data-driven hostile mech combat slice.
+/// Runs a data-driven hostile mech using its authored MEK weapons, ammunition, and armour sections.
 /// </summary>
 /// <remarks>
-/// Original GPS ranges, spawn data, chassis hierarchy and MEK movement data drive the actor. Detailed armor,
-/// weapon loadouts, formations and navigation can be layered on without changing mission spawning.
+/// Original GPS ranges, spawn data, chassis hierarchy, weapon loadout, ammunition and MEK movement data drive
+/// the actor. Detailed formations and navigation can be layered on without changing mission spawning.
 /// </remarks>
 public partial class EnemyMech : Node3D
 {
@@ -30,7 +30,8 @@ public partial class EnemyMech : Node3D
     private const float SensorIntervalSeconds = 0.2f;
     private const float TargetMemorySeconds = 4.0f;
     private const float InitialSensorHalfAngleDegrees = 70.0f;
-    private const int LaserDamage = 5;
+    private const float FireDecisionIntervalSeconds = 0.35f;
+    private const int MissilePoolSize = 24;
 
     private readonly PlayerMech m_playerMech;
     private readonly BattlefieldEffects m_battlefieldEffects;
@@ -40,21 +41,23 @@ public partial class EnemyMech : Node3D
     private readonly float m_maximumSpeedMetersPerSecond;
     private readonly float m_acquisitionRange;
     private readonly float m_weaponRange;
-    private readonly float m_fireInterval;
-    private readonly AudioStreamPlayer3D m_laserSound;
+    private readonly IReadOnlyDictionary<string, AudioStreamWav> m_weaponSounds;
+    private readonly AudioStreamPlayer3D m_weaponSound;
     private readonly MechRig m_mechRig;
     private readonly EnemyCombatMovement m_combatMovement;
     private readonly MechDamageModel m_damageModel;
-    private readonly List<(Marker3D Marker, MechDamageSection Section)> m_weaponMounts = new();
+    private readonly List<EnemyWeapon> m_weapons = new();
+    private readonly List<MissileEffect> m_missilePool = new();
+    private readonly List<PendingMissile> m_pendingMissiles = new();
     private readonly List<(MeshInstance3D Mesh, string PartName)> m_destructibleParts = new();
     private Aabb m_localBounds;
     private float m_modelBottomY;
     private float m_footprintRadius;
-    private float m_fireCooldown;
+    private float m_fireDecisionCooldown;
     private float m_sensorCooldown;
     private float m_movementBlockedLogCooldown;
     private float m_targetMemoryRemaining;
-    private int m_nextWeaponMount;
+    private int m_nextWeapon;
     private bool m_acquired;
     private bool m_hasLineOfSight;
     private bool m_hasGaitSample;
@@ -68,7 +71,7 @@ public partial class EnemyMech : Node3D
         MechWarriorMechFile mechDefinition,
         PlayerMech playerMech,
         BattlefieldEffects battlefieldEffects,
-        AudioStreamWav laserSound,
+        IReadOnlyDictionary<string, AudioStreamWav> weaponSounds,
         MechDamageSilhouette damageSilhouette,
         Func<Vector3, float> surfaceHeightProvider,
         Func<IReadOnlyList<SceneryObstacle>> sceneryObstacleProvider,
@@ -78,7 +81,7 @@ public partial class EnemyMech : Node3D
         ArgumentNullException.ThrowIfNull(mechDefinition);
         ArgumentNullException.ThrowIfNull(playerMech);
         ArgumentNullException.ThrowIfNull(battlefieldEffects);
-        ArgumentNullException.ThrowIfNull(laserSound);
+        ArgumentNullException.ThrowIfNull(weaponSounds);
         ArgumentNullException.ThrowIfNull(damageSilhouette);
         ArgumentNullException.ThrowIfNull(surfaceHeightProvider);
         ArgumentNullException.ThrowIfNull(sceneryObstacleProvider);
@@ -92,6 +95,7 @@ public partial class EnemyMech : Node3D
         m_surfaceHeightProvider = surfaceHeightProvider;
         m_sceneryObstacleProvider = sceneryObstacleProvider;
         m_sceneTriangles = sceneTriangles;
+        m_weaponSounds = weaponSounds;
         Name = $"Enemy-{definition.Specification.DisplayName}-{definition.Specification.GroupId}";
         m_damageModel = new MechDamageModel(mechDefinition.Sections);
         // Combat manoeuvres use the authored walking/cruising speed. Running is reserved for later pursuit states.
@@ -100,7 +104,6 @@ public partial class EnemyMech : Node3D
         m_acquisitionRange = Math.Max(
             m_weaponRange,
             Math.Max(definition.Specification.SleepRange, definition.Specification.RubberbandRange));
-        m_fireInterval = Mathf.Clamp(2.8f - definition.Specification.GunnerySkill * 0.12f, 1.35f, 2.8f);
         m_combatMovement = new EnemyCombatMovement(m_weaponRange, definition.Specification.GroupId);
 
         Legs = new Node3D { Name = "Legs" };
@@ -109,16 +112,15 @@ public partial class EnemyMech : Node3D
         AddChild(Torso);
         m_mechRig = new MechRig { Name = "MechRig" };
         AddChild(m_mechRig);
-        m_laserSound = new AudioStreamPlayer3D
+        m_weaponSound = new AudioStreamPlayer3D
         {
-            Name = "LaserSound",
-            Stream = laserSound,
+            Name = "WeaponSound",
             MaxDistance = 1200.0f,
             UnitSize = 18.0f,
-            MaxPolyphony = 4,
+            MaxPolyphony = 16,
             VolumeDb = -1.0f
         };
-        AddChild(m_laserSound);
+        AddChild(m_weaponSound);
     }
 
     public MechWarriorMissionGamePiece Definition { get; }
@@ -136,6 +138,12 @@ public partial class EnemyMech : Node3D
     public int Health => m_damageModel.Health;
 
     public int MaximumHealth => m_damageModel.MaximumHealth;
+
+    public string WeaponLoadout => string.Join(
+        ", ",
+        m_weapons.Select(weapon =>
+            weapon.Definition.SourceId + ":" + weapon.Definition.Specification.HudName +
+            (weapon.Ammo >= 0 ? " " + weapon.Ammo : string.Empty)));
 
     public bool IsDestroyed { get; private set; }
 
@@ -214,6 +222,7 @@ public partial class EnemyMech : Node3D
         m_modelBottomY = localBounds.Position.Y;
         m_footprintRadius = Mathf.Max(localBounds.Size.X, localBounds.Size.Z) * 0.35f;
         Torso.Position = torsoPivot;
+        var mountsBySection = new Dictionary<MechDamageSection, List<Marker3D>>();
         foreach (var definition in weaponMounts)
         {
             var mount = new Marker3D
@@ -224,18 +233,43 @@ public partial class EnemyMech : Node3D
                     : definition.Position
             };
             (definition.RotatesWithTorso ? Torso : Legs).AddChild(mount);
-            m_weaponMounts.Add((mount, definition.Section));
+            if (!mountsBySection.TryGetValue(definition.Section, out var mounts))
+            {
+                mounts = [];
+                mountsBySection.Add(definition.Section, mounts);
+            }
+
+            mounts.Add(mount);
         }
 
-        if (m_weaponMounts.Count == 0)
+        Marker3D fallback = null;
+        if (mountsBySection.Count == 0)
         {
-            var fallback = new Marker3D
+            fallback = new Marker3D
             {
                 Name = "FallbackWeaponMount",
                 Position = new Vector3(localBounds.Size.X * 0.45f, localBounds.Size.Y * 0.65f, -localBounds.Size.Z * 0.45f)
             };
             Torso.AddChild(fallback);
-            m_weaponMounts.Add((fallback, MechDamageSection.CenterTorso));
+        }
+
+        var nextMountBySection = new Dictionary<MechDamageSection, int>();
+        foreach (var weapon in MechDefinition.Weapons)
+        {
+            var mount = fallback ?? GetNextMount(weapon.Section, mountsBySection, nextMountBySection);
+            if (mount == null)
+            {
+                GD.PushWarning(
+                    $"MechRewired: {Description} has no POFO marker for {weapon.Specification.HudName} " +
+                    $"and will not fire that mount.");
+                continue;
+            }
+
+            var ammo = weapon.Specification.UsesAmmo
+                ? MechDefinition.AmmoBins.Count(bin => bin.AssociatedWeaponId == weapon.SourceId) *
+                  weapon.Specification.AmmoPerBin
+                : -1;
+            m_weapons.Add(new EnemyWeapon(weapon, mount, ammo));
         }
     }
 
@@ -248,9 +282,15 @@ public partial class EnemyMech : Node3D
 
         var elapsed = (float)delta;
         UpdateGait(elapsed);
-        m_fireCooldown = Math.Max(0.0f, m_fireCooldown - elapsed);
+        m_fireDecisionCooldown = Math.Max(0.0f, m_fireDecisionCooldown - elapsed);
         m_sensorCooldown = Math.Max(0.0f, m_sensorCooldown - elapsed);
         m_movementBlockedLogCooldown = Math.Max(0.0f, m_movementBlockedLogCooldown - elapsed);
+        foreach (var weapon in m_weapons)
+        {
+            weapon.Cooldown = Math.Max(0.0f, weapon.Cooldown - elapsed);
+        }
+
+        UpdatePendingMissiles(elapsed);
         var playerTargetPosition = m_playerMech.TargetPosition;
         var playerOffset = playerTargetPosition - TargetPosition;
         var playerPlanarOffset = new Vector3(playerOffset.X, 0.0f, playerOffset.Z);
@@ -352,12 +392,11 @@ public partial class EnemyMech : Node3D
         var playerYaw = Mathf.Atan2(-playerPlanarOffset.X, -playerPlanarOffset.Z);
         var aimYaw = Mathf.Abs(Mathf.AngleDifference(Torso.GlobalRotation.Y, playerYaw));
         if (m_hasLineOfSight &&
-            playerDistance <= m_weaponRange &&
             aimYaw <= Mathf.DegToRad(12.0f) &&
-            m_fireCooldown <= 0.0f)
+            m_fireDecisionCooldown <= 0.0f &&
+            TryFireNextWeapon(playerDistance))
         {
-            FireLaser();
-            m_fireCooldown = m_fireInterval;
+            m_fireDecisionCooldown = FireDecisionIntervalSeconds;
         }
     }
 
@@ -375,7 +414,7 @@ public partial class EnemyMech : Node3D
         var result = m_damageModel.ApplyDamage(section, damage, fromRear);
         m_combatMovement.NotifyDamage();
         GD.Print(
-            $"MechRewired: laser hit {Description} ({Definition.Specification.ConfigurationName}) " +
+            $"MechRewired: weapon hit {Description} ({Definition.Specification.ConfigurationName}) " +
             $"{section}{(result.RearArmorHit ? " rear" : string.Empty)} for {damage} damage " +
             $"({Health}/{MaximumHealth} aggregate; " +
             $"{m_damageModel.GetRemaining(section).InternalStructure}/" +
@@ -411,17 +450,32 @@ public partial class EnemyMech : Node3D
         Destroyed?.Invoke(this);
     }
 
-    private void FireLaser()
+    private bool TryFireNextWeapon(float playerDistance)
     {
-        var availableMounts = m_weaponMounts.Where(IsWeaponMountOperational).ToArray();
-        if (availableMounts.Length == 0)
+        if (m_weapons.Count == 0)
         {
-            return;
+            return false;
         }
 
-        var mount = availableMounts[m_nextWeaponMount % availableMounts.Length];
-        m_nextWeaponMount++;
-        var start = mount.Marker.GlobalPosition;
+        for (var offset = 0; offset < m_weapons.Count; offset++)
+        {
+            var index = (m_nextWeapon + offset) % m_weapons.Count;
+            var weapon = m_weapons[index];
+            if (!IsWeaponOperational(weapon) || playerDistance > weapon.Definition.Specification.RangeMeters)
+            {
+                continue;
+            }
+
+            m_nextWeapon = (index + 1) % m_weapons.Count;
+            return FireWeapon(weapon);
+        }
+
+        return false;
+    }
+
+    private bool FireWeapon(EnemyWeapon weapon)
+    {
+        var start = weapon.Mount.GlobalPosition;
         var aimedEnd = m_playerMech.WorldBounds.GetCenter();
         var aimDirection = start.DirectionTo(aimedEnd);
         var end = m_playerMech.TryRaycastSections(start, aimDirection, out var playerHit)
@@ -429,19 +483,162 @@ public partial class EnemyMech : Node3D
             : aimedEnd;
         if (!HasLineOfSight(start, end))
         {
+            return false;
+        }
+
+        if (!TryConsumeAmmunition(weapon))
+        {
+            return false;
+        }
+
+        weapon.Cooldown = (float)weapon.Definition.Specification.RecycleSeconds;
+        PlayWeaponSound(weapon.Definition.Specification.SoundResourceName, start);
+        switch (weapon.Definition.Specification.Kind)
+        {
+            case MechWeaponKind.Laser:
+            case MechWeaponKind.PulseLaser:
+                FireLaserWeapon(weapon, start, end);
+                break;
+
+            case MechWeaponKind.Ballistic:
+                FireBallisticWeapon(weapon, start, end);
+                break;
+
+            case MechWeaponKind.Missile:
+                QueueMissileSalvo(weapon, start);
+                break;
+
+            default:
+                throw new ArgumentOutOfRangeException();
+        }
+
+        if (weapon.Definition.Specification.Kind != MechWeaponKind.Missile)
+        {
+            ApplyWeaponDamage(weapon.Definition, end, playerHit);
+        }
+
+        GD.Print(
+            $"MechRewired: {Description} fired {weapon.Definition.Specification.Name} " +
+            $"instance {weapon.Definition.SourceId}" +
+            (weapon.Ammo >= 0 ? $"; ammo {weapon.Ammo}." : "."));
+        return true;
+    }
+
+    private void FireLaserWeapon(EnemyWeapon weapon, Vector3 start, Vector3 end)
+    {
+        var specification = weapon.Definition.Specification;
+        var pulseCount = specification.Kind == MechWeaponKind.PulseLaser
+            ? specification.ProjectilesPerShot
+            : 1;
+        var basis = Torso.GlobalBasis.Orthonormalized();
+        var color = ColorFromRgb(specification.BeamColorRgb);
+        for (var pulse = 0; pulse < pulseCount; pulse++)
+        {
+            var lateral = basis.X * ((pulse - (pulseCount - 1) * 0.5f) * 0.05f);
+            GetParent().AddChild(new LaserEffect(start + lateral, end + lateral, color, 0.055f));
+        }
+    }
+
+    private void FireBallisticWeapon(EnemyWeapon weapon, Vector3 start, Vector3 end)
+    {
+        var basis = Torso.GlobalBasis.Orthonormalized();
+        for (var tracer = 0; tracer < 4; tracer++)
+        {
+            var spread = basis.X * ((float)Random.Shared.NextDouble() - 0.5f) * 0.08f +
+                         basis.Y * ((float)Random.Shared.NextDouble() - 0.5f) * 0.08f;
+            GetParent().AddChild(new BallisticTracerEffect(start + spread, end + spread, tracer * 0.045f));
+        }
+    }
+
+    private void QueueMissileSalvo(EnemyWeapon weapon, Vector3 start)
+    {
+        var specification = weapon.Definition.Specification;
+        var direction = start.DirectionTo(m_playerMech.TargetPosition);
+        for (var index = 0; index < specification.ProjectilesPerShot; index++)
+        {
+            var angle = Mathf.Tau * index / specification.ProjectilesPerShot;
+            var basis = Torso.GlobalBasis.Orthonormalized();
+            var offset = basis.X * Mathf.Cos(angle) * 0.4f + basis.Y * Mathf.Sin(angle) * 0.4f;
+            m_pendingMissiles.Add(new PendingMissile(
+                index * 0.035f,
+                start + offset,
+                direction,
+                (float)specification.RangeMeters,
+                weapon.Definition));
+        }
+    }
+
+    private void UpdatePendingMissiles(float elapsed)
+    {
+        for (var index = m_pendingMissiles.Count - 1; index >= 0; index--)
+        {
+            var pending = m_pendingMissiles[index];
+            pending.Delay -= elapsed;
+            if (pending.Delay > 0.0f)
+            {
+                continue;
+            }
+
+            var missile = AcquireMissile();
+            missile.Launch(
+                pending.Start,
+                pending.Direction,
+                pending.Range,
+                () => m_playerMech.IsDestroyed ? null : m_playerMech.TargetPosition,
+                impact => ApplyWeaponDamage(pending.Weapon, impact, null));
+            m_pendingMissiles.RemoveAt(index);
+        }
+    }
+
+    private MissileEffect AcquireMissile()
+    {
+        if (m_missilePool.Count == 0)
+        {
+            for (var index = 0; index < MissilePoolSize; index++)
+            {
+                var missile = new MissileEffect(index % 4 == 0)
+                {
+                    Name = $"{Name}-Missile{index + 1}"
+                };
+                GetParent().AddChild(missile);
+                m_missilePool.Add(missile);
+            }
+        }
+
+        return m_missilePool.FirstOrDefault(missile => !missile.IsActive) ??
+               m_missilePool.MaxBy(missile => missile.Age);
+    }
+
+    private void ApplyWeaponDamage(
+        MechMountedWeapon weapon,
+        Vector3 impact,
+        MechSectionHit playerHit)
+    {
+        if (m_playerMech.IsDestroyed)
+        {
             return;
         }
 
-        GetParent().AddChild(new LaserEffect(start, end));
-        m_laserSound.GlobalPosition = start;
-        m_laserSound.Play();
-        m_battlefieldEffects.SpawnWeaponImpact(end);
+        m_battlefieldEffects.SpawnWeaponImpact(impact);
         m_playerMech.ApplyDamage(
-            LaserDamage,
+            weapon.Specification.Damage,
             Description,
             playerHit?.Section ?? MechDamageSection.CenterTorso,
             playerHit?.FromRear ?? false,
-            end);
+            impact);
+    }
+
+    private void PlayWeaponSound(string resourceName, Vector3 position)
+    {
+        if (!m_weaponSounds.TryGetValue(resourceName, out var sound))
+        {
+            GD.PushWarning($"MechRewired: {Description} has no sound for SNDS/{resourceName}.");
+            return;
+        }
+
+        m_weaponSound.Stream = sound;
+        m_weaponSound.GlobalPosition = position;
+        m_weaponSound.Play();
     }
 
     private void PowerUp()
@@ -539,8 +736,47 @@ public partial class EnemyMech : Node3D
         }
     }
 
-    private bool IsWeaponMountOperational((Marker3D Marker, MechDamageSection Section) mount) =>
-        !m_damageModel.IsSectionDestroyed(mount.Section);
+    private bool IsWeaponOperational(EnemyWeapon weapon) =>
+        !m_damageModel.IsSectionDestroyed(weapon.Definition.Section) &&
+        weapon.Cooldown <= 0.0f &&
+        (weapon.Ammo < 0 || weapon.Ammo >= weapon.Definition.Specification.ProjectilesPerShot);
+
+    private static Marker3D GetNextMount(
+        MechDamageSection section,
+        IReadOnlyDictionary<MechDamageSection, List<Marker3D>> mountsBySection,
+        IDictionary<MechDamageSection, int> nextMountBySection)
+    {
+        if (!mountsBySection.TryGetValue(section, out var mounts) || mounts.Count == 0)
+        {
+            return null;
+        }
+
+        var nextIndex = nextMountBySection.TryGetValue(section, out var value) ? value : 0;
+        nextMountBySection[section] = nextIndex + 1;
+        return mounts[nextIndex % mounts.Count];
+    }
+
+    private static Color ColorFromRgb(uint rgb) => new(
+        ((rgb >> 16) & 0xff) / 255.0f,
+        ((rgb >> 8) & 0xff) / 255.0f,
+        (rgb & 0xff) / 255.0f);
+
+    private static bool TryConsumeAmmunition(EnemyWeapon weapon)
+    {
+        if (weapon.Ammo < 0)
+        {
+            return true;
+        }
+
+        var required = weapon.Definition.Specification.ProjectilesPerShot;
+        if (weapon.Ammo < required)
+        {
+            return false;
+        }
+
+        weapon.Ammo -= required;
+        return true;
+    }
 
     private void DetachSection(MechDamageSection section, Vector3 hitPosition)
     {
@@ -650,4 +886,34 @@ public partial class EnemyMech : Node3D
             Mathf.AngleDifference(current, target),
             -maximumDelta,
             maximumDelta);
+
+    private sealed class EnemyWeapon(MechMountedWeapon definition, Marker3D mount, int ammo)
+    {
+        public MechMountedWeapon Definition { get; } = definition;
+
+        public Marker3D Mount { get; } = mount;
+
+        /// <summary><c>-1</c> represents an energy weapon with no ammunition requirement.</summary>
+        public int Ammo { get; set; } = ammo;
+
+        public float Cooldown { get; set; }
+    }
+
+    private sealed class PendingMissile(
+        float delay,
+        Vector3 start,
+        Vector3 direction,
+        float range,
+        MechMountedWeapon weapon)
+    {
+        public float Delay { get; set; } = delay;
+
+        public Vector3 Start { get; } = start;
+
+        public Vector3 Direction { get; } = direction;
+
+        public float Range { get; } = range;
+
+        public MechMountedWeapon Weapon { get; } = weapon;
+    }
 }

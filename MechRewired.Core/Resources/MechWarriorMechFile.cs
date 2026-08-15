@@ -57,7 +57,7 @@ public sealed class MechWarriorMechFile
         IReadOnlyDictionary<MechDamageSection, MechSectionArmor> sections,
         IReadOnlyList<MechMountedWeapon> weapons,
         IReadOnlyList<ushort> unsupportedWeaponIds,
-        int ammoBinCount)
+        IReadOnlyList<MechAmmoBin> ammoBins)
     {
         Tonnage = tonnage;
         WalkingMovementPoints = walkingMovementPoints;
@@ -65,7 +65,7 @@ public sealed class MechWarriorMechFile
         Sections = sections;
         Weapons = weapons;
         UnsupportedWeaponIds = unsupportedWeaponIds;
-        AmmoBinCount = ammoBinCount;
+        AmmoBins = ammoBins;
     }
 
     public int Tonnage { get; }
@@ -87,9 +87,12 @@ public sealed class MechWarriorMechFile
 
     public IReadOnlyList<ushort> UnsupportedWeaponIds { get; }
 
-    public int AmmoBinCount { get; }
+    /// <summary>Authored ammunition-bin records, associated with individual mounted weapon instances.</summary>
+    public IReadOnlyList<MechAmmoBin> AmmoBins { get; }
 
-    public MechWarriorMechFile WithWeapons(IReadOnlyList<MechMountedWeapon> weapons, int ammoBinCount) =>
+    public int AmmoBinCount => AmmoBins.Count;
+
+    public MechWarriorMechFile WithWeapons(IReadOnlyList<MechMountedWeapon> weapons) =>
         new(
             Tonnage,
             WalkingMovementPoints,
@@ -97,7 +100,7 @@ public sealed class MechWarriorMechFile
             Sections,
             weapons,
             [],
-            ammoBinCount);
+            AmmoBins);
 
     public static MechWarriorMechFile Load(byte[] data)
     {
@@ -177,6 +180,29 @@ public sealed class MechWarriorMechFile
                 authoredGroup == ushort.MaxValue ? -1 : authoredGroup % PlayerWeaponSelection.GroupCount));
         }
 
+        var ammoBins = new List<MechAmmoBin>();
+        for (var index = 0; index < ammoBinCount; index++)
+        {
+            var recordOffset = BaseFileSize + (weaponCount + index) * EquipmentRecordSize;
+            var ammoId = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(recordOffset, 4));
+            var associatedWeaponId = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(recordOffset + 4, 4));
+            if (associatedWeaponId > ushort.MaxValue)
+            {
+                throw new InvalidDataException(
+                    $"The MEK ammunition bin {index} has an unsupported weapon instance ID {associatedWeaponId}.");
+            }
+
+            var expectedAmmoId = 10_000u + associatedWeaponId;
+            if (ammoId != expectedAmmoId)
+            {
+                throw new InvalidDataException(
+                    $"The MEK ammunition bin {index} has ID {ammoId}, expected {expectedAmmoId} for " +
+                    $"weapon instance {associatedWeaponId}.");
+            }
+
+            ammoBins.Add(new MechAmmoBin(ammoId, (ushort)associatedWeaponId));
+        }
+
         return new MechWarriorMechFile(
             tonnage,
             walkingMovementPoints,
@@ -184,7 +210,7 @@ public sealed class MechWarriorMechFile
             sections,
             weapons.AsReadOnly(),
             unsupportedWeaponIds.AsReadOnly(),
-            ammoBinCount);
+            ammoBins.AsReadOnly());
     }
 
     private static int ReadNonNegativeCount(byte[] data, int offset, string name)
@@ -213,3 +239,6 @@ public sealed class MechWarriorMechFile
             $"The MEK weapon instance {sourceId} is not installed in any critical slot.");
     }
 }
+
+/// <summary>An authored MW2 MEK ammunition bin associated with one exact mounted-weapon instance.</summary>
+public sealed record MechAmmoBin(uint SourceId, ushort AssociatedWeaponId);

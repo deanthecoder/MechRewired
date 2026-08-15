@@ -48,6 +48,7 @@ public partial class PlayerTargeting : Node
     private readonly BattlefieldEffects m_battlefieldEffects;
     private readonly MechHeat m_heat;
     private readonly double[] m_weaponCooldowns;
+    private readonly Dictionary<ushort, int> m_ammunitionByWeapon;
     private readonly List<MissileEffect> m_missilePool = [];
     private readonly List<PendingMissile> m_pendingMissiles = [];
     private readonly List<PendingWeaponRepeat> m_pendingWeaponRepeats = [];
@@ -57,7 +58,6 @@ public partial class PlayerTargeting : Node
     private float m_missileLockProgress;
     private EnemyMech m_lockCandidate;
     private EnemyMech m_lockedEnemy;
-    private int m_lrmAmmo = 120;
     private bool m_heatWarningReported;
 
     public PlayerTargeting(
@@ -110,6 +110,7 @@ public partial class PlayerTargeting : Node
         m_sceneTriangles = sceneTriangles;
         m_battlefieldEffects = battlefieldEffects;
         WeaponSelection = new PlayerWeaponSelection(playerDefinition.Weapons);
+        m_ammunitionByWeapon = CreateAmmunitionByWeapon(playerDefinition);
         m_heat = new MechHeat(
             maximumHeat: MechHeat.GetCriticalHeatThreshold(playerDefinition.HeatSinkCount),
             coolingPerSecond: playerDefinition.HeatSinkCount / 10.0);
@@ -214,8 +215,7 @@ public partial class PlayerTargeting : Node
 
     public bool IsWeaponOperational(int index) => IsWeaponOperational(WeaponSelection.Weapons[index]);
 
-    public int GetWeaponAmmo(int index) =>
-        WeaponSelection.Weapons[index].Specification.Kind == MechWeaponKind.Missile ? m_lrmAmmo : -1;
+    public int GetWeaponAmmo(int index) => GetWeaponAmmo(WeaponSelection.Weapons[index]);
 
     public double Heat => m_heat.CurrentHeat;
 
@@ -248,10 +248,14 @@ public partial class PlayerTargeting : Node
             .Select(group => $"{group.Count()}x {group.Key}"));
         var mounts = string.Join(", ", WeaponSelection.Weapons.Select(weapon =>
             $"{weapon.SourceId}:{weapon.Specification.HudName}@{weapon.Section}"));
+        var ammunition = string.Join(", ", WeaponSelection.Weapons
+            .Where(weapon => weapon.Specification.UsesAmmo)
+            .Select(weapon => $"{weapon.SourceId}:{weapon.Specification.HudName} {GetWeaponAmmo(weapon)}"));
         GD.Print(
             $"MechRewired: targeting online ({m_actors.Count} battlefield actors, " +
             $"{m_enemyMechs.Count} hostile mechs; " +
             $"authored player loadout {loadout}; mounts [{mounts}]; " +
+            (string.IsNullOrWhiteSpace(ammunition) ? string.Empty : $"ammo [{ammunition}]; ") +
             $"cooling {m_heat.CoolingPerSecond:F1} heat/s; " +
             $"critical heat {m_heat.MaximumHeat:F0}; {MissilePoolSize} pooled missiles).");
     }
@@ -475,7 +479,10 @@ public partial class PlayerTargeting : Node
                 continue;
             }
 
-            FireWeapon(index, indices.Count > 1 ? fireOrdinal * 0.07f : 0.0f);
+            if (!FireWeapon(index, indices.Count > 1 ? fireOrdinal * 0.07f : 0.0f))
+            {
+                continue;
+            }
             if (m_playerMech.IsShutdown)
             {
                 fired = true;
@@ -497,7 +504,9 @@ public partial class PlayerTargeting : Node
         if (!fired)
         {
             m_weaponUnavailableSound.Play();
-            GD.Print("MechRewired: selected weapon or group is recycling or mounted on a destroyed section.");
+            GD.Print(
+                "MechRewired: selected weapon or group is unavailable " +
+                "(recycling, destroyed section, or insufficient ammunition).");
             return;
         }
 
@@ -538,7 +547,11 @@ public partial class PlayerTargeting : Node
                 continue;
             }
 
-            FireWeapon(repeat.WeaponIndex);
+            if (!FireWeapon(repeat.WeaponIndex))
+            {
+                m_pendingWeaponRepeats.RemoveAt(index);
+                continue;
+            }
             repeat.Remaining--;
             if (repeat.Remaining <= 0)
             {
@@ -557,9 +570,14 @@ public partial class PlayerTargeting : Node
         }
     }
 
-    private void FireWeapon(int index, float visualDelay = 0.0f)
+    private bool FireWeapon(int index, float visualDelay = 0.0f)
     {
         var weapon = WeaponSelection.Weapons[index];
+        if (!IsWeaponOperational(weapon) || !TryConsumeAmmunition(weapon))
+        {
+            return false;
+        }
+
         m_weaponCooldowns[index] = weapon.Specification.RecycleSeconds;
         m_heat.Add(weapon.Specification.Heat, m_playerMech.IsShutdownOverride);
         EvaluateHeatState();
@@ -583,7 +601,9 @@ public partial class PlayerTargeting : Node
         GD.Print(
             $"MechRewired: fired {weapon.Specification.Name} instance {weapon.SourceId} " +
             $"from {weapon.Section} (slot {index + 1}/{WeaponSelection.Weapons.Count}); " +
-            $"heat {m_heat.CurrentHeat:F1}/{m_heat.MaximumHeat:F0}.");
+            $"heat {m_heat.CurrentHeat:F1}/{m_heat.MaximumHeat:F0}" +
+            (weapon.Specification.UsesAmmo ? $"; ammo {GetWeaponAmmo(weapon)}." : "."));
+        return true;
     }
 
     private void FireDirectWeapon(MechMountedWeapon weapon, float visualDelay)
@@ -676,13 +696,6 @@ public partial class PlayerTargeting : Node
 
     private void QueueMissileSalvo(MechMountedWeapon weapon)
     {
-        if (m_lrmAmmo < weapon.Specification.ProjectilesPerShot)
-        {
-            m_weaponUnavailableSound.Play();
-            return;
-        }
-
-        m_lrmAmmo -= weapon.Specification.ProjectilesPerShot;
         var forward = -m_playerMech.Torso.GlobalBasis.Z.Normalized();
         var lockedTarget = MissileLocked && ReferenceEquals(SelectedEnemy, m_lockedEnemy)
             ? m_lockedEnemy
@@ -776,8 +789,46 @@ public partial class PlayerTargeting : Node
     private bool IsWeaponOperational(MechMountedWeapon weapon) =>
         !m_playerMech.Damage.IsSectionDestroyed(weapon.Section) &&
         !m_playerMech.Damage.IsSectionDestroyed(GetExternalWeaponSection(weapon)) &&
-        (weapon.Specification.Kind != MechWeaponKind.Missile ||
-         m_lrmAmmo >= weapon.Specification.ProjectilesPerShot);
+        (!weapon.Specification.UsesAmmo ||
+         GetWeaponAmmo(weapon) >= weapon.Specification.ProjectilesPerShot);
+
+    private int GetWeaponAmmo(MechMountedWeapon weapon) => weapon.Specification.UsesAmmo
+        ? m_ammunitionByWeapon.GetValueOrDefault(weapon.SourceId)
+        : -1;
+
+    private bool TryConsumeAmmunition(MechMountedWeapon weapon)
+    {
+        if (!weapon.Specification.UsesAmmo)
+        {
+            return true;
+        }
+
+        var required = weapon.Specification.ProjectilesPerShot;
+        var available = GetWeaponAmmo(weapon);
+        if (available < required)
+        {
+            m_weaponUnavailableSound.Play();
+            GD.Print(
+                $"MechRewired: {weapon.Specification.HudName} instance {weapon.SourceId} is out of ammunition " +
+                $"({available}/{required} required)." );
+            return false;
+        }
+
+        m_ammunitionByWeapon[weapon.SourceId] = available - required;
+        return true;
+    }
+
+    private static Dictionary<ushort, int> CreateAmmunitionByWeapon(MechWarriorMechFile definition)
+    {
+        var ammunitionByWeapon = new Dictionary<ushort, int>();
+        foreach (var weapon in definition.Weapons.Where(weapon => weapon.Specification.UsesAmmo))
+        {
+            var binCount = definition.AmmoBins.Count(bin => bin.AssociatedWeaponId == weapon.SourceId);
+            ammunitionByWeapon.Add(weapon.SourceId, binCount * weapon.Specification.AmmoPerBin);
+        }
+
+        return ammunitionByWeapon;
+    }
 
     private static MechDamageSection GetExternalWeaponSection(MechMountedWeapon weapon) =>
         weapon.Specification.Kind == MechWeaponKind.Missile
