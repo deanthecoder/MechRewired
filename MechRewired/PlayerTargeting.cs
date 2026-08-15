@@ -940,7 +940,9 @@ public partial class PlayerTargeting : Node
 
     private bool IsMissileLockCandidate(EnemyMech enemy, MechMountedWeapon missile)
     {
-        if (enemy == null || enemy.IsDestroyed || enemy.IsPoweredDown)
+        // A visually acquired dormant mech can be manually targeted with Q and locked with line of sight.
+        // Automated E/R/T target cycling still excludes it until its reactor comes online.
+        if (enemy == null || enemy.IsDestroyed)
         {
             return false;
         }
@@ -1167,6 +1169,12 @@ public partial class PlayerTargeting : Node
     private void OnEnemyPoweredUp(EnemyMech enemyMech)
     {
         m_enemyPowerUpSound?.Play();
+        if (SelectedEnemy == null && IsTargetableEnemy(enemyMech))
+        {
+            SelectEnemy(enemyMech);
+            GD.Print($"MechRewired: automatically targeted newly powered hostile {enemyMech.Description}.");
+        }
+
         GD.Print($"MechRewired: enemy power up detected: {enemyMech.Description}.");
     }
 

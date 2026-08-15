@@ -273,6 +273,9 @@ public partial class PlayerMech : Node3D
 
     public event Action Destroyed;
 
+    /// <summary>Raised at each planted foot so shared battlefield effects can follow the authored gait.</summary>
+    public event Action<Vector3, float> FootfallLanded;
+
     public void ApplyDamage(
         int damage,
         string attacker,
@@ -1374,7 +1377,13 @@ public partial class PlayerMech : Node3D
 
     private void PlayFootfall()
     {
-        m_footfall.PitchScale = m_footfallCount++ % 2 == 0 ? 0.97f : 1.03f;
+        var footIndex = m_footfallCount++;
+        m_footfall.PitchScale = footIndex % 2 == 0 ? 0.97f : 1.03f;
         m_footfall.Play();
+        var basis = GlobalBasis.Orthonormalized();
+        var side = footIndex % 2 == 0 ? -1.0f : 1.0f;
+        var footPosition = GlobalPosition + basis.X * (side * 1.35f) - basis.Z * 0.25f;
+        footPosition.Y = FeetElevation;
+        FootfallLanded?.Invoke(footPosition, (float)Drive.SpeedFraction);
     }
 }

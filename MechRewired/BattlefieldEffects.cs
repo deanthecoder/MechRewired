@@ -25,6 +25,7 @@ public partial class BattlefieldEffects : Node3D
     private const float MinimumAmbientAmountRatio = 0.12f;
     private const int WeaponImpactPoolSize = 24;
     private const int DestructionPoolSize = 12;
+    private const int DustPoolSize = 32;
 
     private static bool s_vfxTexturesLogged;
 
@@ -34,8 +35,10 @@ public partial class BattlefieldEffects : Node3D
     private readonly List<Node3D> m_distanceBoundEffects = [];
     private readonly List<ImpactEffect> m_weaponImpactPool = [];
     private readonly List<EffectInstance> m_destructionPool = [];
+    private readonly List<DustEffect> m_dustPool = [];
     private ShaderMaterial m_fireVisualMaterial;
     private ShaderMaterial m_smokeVisualMaterial;
+    private ShaderMaterial m_dustVisualMaterial;
     private StandardMaterial3D m_sparkVisualMaterial;
     private QuadMesh m_particleQuadMesh;
     private BoxMesh m_sparkMesh;
@@ -68,7 +71,8 @@ public partial class BattlefieldEffects : Node3D
         CreateEffectPools();
         GD.Print(
             $"MechRewired: preallocated battlefield VFX pools " +
-            $"({WeaponImpactPoolSize} weapon impacts, {DestructionPoolSize} destruction effects).");
+            $"({WeaponImpactPoolSize} weapon impacts, {DestructionPoolSize} destruction effects, " +
+            $"{DustPoolSize} dust effects).");
     }
 
     public void ConfigureTerrain(IReadOnlyList<DebugTriangle> sceneTriangles)
@@ -96,15 +100,18 @@ public partial class BattlefieldEffects : Node3D
         {
             var particles = CreateFire(true, 28, 0.52f, 1.0f);
             particles.Emitting = false;
+            var sparks = CreateSparks(0.075f);
+            sparks.Emitting = false;
             var light = CreateFireLight(4.5f, 4.0f);
             light.Visible = false;
-            var effect = new ImpactEffect(particles, light)
+            var effect = new ImpactEffect(particles, sparks, light)
             {
                 Name = $"WeaponImpactPool{index}",
                 Visible = false,
                 ProcessMode = ProcessModeEnum.Disabled
             };
             effect.AddChild(particles);
+            effect.AddChild(sparks);
             effect.AddChild(light);
             AddChild(effect);
             m_weaponImpactPool.Add(effect);
@@ -147,6 +154,21 @@ public partial class BattlefieldEffects : Node3D
 
             AddChild(effect);
             m_destructionPool.Add(effect);
+        }
+
+        for (var index = 0; index < DustPoolSize; index++)
+        {
+            var particles = CreateDust(48, 1.1f, 1.0f, 2.0f);
+            particles.Emitting = false;
+            var effect = new DustEffect(particles)
+            {
+                Name = $"DustPool{index}",
+                Visible = false,
+                ProcessMode = ProcessModeEnum.Disabled
+            };
+            effect.AddChild(particles);
+            AddChild(effect);
+            m_dustPool.Add(effect);
         }
     }
 
@@ -459,6 +481,11 @@ public partial class BattlefieldEffects : Node3D
 
         effect.Activate(plumePosition, localHit);
         m_distanceBoundEffects.Add(effect);
+        SpawnDust(
+            plumePosition,
+            Math.Clamp(boundsLength * 0.18f, 1.8f, 7.0f),
+            1.7f,
+            1.6f);
     }
 
     /// <summary>
@@ -475,6 +502,7 @@ public partial class BattlefieldEffects : Node3D
         var size = Math.Clamp(0.24f * m_fireSize, 0.55f, 1.8f);
         var amount = Math.Clamp((int)MathF.Round(7.0f * m_fireDensity), 8, 28);
         ConfigureFire(effect.Particles, amount, 0.52f, size);
+        ConfigureSparks(effect.Sparks, Math.Clamp(size * 0.09f, 0.06f, 0.16f));
         var process = (ParticleProcessMaterial)effect.Particles.ProcessMaterial;
         process.InitialVelocityMin *= Math.Clamp(m_fireRise * 0.3f, 0.7f, 1.7f);
         process.InitialVelocityMax *= Math.Clamp(m_fireRise * 0.3f, 0.7f, 1.7f);
@@ -486,6 +514,28 @@ public partial class BattlefieldEffects : Node3D
         effect.Light.OmniRange = 4.5f * size;
         effect.Light.LightEnergy = 4.0f * m_fireBrightness;
         effect.Activate(hitPosition);
+        m_distanceBoundEffects.Add(effect);
+        SpawnDust(hitPosition, 0.8f, 0.8f, 0.9f);
+    }
+
+    /// <summary>Spawns a brief, terrain-hugging dust puff at a planted mech foot.</summary>
+    public void SpawnFootfallDust(Vector3 position, float intensity) =>
+        SpawnDust(position, 0.55f + intensity * 0.35f, 0.7f + intensity * 0.35f, 0.85f);
+
+    /// <summary>Spawns short-lived downwash dust beneath a low-flying DropShip.</summary>
+    public void SpawnDropShipDownwash(Vector3 position, float intensity) =>
+        SpawnDust(position, 2.5f + intensity * 2.5f, 1.45f + intensity * 0.75f, 1.45f);
+
+    private void SpawnDust(Vector3 position, float size, float rise, float lifetime)
+    {
+        if (!IsWithinEffectPersistenceRange(position))
+        {
+            return;
+        }
+
+        var effect = AcquireDustEffect();
+        ConfigureDust(effect.Particles, size, rise, lifetime);
+        effect.Activate(new Vector3(position.X, FindTerrainHeight(position, position.Y), position.Z));
         m_distanceBoundEffects.Add(effect);
     }
 
@@ -513,6 +563,20 @@ public partial class BattlefieldEffects : Node3D
         {
             effect.Deactivate();
             GD.Print("MechRewired: recycled the oldest active destruction VFX pool entry.");
+        }
+
+        return effect;
+    }
+
+    private DustEffect AcquireDustEffect()
+    {
+        var effect = m_dustPool.FirstOrDefault(candidate => !candidate.IsActive) ??
+                     m_dustPool.MaxBy(candidate => candidate.Age) ??
+                     throw new InvalidOperationException("The dust VFX pool is empty.");
+        m_distanceBoundEffects.Remove(effect);
+        if (effect.IsActive)
+        {
+            effect.Deactivate();
         }
 
         return effect;
@@ -557,6 +621,18 @@ public partial class BattlefieldEffects : Node3D
         process.ScaleMin = size * 0.35f;
         process.ScaleMax = size;
         process.EmissionSphereRadius = 0.7f;
+    }
+
+    private static void ConfigureDust(GpuParticles3D particles, float size, float rise, float lifetime)
+    {
+        particles.AmountRatio = Mathf.Clamp(0.25f + size * 0.16f, 0.25f, 1.0f);
+        particles.Lifetime = lifetime;
+        var process = (ParticleProcessMaterial)particles.ProcessMaterial;
+        process.InitialVelocityMin = 0.7f * rise;
+        process.InitialVelocityMax = 2.0f * rise;
+        process.ScaleMin = size * 0.42f;
+        process.ScaleMax = size * 1.15f;
+        process.EmissionSphereRadius = Math.Max(0.35f, size * 0.55f);
     }
 
     private Vector3 GetDestructionSmokeOrigin(BattlefieldActor actor, Aabb originalBounds)
@@ -731,6 +807,36 @@ public partial class BattlefieldEffects : Node3D
             EmissionSphereRadius = Math.Max(0.4f, size * (oneShot ? 0.55f : 0.3f))
         };
         return CreateParticles("Smoke", oneShot, amount, lifetime, oneShot ? 0.9f : 0.16f, material, false);
+    }
+
+    private GpuParticles3D CreateDust(int amount, float lifetime, float size, float rise)
+    {
+        var material = new ParticleProcessMaterial
+        {
+            Direction = Vector3.Up,
+            Spread = 78.0f,
+            InitialVelocityMin = 0.7f * rise,
+            InitialVelocityMax = 2.0f * rise,
+            Gravity = new Vector3(0.12f, -0.45f, 0.08f),
+            DampingMin = 0.5f,
+            DampingMax = 1.2f,
+            ScaleMin = size * 0.42f,
+            ScaleMax = size * 1.15f,
+            ColorRamp = CreateColorRamp(
+                (0.0f, new Color(0.46f, 0.39f, 0.25f, 0.0f)),
+                (0.15f, new Color(0.52f, 0.44f, 0.28f, 0.48f)),
+                (0.65f, new Color(0.42f, 0.35f, 0.24f, 0.28f)),
+                (1.0f, new Color(0.32f, 0.26f, 0.18f, 0.0f))),
+            TurbulenceEnabled = true,
+            TurbulenceNoiseStrength = 1.4f,
+            TurbulenceNoiseScale = 2.8f,
+            TurbulenceNoiseSpeed = new Vector3(0.25f, 0.12f, 0.2f),
+            TurbulenceInfluenceMin = 0.22f,
+            TurbulenceInfluenceMax = 0.48f,
+            EmissionShape = ParticleProcessMaterial.EmissionShapeEnum.Sphere,
+            EmissionSphereRadius = Math.Max(0.35f, size * 0.55f)
+        };
+        return CreateParticles("Dust", true, amount, lifetime, 0.92f, material, false, ParticleGeometry.Dust);
     }
 
     private GpuParticles3D CreateSparks(float size)
@@ -950,6 +1056,7 @@ public partial class BattlefieldEffects : Node3D
         {
             ParticleGeometry.Fire => m_fireVisualMaterial ??= CreateParticleShaderMaterial(false),
             ParticleGeometry.Smoke => m_smokeVisualMaterial ??= CreateParticleShaderMaterial(true),
+            ParticleGeometry.Dust => m_dustVisualMaterial ??= CreateParticleShaderMaterial(true, true),
             ParticleGeometry.Spark => m_sparkVisualMaterial ??= new StandardMaterial3D
             {
                 Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
@@ -965,7 +1072,7 @@ public partial class BattlefieldEffects : Node3D
             // flipbook.  Use it on camera-facing quads rather than stacking
             // opaque spheres: the sprite carries the fine smoke breakup and
             // the shader supplies the source project's ramp/normal treatment.
-            ParticleGeometry.Fire or ParticleGeometry.Smoke => m_particleQuadMesh ??= new QuadMesh
+            ParticleGeometry.Fire or ParticleGeometry.Smoke or ParticleGeometry.Dust => m_particleQuadMesh ??= new QuadMesh
             {
                 Size = new Vector2(1.0f, 1.0f)
             },
@@ -1006,7 +1113,7 @@ public partial class BattlefieldEffects : Node3D
         return particles;
     }
 
-    private static ShaderMaterial CreateParticleShaderMaterial(bool smoke)
+    private static ShaderMaterial CreateParticleShaderMaterial(bool smoke, bool dust = false)
     {
         var shader = new Shader
         {
@@ -1094,7 +1201,12 @@ public partial class BattlefieldEffects : Node3D
 
         material.SetShaderParameter(
             "base_ramp",
-            smoke
+            dust
+                ? CreateColorRamp(
+                    (0.0f, new Color(0.18f, 0.15f, 0.10f, 1.0f)),
+                    (0.5f, new Color(0.38f, 0.31f, 0.20f, 1.0f)),
+                    (1.0f, new Color(0.56f, 0.48f, 0.32f, 1.0f)))
+                : smoke
                 ? CreateColorRamp(
                     (0.0f, new Color(0.03f, 0.025f, 0.02f, 1.0f)),
                     (0.18f, new Color(0.10f, 0.095f, 0.09f, 1.0f)),
@@ -1112,7 +1224,11 @@ public partial class BattlefieldEffects : Node3D
                 (0.32f, Colors.White)));
         material.SetShaderParameter(
             "emission_ramp",
-            smoke
+            dust
+                ? CreateColorRamp(
+                    (0.0f, Colors.Black),
+                    (1.0f, new Color(0.01f, 0.007f, 0.003f, 1.0f)))
+                : smoke
                 ? CreateColorRamp(
                     (0.0f, new Color(0.0f, 0.0f, 0.0f, 1.0f)),
                     (1.0f, new Color(0.035f, 0.025f, 0.018f, 1.0f)))
@@ -1124,7 +1240,7 @@ public partial class BattlefieldEffects : Node3D
                     (0.461f, new Color(1.0f, 0.8f, 0.502f, 1.0f)),
                     (0.55f, new Color(1.0f, 0.0f, 0.0f, 1.0f)),
                     (0.602f, new Color(0.0f, 0.0f, 0.0f, 1.0f))));
-        material.SetShaderParameter("emission_strength", smoke ? 0.04f : 0.55f);
+        material.SetShaderParameter("emission_strength", dust ? 0.0f : smoke ? 0.04f : 0.55f);
         return material;
     }
 
@@ -1208,6 +1324,7 @@ public partial class BattlefieldEffects : Node3D
     {
         Fire,
         Smoke,
+        Dust,
         Spark
     }
 
@@ -1242,17 +1359,66 @@ public partial class BattlefieldEffects : Node3D
         void Deactivate();
     }
 
+    private sealed partial class DustEffect : Node3D, IPooledEffect
+    {
+        private float m_age;
+
+        public DustEffect(GpuParticles3D particles) => Particles = particles;
+
+        public GpuParticles3D Particles { get; }
+
+        public bool IsActive { get; private set; }
+
+        public float Age => m_age;
+
+        public void Activate(Vector3 position)
+        {
+            Position = position;
+            m_age = 0.0f;
+            IsActive = true;
+            Visible = true;
+            ProcessMode = ProcessModeEnum.Inherit;
+            Particles.Emitting = true;
+            Particles.Restart();
+        }
+
+        public void Deactivate()
+        {
+            IsActive = false;
+            Particles.Emitting = false;
+            Visible = false;
+            ProcessMode = ProcessModeEnum.Disabled;
+        }
+
+        public override void _Process(double delta)
+        {
+            if (!IsActive)
+            {
+                return;
+            }
+
+            m_age += (float)delta;
+            if (m_age >= Particles.Lifetime + 0.1f)
+            {
+                Deactivate();
+            }
+        }
+    }
+
     private sealed partial class ImpactEffect : Node3D, IPooledEffect
     {
-        public ImpactEffect(GpuParticles3D particles, OmniLight3D light)
+        public ImpactEffect(GpuParticles3D particles, GpuParticles3D sparks, OmniLight3D light)
         {
             Particles = particles;
+            Sparks = sparks;
             Light = light;
         }
 
         private float m_age;
 
         public GpuParticles3D Particles { get; }
+
+        public GpuParticles3D Sparks { get; }
 
         public OmniLight3D Light { get; }
 
@@ -1270,12 +1436,15 @@ public partial class BattlefieldEffects : Node3D
             Light.Visible = true;
             Particles.Emitting = true;
             Particles.Restart();
+            Sparks.Emitting = true;
+            Sparks.Restart();
         }
 
         public void Deactivate()
         {
             IsActive = false;
             Particles.Emitting = false;
+            Sparks.Emitting = false;
             Light.Visible = false;
             Visible = false;
             ProcessMode = ProcessModeEnum.Disabled;

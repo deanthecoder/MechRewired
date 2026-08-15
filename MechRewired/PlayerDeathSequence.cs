@@ -13,9 +13,7 @@ using MechRewired.Simulation;
 
 namespace MechRewired;
 
-/// <summary>
-/// Runs the external rising camera, fade and automatic restart after player destruction.
-/// </summary>
+/// <summary>Runs the external rising camera and fade before handing control to the mission debrief.</summary>
 public partial class PlayerDeathSequence : Node
 {
     private readonly PlayerMech m_playerMech;
@@ -29,6 +27,9 @@ public partial class PlayerDeathSequence : Node
     private float m_startingHeight;
     private bool m_active;
     private bool m_restartRequested;
+
+    /// <summary>Raised after the death camera has completed and the failure debrief can be shown.</summary>
+    public event Action Completed;
 
     public PlayerDeathSequence(
         PlayerMech playerMech,
@@ -87,12 +88,9 @@ public partial class PlayerDeathSequence : Node
         }
 
         m_restartRequested = true;
-        GD.Print("MechRewired: death sequence complete; restarting current mission.");
-        var error = GetTree().ReloadCurrentScene();
-        if (error != Error.Ok)
-        {
-            GD.PushError($"MechRewired could not restart the current mission: {error}.");
-        }
+        m_active = false;
+        GD.Print("MechRewired: death sequence complete; awaiting Fire from mission debrief.");
+        Completed?.Invoke();
     }
 
     private void Begin()

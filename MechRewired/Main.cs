@@ -699,7 +699,9 @@ public partial class Main : Node3D
                     Mesh = wireframes[meshIndex],
                     Visible = false
                 };
-                objectRoot.AddChild(wireframeInstance);
+                // Keep the diagnostic copy beneath the exact solid instance rather than as a sibling.
+                // This preserves its alignment if an actor representation is subsequently reparented or moved.
+                solidInstance.AddChild(wireframeInstance);
                 wireframeInstance.AddToGroup(DebugCamera.WireframeMeshGroup);
             }
 
@@ -826,6 +828,7 @@ public partial class Main : Node3D
             archive,
             missionResources.Level.Entry.Path,
             levelRoot,
+            battlefieldEffects,
             palette,
             luminosityTable,
             deploymentAnchor,
@@ -953,12 +956,14 @@ public partial class Main : Node3D
             () => GetSceneryObstacles(staticSceneryObstacles, battlefieldActors));
         var playerMission = new PlayerMission(archive, missionDefinition);
         AddChild(playerMission);
-        AddChild(new PlayerDeathSequence(
+        var playerDeathSequence = new PlayerDeathSequence(
             playerMech,
             battlefieldEffects,
             playerMechSounds.DeathExplosion,
-            playerMission.Fail));
+            playerMission.Fail);
+        AddChild(playerDeathSequence);
         battlefieldEffects.ConfigureObserver(playerMech);
+        playerMech.FootfallLanded += battlefieldEffects.SpawnFootfallDust;
         foreach (var battlefieldActor in battlefieldActors)
         {
             battlefieldActor.ConfigureEffectPersistence(playerMech);
@@ -1027,13 +1032,9 @@ public partial class Main : Node3D
         hudLayer.AddChild(playerHud);
         var missionDebrief = new MissionDebrief(playerMission);
         AddChild(missionDebrief);
-        playerMission.MissionResolved += outcome =>
-        {
-            if (outcome == MissionOutcome.Failed)
-            {
-                missionDebrief.Present(outcome);
-            }
-        };
+        // A failure is presented only after the external death camera has concluded.
+        // PlayerDeathSequence no longer reloads the scene underneath the debrief.
+        playerDeathSequence.Completed += () => missionDebrief.Present(MissionOutcome.Failed);
         playerMission.MissionCompleted += () =>
         {
             playerMech.LockMovementForExtraction();
@@ -1082,6 +1083,18 @@ public partial class Main : Node3D
             PlayerTargeting = playerTargeting
         };
         camera.LookAtFromPosition(camera.Position, target);
+#if DEBUG
+        camera.DestroyHostilesRequested += () =>
+        {
+            var hostiles = enemyMechs.Where(enemy => !enemy.IsDestroyed).ToArray();
+            foreach (var hostile in hostiles)
+            {
+                hostile.DebugDestroy();
+            }
+
+            GD.Print($"MechRewired: DEBUG destroyed {hostiles.Length} active hostile mech(s).");
+        };
+#endif
         AddChild(camera);
     }
 
@@ -1365,6 +1378,7 @@ public partial class Main : Node3D
         MechWarriorProjectArchive archive,
         string levelPath,
         Node3D levelRoot,
+        BattlefieldEffects battlefieldEffects,
         MechWarriorPalette palette,
         MechWarriorLuminosityTable luminosityTable,
         Vector3 deploymentAnchor,
@@ -1392,7 +1406,8 @@ public partial class Main : Node3D
                 deploymentAnchor,
                 extractionAnchor,
                 deploymentDirection,
-                dropShipSound)
+                dropShipSound,
+                battlefieldEffects)
             {
                 Name = $"DropShip-{setPieceEntry.Name}"
             };
@@ -2143,6 +2158,7 @@ public partial class Main : Node3D
         private const float ExtractionFinalHeight = 80.0f;
         private const float ExtractionApproachSpeed = 110.0f;
         private const float ExtractionDescentSpeed = 10.0f;
+        private const float ExtractionBankDegrees = 4.0f;
         private const float ColorFrameSeconds = 0.09f;
 
         private readonly string m_sourceName;
@@ -2151,6 +2167,7 @@ public partial class Main : Node3D
         private readonly Vector3 m_deploymentDirection;
         private readonly Vector3 m_flightRotation;
         private readonly AudioStreamPlayer3D m_engine;
+        private readonly BattlefieldEffects m_battlefieldEffects;
         private readonly List<(
             MeshInstance3D Mesh,
             Light3D Light,
@@ -2159,6 +2176,7 @@ public partial class Main : Node3D
         private float m_elapsed;
         private float m_colorElapsed;
         private float m_landingOffset;
+        private float m_downwashElapsed;
         private bool m_extracting;
         private bool m_active;
 
@@ -2169,7 +2187,8 @@ public partial class Main : Node3D
             Vector3 deploymentAnchor,
             Vector3 extractionAnchor,
             Vector3 deploymentDirection,
-            AudioStreamWav engineSound)
+            AudioStreamWav engineSound,
+            BattlefieldEffects battlefieldEffects)
         {
             m_sourceName = sourceName;
             m_deploymentAnchor = deploymentAnchor;
@@ -2179,6 +2198,7 @@ public partial class Main : Node3D
                 0.0f,
                 Mathf.RadToDeg(Mathf.Atan2(m_deploymentDirection.X, m_deploymentDirection.Z)),
                 0.0f);
+            m_battlefieldEffects = battlefieldEffects ?? throw new ArgumentNullException(nameof(battlefieldEffects));
             RotationDegrees = m_flightRotation;
             if (engineSound != null)
             {
@@ -2264,6 +2284,7 @@ public partial class Main : Node3D
         {
             m_extracting = extracting;
             m_elapsed = 0.0f;
+            m_downwashElapsed = 0.0f;
             m_active = true;
             Visible = true;
             SetEngineFlamesVisible(true);
@@ -2283,18 +2304,26 @@ public partial class Main : Node3D
             if (m_elapsed <= approachSeconds)
             {
                 var approachProgress = m_elapsed / approachSeconds;
+                var bankProgress = Mathf.Sin(approachProgress * Mathf.Pi);
+                RotationDegrees = m_flightRotation + new Vector3(
+                    0.0f,
+                    0.0f,
+                    ExtractionBankDegrees * bankProgress);
                 Position = landingPosition -
                            m_deploymentDirection * ExtractionApproachDistance * (1.0f - approachProgress) +
                            Vector3.Up * Mathf.Lerp(
                                ExtractionApproachHeight,
                                ExtractionFinalHeight,
                                approachProgress);
+                EmitDownwash(landingPosition);
                 return;
             }
 
             var descentSeconds = (m_elapsed - approachSeconds);
             var height = Math.Max(0.0f, ExtractionFinalHeight - descentSeconds * ExtractionDescentSpeed);
+            RotationDegrees = m_flightRotation;
             Position = landingPosition + Vector3.Up * height;
+            EmitDownwash(landingPosition);
             if (height > 0.0f)
             {
                 return;
@@ -2326,6 +2355,7 @@ public partial class Main : Node3D
                 var liftProgress = Mathf.SmoothStep(0.0f, 1.0f, m_elapsed / LiftSeconds);
                 Position = landingPosition + Vector3.Up * (FlightHeight * liftProgress);
                 RotationDegrees = m_flightRotation;
+                EmitDownwash(landingPosition);
                 return;
             }
 
@@ -2353,6 +2383,25 @@ public partial class Main : Node3D
 
         private Vector3 GetLandingPosition(Vector3 groundAnchor) =>
             groundAnchor + Vector3.Up * m_landingOffset;
+
+        private void EmitDownwash(Vector3 landingPosition)
+        {
+            var altitude = Math.Max(0.0f, Position.Y - landingPosition.Y);
+            if (altitude > 55.0f)
+            {
+                return;
+            }
+
+            m_downwashElapsed += (float)GetProcessDeltaTime();
+            if (m_downwashElapsed < 0.16f)
+            {
+                return;
+            }
+
+            m_downwashElapsed = 0.0f;
+            var intensity = 1.0f - altitude / 55.0f;
+            m_battlefieldEffects.SpawnDropShipDownwash(landingPosition, intensity);
+        }
 
         private void SetEngineFlamesVisible(bool visible)
         {

@@ -38,8 +38,9 @@ public sealed class EnemyCombatMovement
     private const double InnerBandFactor = 0.78;
     private const double OuterBandFactor = 1.22;
     private const double EvasionSeconds = 3.0;
-    private const double AccelerationPerSecond = 0.65;
-    private const double DecelerationPerSecond = 1.0;
+    // A BattleMech needs a few strides to reach combat pace; instantaneous acceleration reads as skating.
+    private const double AccelerationPerSecond = 0.28;
+    private const double DecelerationPerSecond = 0.60;
 
     private readonly double m_weaponRange;
     private int m_strafeDirection;

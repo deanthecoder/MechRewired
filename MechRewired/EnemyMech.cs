@@ -30,7 +30,11 @@ public partial class EnemyMech : Node3D
     private const float SensorIntervalSeconds = 0.2f;
     private const float TargetMemorySeconds = 4.0f;
     private const float InitialSensorHalfAngleDegrees = 70.0f;
-    private const float FireDecisionIntervalSeconds = 0.35f;
+    private const float FireDecisionIntervalSeconds = 0.60f;
+    private const float MaximumSustainedHeatFraction = 0.75f;
+    private const float BaseAimErrorDegrees = 0.35f;
+    private const float AimErrorPerGunnerySkillDegrees = 0.30f;
+    private const float MaximumRangeAimErrorDegrees = 0.75f;
     private const int MissilePoolSize = 24;
 
     private readonly PlayerMech m_playerMech;
@@ -46,6 +50,8 @@ public partial class EnemyMech : Node3D
     private readonly MechRig m_mechRig;
     private readonly EnemyCombatMovement m_combatMovement;
     private readonly MechDamageModel m_damageModel;
+    private readonly MechHeat m_heat;
+    private readonly Random m_random;
     private readonly List<EnemyWeapon> m_weapons = new();
     private readonly List<MissileEffect> m_missilePool = new();
     private readonly List<PendingMissile> m_pendingMissiles = new();
@@ -63,6 +69,7 @@ public partial class EnemyMech : Node3D
     private bool m_hasGaitSample;
     private Vector3 m_previousGaitPosition;
     private float m_previousGaitYaw;
+    private int m_footfallCount;
     private Vector3 m_lastKnownTargetPosition;
     private EnemyCombatMovementMode? m_movementMode;
 
@@ -98,6 +105,11 @@ public partial class EnemyMech : Node3D
         m_weaponSounds = weaponSounds;
         Name = $"Enemy-{definition.Specification.DisplayName}-{definition.Specification.GroupId}";
         m_damageModel = new MechDamageModel(mechDefinition.Sections);
+        var effectiveHeatSinks = Math.Max(mechDefinition.HeatSinkCount, 1);
+        m_heat = new MechHeat(
+            MechHeat.GetCriticalHeatThreshold(effectiveHeatSinks),
+            effectiveHeatSinks / 10.0);
+        m_random = new Random(HashCode.Combine(definition.Specification.GroupId, definition.Specification.MechResourceIndex));
         // Combat manoeuvres use the authored walking/cruising speed. Running is reserved for later pursuit states.
         m_maximumSpeedMetersPerSecond = (float)(mechDefinition.CruisingSpeedKph / 3.6);
         m_weaponRange = Math.Max(definition.Specification.TargetRange, 120);
@@ -138,6 +150,10 @@ public partial class EnemyMech : Node3D
     public int Health => m_damageModel.Health;
 
     public int MaximumHealth => m_damageModel.MaximumHealth;
+
+    public double Heat => m_heat.CurrentHeat;
+
+    public double MaximumHeat => m_heat.MaximumHeat;
 
     public string WeaponLoadout => string.Join(
         ", ",
@@ -210,8 +226,21 @@ public partial class EnemyMech : Node3D
             $"{Mathf.RadToDeg(Rotation.Y):F1} degrees; torso {Mathf.RadToDeg(Torso.Rotation.Y):F1} degrees; " +
             $"target relative {Mathf.RadToDeg(relativeTargetYaw):F1} degrees, limited to " +
             $"{Mathf.RadToDeg(limitedTargetYaw):F1} degrees (±{Mathf.RadToDeg(MaximumTorsoYawRadians):F0}); " +
-            $"destroyed [{destroyed}].");
+            $"heat {m_heat.CurrentHeat:F1}/{m_heat.MaximumHeat:F0}; destroyed [{destroyed}].");
     }
+
+#if DEBUG
+    /// <summary>Destroys this hostile through the normal combat/destruction path for DEBUG testing.</summary>
+    public void DebugDestroy()
+    {
+        if (IsDestroyed)
+        {
+            return;
+        }
+
+        ApplyDamage(Math.Max(Health, 1), TargetPosition, MechDamageSection.CenterTorso, false);
+    }
+#endif
 
     public void ConfigureVisuals(
         Aabb localBounds,
@@ -282,6 +311,7 @@ public partial class EnemyMech : Node3D
 
         var elapsed = (float)delta;
         UpdateGait(elapsed);
+        m_heat.Advance(elapsed);
         m_fireDecisionCooldown = Math.Max(0.0f, m_fireDecisionCooldown - elapsed);
         m_sensorCooldown = Math.Max(0.0f, m_sensorCooldown - elapsed);
         m_movementBlockedLogCooldown = Math.Max(0.0f, m_movementBlockedLogCooldown - elapsed);
@@ -461,7 +491,9 @@ public partial class EnemyMech : Node3D
         {
             var index = (m_nextWeapon + offset) % m_weapons.Count;
             var weapon = m_weapons[index];
-            if (!IsWeaponOperational(weapon) || playerDistance > weapon.Definition.Specification.RangeMeters)
+            if (!IsWeaponOperational(weapon) ||
+                !CanSustainHeat(weapon) ||
+                playerDistance > weapon.Definition.Specification.RangeMeters)
             {
                 continue;
             }
@@ -477,10 +509,13 @@ public partial class EnemyMech : Node3D
     {
         var start = weapon.Mount.GlobalPosition;
         var aimedEnd = m_playerMech.WorldBounds.GetCenter();
-        var aimDirection = start.DirectionTo(aimedEnd);
+        var aimDirection = ApplyGunneryError(
+            start.DirectionTo(aimedEnd),
+            start.DistanceTo(aimedEnd),
+            weapon.Definition.Specification.RangeMeters);
         var end = m_playerMech.TryRaycastSections(start, aimDirection, out var playerHit)
             ? playerHit.Position
-            : aimedEnd;
+            : start + aimDirection * (float)weapon.Definition.Specification.RangeMeters;
         if (!HasLineOfSight(start, end))
         {
             return false;
@@ -512,14 +547,20 @@ public partial class EnemyMech : Node3D
                 throw new ArgumentOutOfRangeException();
         }
 
+        m_heat.Add(weapon.Definition.Specification.Heat);
+
         if (weapon.Definition.Specification.Kind != MechWeaponKind.Missile)
         {
-            ApplyWeaponDamage(weapon.Definition, end, playerHit);
+            if (playerHit != null)
+            {
+                ApplyWeaponDamage(weapon.Definition, end, playerHit);
+            }
         }
 
         GD.Print(
             $"MechRewired: {Description} fired {weapon.Definition.Specification.Name} " +
             $"instance {weapon.Definition.SourceId}" +
+            $"; heat {m_heat.CurrentHeat:F1}/{m_heat.MaximumHeat:F0}" +
             (weapon.Ammo >= 0 ? $"; ammo {weapon.Ammo}." : "."));
         return true;
     }
@@ -553,18 +594,24 @@ public partial class EnemyMech : Node3D
     private void QueueMissileSalvo(EnemyWeapon weapon, Vector3 start)
     {
         var specification = weapon.Definition.Specification;
-        var direction = start.DirectionTo(m_playerMech.TargetPosition);
         for (var index = 0; index < specification.ProjectilesPerShot; index++)
         {
             var angle = Mathf.Tau * index / specification.ProjectilesPerShot;
             var basis = Torso.GlobalBasis.Orthonormalized();
             var offset = basis.X * Mathf.Cos(angle) * 0.4f + basis.Y * Mathf.Sin(angle) * 0.4f;
+            var missileStart = start + offset;
+            var direction = ApplyGunneryError(
+                missileStart.DirectionTo(m_playerMech.TargetPosition),
+                missileStart.DistanceTo(m_playerMech.TargetPosition),
+                specification.RangeMeters);
+            var willTrackPlayer = m_playerMech.TryRaycastSections(missileStart, direction, out _);
             m_pendingMissiles.Add(new PendingMissile(
                 index * 0.035f,
-                start + offset,
+                missileStart,
                 direction,
                 (float)specification.RangeMeters,
-                weapon.Definition));
+                weapon.Definition,
+                willTrackPlayer));
         }
     }
 
@@ -584,7 +631,9 @@ public partial class EnemyMech : Node3D
                 pending.Start,
                 pending.Direction,
                 pending.Range,
-                () => m_playerMech.IsDestroyed ? null : m_playerMech.TargetPosition,
+                () => pending.WillTrackPlayer && !m_playerMech.IsDestroyed
+                    ? m_playerMech.TargetPosition
+                    : null,
                 impact => ApplyWeaponDamage(pending.Weapon, impact, null),
                 terrainImpact: m_battlefieldEffects.SpawnWeaponImpact);
             m_pendingMissiles.RemoveAt(index);
@@ -671,7 +720,15 @@ public partial class EnemyMech : Node3D
         var speedFraction = delta <= 0.0f || m_maximumSpeedMetersPerSecond <= 0.0f
             ? 0.0f
             : Mathf.Clamp(distance / delta / m_maximumSpeedMetersPerSecond, 0.0f, 1.0f);
-        m_mechRig.Advance(distance, headingChange, speedFraction, delta);
+        if (m_mechRig.Advance(distance, headingChange, speedFraction, delta))
+        {
+            var basis = GlobalBasis.Orthonormalized();
+            var side = m_footfallCount++ % 2 == 0 ? -1.0f : 1.0f;
+            var footPosition = GlobalPosition + basis.X * (side * Math.Max(m_footprintRadius * 0.42f, 0.8f)) -
+                               basis.Z * 0.25f;
+            footPosition.Y = GlobalPosition.Y + m_modelBottomY;
+            m_battlefieldEffects.SpawnFootfallDust(footPosition, speedFraction);
+        }
         m_previousGaitPosition = GlobalPosition;
         m_previousGaitYaw = GlobalRotation.Y;
     }
@@ -741,6 +798,30 @@ public partial class EnemyMech : Node3D
         !m_damageModel.IsSectionDestroyed(weapon.Definition.Section) &&
         weapon.Cooldown <= 0.0f &&
         (weapon.Ammo < 0 || weapon.Ammo >= weapon.Definition.Specification.ProjectilesPerShot);
+
+    private bool CanSustainHeat(EnemyWeapon weapon) =>
+        m_heat.CurrentHeat + weapon.Definition.Specification.Heat <=
+        m_heat.MaximumHeat * MaximumSustainedHeatFraction;
+
+    private Vector3 ApplyGunneryError(Vector3 idealDirection, float distance, double range)
+    {
+        if (idealDirection.IsZeroApprox())
+        {
+            return idealDirection;
+        }
+
+        var skill = Math.Max(Definition.Specification.GunnerySkill, 0);
+        var rangeFraction = Mathf.Clamp(distance / Math.Max((float)range, 1.0f), 0.0f, 1.0f);
+        var errorDegrees = BaseAimErrorDegrees +
+                           skill * AimErrorPerGunnerySkillDegrees +
+                           rangeFraction * MaximumRangeAimErrorDegrees;
+        var radius = Mathf.Tan(Mathf.DegToRad(errorDegrees)) * Mathf.Sqrt((float)m_random.NextDouble());
+        var angle = (float)m_random.NextDouble() * Mathf.Tau;
+        var reference = MathF.Abs(idealDirection.Y) < 0.95f ? Vector3.Up : Vector3.Right;
+        var right = idealDirection.Cross(reference).Normalized();
+        var up = right.Cross(idealDirection).Normalized();
+        return (idealDirection + right * Mathf.Cos(angle) * radius + up * Mathf.Sin(angle) * radius).Normalized();
+    }
 
     private static Marker3D GetNextMount(
         MechDamageSection section,
@@ -905,7 +986,8 @@ public partial class EnemyMech : Node3D
         Vector3 start,
         Vector3 direction,
         float range,
-        MechMountedWeapon weapon)
+        MechMountedWeapon weapon,
+        bool willTrackPlayer)
     {
         public float Delay { get; set; } = delay;
 
@@ -916,5 +998,7 @@ public partial class EnemyMech : Node3D
         public float Range { get; } = range;
 
         public MechMountedWeapon Weapon { get; } = weapon;
+
+        public bool WillTrackPlayer { get; } = willTrackPlayer;
     }
 }

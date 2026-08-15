@@ -24,6 +24,7 @@ public partial class MissionDebrief : Node
     private float m_fadeProgress;
     private float m_inputDelay;
     private bool m_presented;
+    private bool m_fireReleasedSincePresentation;
 
     public MissionDebrief(PlayerMission mission)
     {
@@ -76,6 +77,9 @@ public partial class MissionDebrief : Node
         m_presented = true;
         m_fadeProgress = 0.0f;
         m_inputDelay = 0.6f;
+        // The interaction that completed the mission may still be held down when this opens.
+        // Require a fresh Fire press so the debrief remains on screen for the player to read.
+        m_fireReleasedSincePresentation = false;
         foreach (var child in m_summary.GetChildren())
         {
             child.QueueFree();
@@ -123,31 +127,60 @@ public partial class MissionDebrief : Node
         m_backdrop.Color = new Color(0.0f, 0.0f, 0.0f, opacity * 0.9f);
         m_summary.Modulate = new Color(1.0f, 1.0f, 1.0f, opacity);
         m_inputDelay -= (float)delta;
+        if (m_inputDelay <= 0.0f &&
+            !Input.IsKeyPressed(Key.Space) &&
+            !Input.IsMouseButtonPressed(MouseButton.Left))
+        {
+            m_fireReleasedSincePresentation = true;
+        }
     }
 
     public override void _Input(InputEvent inputEvent)
     {
-        if (!m_presented || m_inputDelay > 0.0f)
+        if (!m_presented)
         {
             return;
         }
 
-        if (inputEvent is InputEventKey
-            {
-                Pressed: true,
-                Echo: false,
-                Keycode: Key.Space or Key.Enter or Key.KpEnter
-            } ||
-            inputEvent is InputEventMouseButton
-            {
-                Pressed: true,
-                ButtonIndex: MouseButton.Left
-            })
+        if (IsFireReleased(inputEvent))
+        {
+            m_fireReleasedSincePresentation = true;
+            return;
+        }
+
+        if (m_inputDelay <= 0.0f &&
+            m_fireReleasedSincePresentation &&
+            IsFirePressed(inputEvent))
         {
             GetViewport().SetInputAsHandled();
             Redeploy();
         }
     }
+
+    private static bool IsFirePressed(InputEvent inputEvent) =>
+        inputEvent is InputEventKey
+        {
+            Pressed: true,
+            Echo: false,
+            Keycode: Key.Space
+        } ||
+        inputEvent is InputEventMouseButton
+        {
+            Pressed: true,
+            ButtonIndex: MouseButton.Left
+        };
+
+    private static bool IsFireReleased(InputEvent inputEvent) =>
+        inputEvent is InputEventKey
+        {
+            Pressed: false,
+            Keycode: Key.Space
+        } ||
+        inputEvent is InputEventMouseButton
+        {
+            Pressed: false,
+            ButtonIndex: MouseButton.Left
+        };
 
     private void Redeploy()
     {

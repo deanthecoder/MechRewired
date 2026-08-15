@@ -24,7 +24,7 @@ This phase is complete when the player can pilot one mech around the battlefield
 
 ## 3. Original mission gameplay
 
-- Apply decoded MEK weapon loadouts to enemy mechs; player and hostile weapons now use their authored damage, range, recycle, ammunition and section availability.
+- Apply decoded MEK weapon loadouts to enemy mechs; player and hostile weapons now use their authored damage, range, recycle, ammunition and section availability. Hostiles also respect their MEK heat sinks, pause before sustained overheat, use GPS gunnery skill for imperfect shots, and accelerate over several strides.
 - Assemble the player mech from its authored chassis BWD hierarchy and map decoded MEK weapons to its `POFO` firing-point markers, replacing the current cockpit-relative laser origins so cockpit and external views share the correct barrel and missile-rack exits.
 - Replace the current Pyre Light-specific resource constants with a scenario-driven mission definition that resolves the planet, battlefield, deployment and NAV sequence from the original data. — scenario BWD resolution is implemented; the default pilot MEK now resolves its chassis through MECH.MTB and retains its raw MEK loadout. Campaign/mech-lab selection, music and selectable missions remain
 - Decode the remaining mission metadata (`MTBL`, `TSK` and `AFFL`) and compare Pyre Light with structurally different missions before settling the runtime model. — MTBL fixed records and Pyre Light trigger/goal flags decoded; comparison, TSK and AFFL remain
@@ -40,9 +40,9 @@ This phase is complete when one original mission can be played from deployment t
 
 - Add terrain-aware leg IK after the shared `MechRig` gait is in place.
 - Improve cockpit shadow quality, stabilize nearby building shadows and tune shadow darkness for the dusk palette.
-- Tune particles for explosions, smoke, sparks, dust and damage feedback. — dust and damage scaling remain
-- Complete fuller task animation for BWD-authored Wolf DropShip set-pieces.
-- Tune exploding structure chunks. — visual tuning remains
+- Tune particles for explosions, smoke, sparks, dust and damage feedback. — pooled footfall, weapon-impact and DropShip-downwash dust, plus impact sparks and explosion dust, are implemented; visual tuning remains
+- Complete fuller task animation for BWD-authored Wolf DropShip set-pieces. — authored route, lights and engine audio now have approach banking and low-altitude downwash; boarding animation remains
+- Tune exploding structure chunks. — authored active component fragments now detach alongside original wreckage; visual tuning remains
 - Add bloom, glow and cockpit lighting.
 - Add restrained bump or normal mapping without losing the DOS art direction.
 - Add remaining original voice, weapon, fire and mission sound resources, plus CD music where appropriate.

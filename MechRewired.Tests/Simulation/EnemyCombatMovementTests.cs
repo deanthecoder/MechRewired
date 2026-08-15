@@ -115,7 +115,7 @@ public sealed class EnemyCombatMovementTests
 
         var first = movement.Advance(0.1, 500.0, true, 1.0);
         var second = movement.Advance(0.1, 500.0, true, 1.0);
-        for (var i = 0; i < 20; i++)
+        for (var i = 0; i < 30; i++)
         {
             movement.Advance(0.1, 500.0, true, 1.0);
         }
