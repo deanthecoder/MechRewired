@@ -27,6 +27,7 @@ public partial class PlayerHud : Control
     private const float ReferenceHeight = 720.0f;
     private const float RadarRadius = 91.0f;
     private const float RadarPowerTransitionSeconds = 0.35f;
+    private const float HudPowerTransitionSeconds = 0.28f;
     private const float CompassScale = 0.75f;
     private const float CompassPixelsPerDegree = 3.2f * CompassScale;
     private const float AltimeterPixelsPerMeter = 14.0f;
@@ -56,6 +57,7 @@ public partial class PlayerHud : Control
     private float m_scale = 1.0f;
     private Vector2 m_offset;
     private float m_radarPower = 1.0f;
+    private float m_hudPower = 1.0f;
 
     public PlayerHud(
         PlayerMech playerMech,
@@ -98,6 +100,11 @@ public partial class PlayerHud : Control
             m_radarPower,
             radarTarget,
             (float)delta / RadarPowerTransitionSeconds);
+        m_hudPower = Mathf.MoveToward(
+            m_hudPower,
+            radarTarget,
+            (float)delta / HudPowerTransitionSeconds);
+        SelfModulate = new Color(1.0f, 1.0f, 1.0f, m_hudPower);
 
         if (Visible)
         {
@@ -150,11 +157,6 @@ public partial class PlayerHud : Control
             (Size.Y - ReferenceHeight * m_scale) * 0.5f);
 
         DrawRadar();
-        if (m_targeting.IsShutdown)
-        {
-            return;
-        }
-
         DrawCompass();
         DrawWeapons();
         DrawHeat();
