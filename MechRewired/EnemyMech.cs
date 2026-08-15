@@ -585,7 +585,8 @@ public partial class EnemyMech : Node3D
                 pending.Direction,
                 pending.Range,
                 () => m_playerMech.IsDestroyed ? null : m_playerMech.TargetPosition,
-                impact => ApplyWeaponDamage(pending.Weapon, impact, null));
+                impact => ApplyWeaponDamage(pending.Weapon, impact, null),
+                terrainImpact: m_battlefieldEffects.SpawnWeaponImpact);
             m_pendingMissiles.RemoveAt(index);
         }
     }

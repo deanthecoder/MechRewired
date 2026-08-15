@@ -27,6 +27,7 @@ public partial class PlayerTargeting : Node
     private const float ObjectiveHighlightRange = 300.0f;
     private const float MissileLockSeconds = 1.5f;
     private const float MissileLockConeDegrees = 8.0f;
+    private const float MissileGuidanceArmingDistance = 55.0f;
     private const float HeatWarningFraction = 0.8f;
     private const int MissilePoolSize = 64;
 
@@ -742,13 +743,14 @@ public partial class PlayerTargeting : Node
                 missile * 0.035f + m_missileLaunchRandom.NextSingle() * 0.015f,
                 start,
                 lockedTarget != null
-                    ? start.DirectionTo(lockedTarget.TargetPosition)
+                    ? forward
                     : fixedAimPosition.HasValue
                         ? start.DirectionTo(fixedAimPosition.Value)
                         : forward,
                 (float)weapon.Specification.RangeMeters,
                 targetPosition,
-                impact));
+                impact,
+                lockedTarget != null ? MissileGuidanceArmingDistance : 0.0f));
         }
     }
 
@@ -1015,7 +1017,9 @@ public partial class PlayerTargeting : Node
                 pending.Direction,
                 pending.Range,
                 pending.TargetPosition,
-                pending.Impact);
+                pending.Impact,
+                pending.GuidanceArmingDistance,
+                m_battlefieldEffects.SpawnWeaponImpact);
             m_pendingMissiles.RemoveAt(index);
         }
     }
@@ -1285,7 +1289,8 @@ public partial class PlayerTargeting : Node
         Vector3 direction,
         float range,
         Func<Vector3?> targetPosition,
-        Action<Vector3> impact)
+        Action<Vector3> impact,
+        float guidanceArmingDistance)
     {
         public float Delay { get; set; } = delay;
 
@@ -1298,6 +1303,8 @@ public partial class PlayerTargeting : Node
         public Func<Vector3?> TargetPosition { get; } = targetPosition;
 
         public Action<Vector3> Impact { get; } = impact;
+
+        public float GuidanceArmingDistance { get; } = guidanceArmingDistance;
     }
 
     private sealed class PendingWeaponRepeat(int weaponIndex, int remaining, float delay)

@@ -29,6 +29,8 @@ public partial class MissileEffect : Node3D
     private Vector3 m_targetVelocity;
     private Func<Vector3?> m_targetPosition;
     private Action<Vector3> m_impact;
+    private Action<Vector3> m_terrainImpact;
+    private float m_guidanceArmingDistance;
 
     public MissileEffect(bool carriesLight)
     {
@@ -99,7 +101,9 @@ public partial class MissileEffect : Node3D
         Vector3 direction,
         float range,
         Func<Vector3?> targetPosition,
-        Action<Vector3> impact)
+        Action<Vector3> impact,
+        float guidanceArmingDistance = 0.0f,
+        Action<Vector3> terrainImpact = null)
     {
         GlobalPosition = position;
         m_direction = direction.Normalized();
@@ -109,6 +113,8 @@ public partial class MissileEffect : Node3D
         m_targetVelocity = Vector3.Zero;
         m_targetPosition = targetPosition;
         m_impact = impact;
+        m_guidanceArmingDistance = Math.Max(guidanceArmingDistance, 0.0f);
+        m_terrainImpact = terrainImpact;
         Age = 0.0f;
         IsActive = true;
         Visible = true;
@@ -126,7 +132,9 @@ public partial class MissileEffect : Node3D
 
         var elapsed = (float)delta;
         Age += elapsed;
-        var target = m_targetPosition?.Invoke();
+        var target = m_distanceTravelled >= m_guidanceArmingDistance
+            ? m_targetPosition?.Invoke()
+            : null;
         if (target.HasValue)
         {
             if (m_previousTargetPosition.HasValue && elapsed > 0.0001f)
@@ -158,6 +166,13 @@ public partial class MissileEffect : Node3D
 
         var distance = SpeedMetersPerSecond * elapsed;
         var nextPosition = GlobalPosition + m_direction * distance;
+        if (TryFindTerrainImpact(GlobalPosition, nextPosition, out var terrainImpact))
+        {
+            m_terrainImpact?.Invoke(terrainImpact);
+            Deactivate();
+            return;
+        }
+
         if (target.HasValue && DistanceToSegment(target.Value, GlobalPosition, nextPosition) <= ImpactRadius)
         {
             var impact = target.Value;
@@ -190,6 +205,28 @@ public partial class MissileEffect : Node3D
         SetProcess(false);
         m_targetPosition = null;
         m_impact = null;
+        m_terrainImpact = null;
+        m_guidanceArmingDistance = 0.0f;
+    }
+
+    private bool TryFindTerrainImpact(Vector3 start, Vector3 end, out Vector3 impactPosition)
+    {
+        impactPosition = Vector3.Zero;
+        if (start.IsEqualApprox(end))
+        {
+            return false;
+        }
+
+        var query = PhysicsRayQueryParameters3D.Create(start, end, BattlefieldPhysics.TerrainLayer);
+        query.HitBackFaces = true;
+        var result = GetWorld3D().DirectSpaceState.IntersectRay(query);
+        if (result.Count == 0)
+        {
+            return false;
+        }
+
+        impactPosition = result["position"].AsVector3();
+        return true;
     }
 
     private static float DistanceToSegment(Vector3 point, Vector3 start, Vector3 end)
