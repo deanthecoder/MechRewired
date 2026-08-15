@@ -90,8 +90,8 @@ public static class MechWarriorModelMeshBuilder
         {
             var indexedImage = materialImages[materialGroup.Key];
             var textureCoordinateScale = new Vector2(
-                1.0f / Math.Max(indexedImage.Width - 1, 1),
-                1.0f / Math.Max(indexedImage.Height - 1, 1));
+                1.0f / indexedImage.Width,
+                1.0f / indexedImage.Height);
             using var surfaceTool = BeginTriangles();
             foreach (var polygon in materialGroup)
             {
@@ -201,7 +201,9 @@ public static class MechWarriorModelMeshBuilder
         {
             for (var x = 0; x < indexedImage.Width; x++)
             {
-                var paletteIndex = indexedImage.GetPixel(x, y);
+                // MW2 XEL scanlines are stored bottom-to-top. Preserve the original
+                // orientation before the material samples the source UV coordinates.
+                var paletteIndex = indexedImage.GetPixel(x, indexedImage.Height - y - 1);
                 if (paletteIndex == byte.MaxValue)
                 {
                     image.SetPixel(x, y, Colors.Transparent);
