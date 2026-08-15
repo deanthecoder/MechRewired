@@ -31,6 +31,7 @@ public sealed record PlayerMechSounds(
     AudioStreamWav NavigationPointTone,
     IReadOnlyList<AudioStreamWav> NavigationPointReports,
     AudioStreamWav DisplayZoom,
+    AudioStreamWav ExternalCameraEngaged,
     IReadOnlyDictionary<string, AudioStreamWav> WeaponFireSounds,
     AudioStreamWav MissileLock,
     AudioStreamWav WeaponUnavailable,
@@ -59,6 +60,7 @@ public sealed record PlayerMechSounds(
     private const string EnemyMechDestroyedPath = "SNDS/BET75.SFL";
     private const string NavigationPointTonePath = "SNDS/MECNAVPT.SFL";
     private const string DisplayZoomPath = "SNDS/VIEWZOOM.SFL";
+    private const string ExternalCameraEngagedPath = "SNDS/BET71.SFL";
     private const string MissileLockPath = "SNDS/BET73.SFL";
     private const string WeaponUnavailablePath = "SNDS/MECWPTG1.SFL";
     private const string ChainFirePath = "SNDS/BET14_1.SFL";
@@ -122,6 +124,7 @@ public sealed record PlayerMechSounds(
                     $"Pyre Light NAV {index + 1} arrival report"))
                 .ToArray(),
             LoadResource(archive, DisplayZoomPath, true, "cockpit display zoom motor"),
+            LoadResource(archive, ExternalCameraEngagedPath, false, "external-camera engaged report"),
             WeaponFireResourceNames.ToDictionary(
                 resourceName => resourceName,
                 resourceName => LoadResource(

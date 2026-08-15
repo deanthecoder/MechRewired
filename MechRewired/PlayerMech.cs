@@ -76,6 +76,7 @@ public partial class PlayerMech : Node3D
     private readonly AudioStreamPlayer m_reactorHum;
     private readonly AudioStreamPlayer m_deploymentReport;
     private readonly AudioStreamPlayer m_displayZoom;
+    private readonly AudioStreamPlayer m_externalCameraEngaged;
     private readonly AudioStreamPlayer m_driveTransition;
     private readonly AudioStreamPlayer m_damageImpact;
     private readonly AudioStreamPlayer m_criticalHit;
@@ -159,6 +160,11 @@ public partial class PlayerMech : Node3D
             VolumeDb = -2.0f,
             MaxPolyphony = 2
         };
+        m_externalCameraEngaged = new AudioStreamPlayer
+        {
+            Name = "ExternalCameraEngaged",
+            Stream = sounds.ExternalCameraEngaged
+        };
         m_startWalking = sounds.StartWalking;
         m_stopWalking = sounds.StopWalking;
         m_startRunning = sounds.StartRunning;
@@ -187,6 +193,7 @@ public partial class PlayerMech : Node3D
         AddChild(m_reactorHum);
         AddChild(m_deploymentReport);
         AddChild(m_displayZoom);
+        AddChild(m_externalCameraEngaged);
         AddChild(m_driveTransition);
         AddChild(m_damageImpact);
         AddChild(m_criticalHit);
@@ -1090,6 +1097,7 @@ public partial class PlayerMech : Node3D
             ExternalCamera.LookAt(center - Torso.GlobalBasis.Z.Normalized());
             CockpitCamera.Current = false;
             ExternalCamera.Current = true;
+            m_externalCameraEngaged.Play();
             GD.Print("MechRewired: external follow camera engaged.");
             return;
         }

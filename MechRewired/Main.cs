@@ -38,9 +38,7 @@ public partial class Main : Node3D
     private const float MaximumFogDistance = 5000.0f;
     private const float MinimumSceneryObstacleHeight = 5.0f;
     private const string DefaultScenarioPath = "BWD/YELLSCN1.BWD";
-    private const string PlayerMechPath = "MEK/MDG00STD.MEK";
-    private const string PlayerChassisPath = "BWD/MADDOG.BWD";
-    private const string PlayerChassisName = "Mad Dog";
+    private const string DefaultPlayerMechPath = "MEK/MDG00STD.MEK";
     private static readonly IReadOnlyDictionary<string, string> DamageShapePrefixes =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -83,6 +81,7 @@ public partial class Main : Node3D
                 out var archive,
                 out var palette,
                 out var playerChassis,
+                out var playerChassisName,
                 out var level,
                 out var planet,
                 out var luminosityTable,
@@ -102,6 +101,7 @@ public partial class Main : Node3D
                 archive,
                 palette,
                 playerChassis,
+                playerChassisName,
                 level,
                 planet,
                 luminosityTable,
@@ -137,6 +137,7 @@ public partial class Main : Node3D
         out MechWarriorProjectArchive archive,
         out MechWarriorPalette palette,
         out MechWarriorMechChassis playerChassis,
+        out string playerChassisName,
         out MechWarriorLevel level,
         out MechWarriorWorldFile planet,
         out MechWarriorLuminosityTable luminosityTable,
@@ -150,6 +151,7 @@ public partial class Main : Node3D
         archive = null;
         palette = null;
         playerChassis = null;
+        playerChassisName = null;
         level = null;
         planet = null;
         luminosityTable = null;
@@ -184,15 +186,19 @@ public partial class Main : Node3D
             palette = MechWarriorPalette.Load(archive.ReadEntry(paletteEntry));
             GD.Print($"MechRewired: loaded {paletteEntry.Path} ({palette.Colors.Count} colors).");
 
-            var playerChassisEntry = archive.GetEntry(PlayerChassisPath);
+            var playerMechEntry = archive.GetEntry(DefaultPlayerMechPath);
+            var mechCatalog = MechWarriorMechCatalog.Load(archive);
+            var playerChassisIdentity = mechCatalog.ResolveConfiguration(playerMechEntry.Name);
+            var playerChassisEntry = archive.GetEntry(
+                $"BWD/{playerChassisIdentity.ResourceName.ToUpperInvariant()}.BWD");
             playerChassis = MechWarriorMechChassis.Load(archive.ReadEntry(playerChassisEntry));
+            playerChassisName = playerChassisIdentity.DisplayName;
             GD.Print(
-                $"MechRewired: loaded {playerChassisEntry.Path} player chassis " +
-                $"({playerChassis.Objects.Count} authored objects, " +
+                $"MechRewired: resolved player configuration {playerMechEntry.Path} through MECH.MTB " +
+                $"as {playerChassisName} ({playerChassisIdentity.Tonnage} tons; " +
+                $"{playerChassisEntry.Path}; {playerChassis.Objects.Count} authored objects, " +
                 $"{playerChassis.PointsOfFire.Count} firing points).");
-            var playerMechEntry = archive.GetEntry(PlayerMechPath);
             playerMechDefinition = MechWarriorMechFile.Load(archive.ReadEntry(playerMechEntry));
-            playerMechDefinition = ApplyPyreLightPlayerLoadout(playerMechDefinition);
             GD.Print(
                 $"MechRewired: loaded {playerMechEntry.Path} ({playerMechDefinition.Tonnage} tons; " +
                 $"{playerMechDefinition.WalkingMovementPoints} walking movement points; " +
@@ -293,31 +299,6 @@ public partial class Main : Node3D
         }
     }
 
-    private static MechWarriorMechFile ApplyPyreLightPlayerLoadout(MechWarriorMechFile chassis)
-    {
-        static MechMountedWeapon Weapon(ushort sourceId, MechDamageSection section)
-        {
-            if (!MechWeaponCatalog.TryGet(sourceId, out var specification))
-            {
-                throw new InvalidDataException($"MW2 weapon instance {sourceId} is not supported.");
-            }
-
-            return new MechMountedWeapon(sourceId, specification, section, 0);
-        }
-
-        // Preserve the weapon set observed in the original Pyre Light cockpit while the remaining
-        // MDG00STD configuration continues to supply the Mad Dog's authored movement and armor.
-        return chassis.WithWeapons(
-        [
-            Weapon(2501, MechDamageSection.LeftArm),
-            Weapon(2502, MechDamageSection.RightArm),
-            Weapon(2601, MechDamageSection.LeftTorso),
-            Weapon(2602, MechDamageSection.RightTorso),
-            Weapon(1, MechDamageSection.LeftTorso),
-            Weapon(2, MechDamageSection.RightTorso)
-        ]);
-    }
-
     private static MissionDefinition LoadMissionDefinition(
         MechWarriorProjectEntry scenarioEntry,
         MechWarriorWorldFile scenario)
@@ -398,6 +379,7 @@ public partial class Main : Node3D
         MechWarriorProjectArchive archive,
         MechWarriorPalette palette,
         MechWarriorMechChassis playerChassis,
+        string playerChassisName,
         MechWarriorLevel level,
         MechWarriorWorldFile planet,
         MechWarriorLuminosityTable luminosityTable,
@@ -936,7 +918,7 @@ public partial class Main : Node3D
 
         if (!hasBounds)
         {
-            throw new InvalidDataException($"{PlayerChassisPath} contains no supported renderable mech parts.");
+            throw new InvalidDataException($"The {playerChassisName} chassis contains no supported renderable mech parts.");
         }
 
         var deploymentPosition = MechWarriorCoordinateSystem.ToGodotPosition(playerStart.Position);
@@ -1018,7 +1000,7 @@ public partial class Main : Node3D
         AddChild(hudLayer);
         var playerDamageSilhouette = LoadDamageSilhouette(
             archive,
-            PlayerChassisName,
+            playerChassisName,
             playerChassis);
         var playerHud = new PlayerHud(
             playerMech,
@@ -1037,7 +1019,7 @@ public partial class Main : Node3D
         hudLayer.AddChild(playerHud);
 
         GD.Print(
-            $"MechRewired: deployed PlayerMech {PlayerChassisName} at MW2 " +
+            $"MechRewired: deployed PlayerMech {playerChassisName} at MW2 " +
             $"({playerStart.Position.X:F2}, {playerStart.Position.Y:F2}, {playerStart.Position.Z:F2}), " +
             $"heading {playerStart.StartingAngle} degrees, feet at rendered Y={surfaceHeight:F2} " +
             $"({renderedPartCount} parts, {vertexCount} source vertices, " +
