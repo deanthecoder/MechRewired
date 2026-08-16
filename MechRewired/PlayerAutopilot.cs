@@ -80,6 +80,7 @@ public partial class PlayerAutopilot : Node
         playerMech.DamageReceived += _ => Deactivate("incoming damage");
         playerMech.MovementBlocked += reason => Deactivate($"blocked by {reason}");
         playerMech.Destroyed += () => Deactivate("mech destruction");
+        navigation.NavigationPointReached += OnNavigationPointReached;
     }
 
     public bool IsActive { get; private set; }
@@ -183,6 +184,14 @@ public partial class PlayerAutopilot : Node
         m_playerMech.ClearAutopilotControl();
         QueueStatusSound(m_disabledSound);
         GD.Print($"MechRewired: autopilot disengaged ({reason}).");
+    }
+
+    private void OnNavigationPointReached(int index)
+    {
+        if (IsActive && index == m_navigation.SelectedIndex)
+        {
+            Deactivate($"reached NAV '{m_navigation.NavigationPoints[index].Description}'");
+        }
     }
 
     private void QueueStatusSound(AudioStreamPlayer statusSound)
