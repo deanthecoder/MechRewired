@@ -65,14 +65,26 @@ public sealed class MechDrive
 
     public void IncreaseThrottle()
     {
-        var percent = Math.Min(100, ThrottlePercent + 10);
-        ThrottleKey = percent == 100 ? 0 : Math.Max(1, percent / 10);
+        // MW2 reserves 1 for a stopped mech and 0 for maximum throttle. There is no
+        // separate 10% key setting, so the first increase selects key 2 (20%).
+        ThrottleKey = ThrottleKey switch
+        {
+            0 => 0,
+            1 => 2,
+            9 => 0,
+            _ => ThrottleKey + 1
+        };
     }
 
     public void DecreaseThrottle()
     {
-        var percent = Math.Max(0, ThrottlePercent - 10);
-        ThrottleKey = percent == 0 ? 1 : percent / 10;
+        ThrottleKey = ThrottleKey switch
+        {
+            0 => 9,
+            2 => 1,
+            1 => 1,
+            _ => ThrottleKey - 1
+        };
     }
 
     public void ToggleDirection() => IsReversing = !IsReversing;

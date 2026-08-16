@@ -28,6 +28,7 @@ public partial class PlayerHud : Control
     private const float RadarRadius = 91.0f;
     private const float RadarPowerTransitionSeconds = 0.35f;
     private const float HudPowerTransitionSeconds = 0.28f;
+    private const float SpeedGaugeResponseKphPerSecond = 95.0f;
     private const float CompassScale = 0.75f;
     private const float CompassPixelsPerDegree = 3.2f * CompassScale;
     private const float AltimeterPixelsPerMeter = 14.0f;
@@ -58,6 +59,7 @@ public partial class PlayerHud : Control
     private Vector2 m_offset;
     private float m_radarPower = 1.0f;
     private float m_hudPower = 1.0f;
+    private float m_displayedTargetSpeedKph;
 
     public PlayerHud(
         PlayerMech playerMech,
@@ -104,6 +106,10 @@ public partial class PlayerHud : Control
             m_hudPower,
             radarTarget,
             (float)delta / HudPowerTransitionSeconds);
+        m_displayedTargetSpeedKph = Mathf.MoveToward(
+            m_displayedTargetSpeedKph,
+            (float)m_playerMech.Drive.TargetSpeedKph,
+            SpeedGaugeResponseKphPerSecond * (float)delta);
         SelfModulate = new Color(1.0f, 1.0f, 1.0f, m_hudPower);
 
         if (Visible)
@@ -959,7 +965,7 @@ public partial class PlayerHud : Control
 
         const float inset = 3.0f;
         const float sideShadeWidth = 2.0f;
-        var speed = m_playerMech.Drive.TargetSpeedKph;
+        var speed = m_displayedTargetSpeedKph;
         if (speed > 0.001)
         {
             var fraction = (float)Math.Clamp(

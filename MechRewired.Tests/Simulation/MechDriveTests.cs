@@ -43,6 +43,31 @@ public sealed class MechDriveTests
     }
 
     [Test]
+    public void ThrottleAdjustmentFollowsTheOriginalNumberKeySequence()
+    {
+        var drive = new MechDrive(Profile);
+
+        drive.IncreaseThrottle();
+        Assert.That(drive.ThrottleKey, Is.EqualTo(2));
+        Assert.That(drive.ThrottlePercent, Is.EqualTo(20));
+
+        drive.IncreaseThrottle();
+        Assert.That(drive.ThrottleKey, Is.EqualTo(3));
+
+        drive.SetThrottleKey(9);
+        drive.IncreaseThrottle();
+        Assert.That(drive.ThrottleKey, Is.Zero);
+
+        drive.DecreaseThrottle();
+        Assert.That(drive.ThrottleKey, Is.EqualTo(9));
+
+        drive.SetThrottleKey(2);
+        drive.DecreaseThrottle();
+        Assert.That(drive.ThrottleKey, Is.EqualTo(1));
+        Assert.That(drive.ThrottlePercent, Is.Zero);
+    }
+
+    [Test]
     public void DirectionChangeBrakesBeforeAcceleratingInReverse()
     {
         var drive = new MechDrive(Profile);

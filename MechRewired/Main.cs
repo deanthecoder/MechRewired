@@ -1027,6 +1027,13 @@ public partial class Main : Node3D
         playerNavigation.NavigationPointReached += index => playerMission.Apply(new MissionEvent(
             MissionEventKind.NavigationPointReached,
             navigationPoints[index].ResourceName));
+        var playerAutopilot = new PlayerAutopilot(
+            playerMech,
+            playerNavigation,
+            playerMechSounds.Autopilot,
+            playerMechSounds.AutopilotEnabled,
+            playerMechSounds.AutopilotDisabled);
+        AddChild(playerAutopilot);
         var playerTargeting = new PlayerTargeting(
             playerMech,
             playerMission,

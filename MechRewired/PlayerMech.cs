@@ -46,6 +46,13 @@ public partial class PlayerMech : Node3D
     private const float ExternalCameraHeight = 9.1f;
     private const float ExternalCameraPullBackResponse = 2.2f;
     private const float ExternalCameraOrbitResponse = 1.35f;
+    private const float AutopilotProbeMinimumDistance = 30.0f;
+    private const float AutopilotProbeMaximumDistance = 120.0f;
+    private const float AutopilotMaximumSlopeDegrees = 28.0f;
+    private const float AutopilotPreferredSlopeDegrees = 12.0f;
+    private static readonly float[] AutopilotHeadingOffsetsDegrees =
+        [0.0f, 15.0f, -15.0f, 30.0f, -30.0f, 45.0f, -45.0f, 60.0f, -60.0f, 75.0f, -75.0f, 90.0f, -90.0f];
+    private static readonly float[] AutopilotProbeFractions = [0.25f, 0.5f, 0.75f, 1.0f];
 
     private IReadOnlyList<DebugTriangle> m_terrainTriangles = Array.Empty<DebugTriangle>();
     private Func<IReadOnlyList<SceneryObstacle>> m_sceneryObstacleProvider = () => Array.Empty<SceneryObstacle>();
@@ -93,6 +100,7 @@ public partial class PlayerMech : Node3D
     private float m_externalCameraYaw;
     private float m_externalCameraDistance;
     private float m_externalCameraWorldHeight;
+    private float? m_autopilotSteering;
 
     public PlayerMech(
         MechWarriorMechFile mechDefinition,
@@ -217,6 +225,8 @@ public partial class PlayerMech : Node3D
 
     public bool IsShutdownOverride => m_shutdownOverride;
 
+    public bool IsTranslationLocked => m_translationLocked;
+
     public MechDamageModel Damage => m_damageModel;
 
     public bool IsImmobilized =>
@@ -271,6 +281,18 @@ public partial class PlayerMech : Node3D
 
     public event Action ShutdownOverrideRequested;
 
+    /// <summary>Raised when the pilot toggles the original autopilot command.</summary>
+    public event Action AutopilotToggleRequested;
+
+    /// <summary>Raised when the player has taken a manual gameplay action.</summary>
+    public event Action<string> ManualControlRequested;
+
+    /// <summary>Raised when incoming damage should interrupt automatic travel.</summary>
+    public event Action<int> DamageReceived;
+
+    /// <summary>Raised once when forward travel is blocked by terrain or scenery.</summary>
+    public event Action<string> MovementBlocked;
+
     public event Action Destroyed;
 
     /// <summary>Raised at each planted foot so shared battlefield effects can follow the authored gait.</summary>
@@ -290,6 +312,7 @@ public partial class PlayerMech : Node3D
 
         var previousHealth = Health;
         var result = m_damageModel.ApplyDamage(section, damage, fromRear);
+        DamageReceived?.Invoke(damage);
         PlayDamageImpact();
         m_damageShudderRemaining = DamageShudderDuration;
         m_damageShudderStrength = Mathf.Clamp(damage / 8.0f, 0.5f, 1.25f);
@@ -346,6 +369,103 @@ public partial class PlayerMech : Node3D
         GD.Print(
             "MechRewired: extraction reached; PlayerMech braking to 0 km/h with translation controls locked " +
             "(steering and torso controls remain active).");
+    }
+
+    /// <summary>Applies one frame of computer-guided steering and selected cruise speed.</summary>
+    public void SetAutopilotControl(float steering, int throttleKey)
+    {
+        if (IsDestroyed || IsShutdown || m_translationLocked)
+        {
+            return;
+        }
+
+        m_autopilotSteering = Mathf.Clamp(steering, -1.0f, 1.0f);
+        if (Drive.ThrottleKey == throttleKey)
+        {
+            return;
+        }
+
+        var previousTargetSpeedKph = Drive.TargetSpeedKph;
+        Drive.SetThrottleKey(throttleKey);
+        PlayDriveTransition(previousTargetSpeedKph);
+    }
+
+    /// <summary>Releases the computer controls and applies normal momentum-based braking.</summary>
+    public void ClearAutopilotControl()
+    {
+        if (!m_autopilotSteering.HasValue)
+        {
+            return;
+        }
+
+        m_autopilotSteering = null;
+        var previousTargetSpeedKph = Drive.TargetSpeedKph;
+        Drive.SelectStop();
+        PlayDriveTransition(previousTargetSpeedKph);
+    }
+
+    /// <summary>
+    /// Selects the closest unobstructed heading around the requested bearing for local autopilot use.
+    /// </summary>
+    public bool TryFindAutopilotHeading(float desiredHeadingRadians, float targetDistance, out float headingRadians)
+    {
+        var probeDistance = Mathf.Clamp(
+            targetDistance * 0.35f,
+            AutopilotProbeMinimumDistance,
+            AutopilotProbeMaximumDistance);
+        var hasCourse = false;
+        var bestScore = float.PositiveInfinity;
+        headingRadians = desiredHeadingRadians;
+        foreach (var offsetDegrees in AutopilotHeadingOffsetsDegrees)
+        {
+            var candidateHeading = desiredHeadingRadians + Mathf.DegToRad(offsetDegrees);
+            var forward = new Vector3(-Mathf.Sin(candidateHeading), 0.0f, -Mathf.Cos(candidateHeading));
+            if (!TryGetAutopilotCourseSlope(forward, probeDistance, out var maximumSlope))
+            {
+                continue;
+            }
+
+            // Gentle grades are fine. Above the preferred grade, increasingly favour a
+            // modest detour rather than trying to climb straight up a mountain.
+            var excessSlope = Mathf.Max(0.0f, maximumSlope - AutopilotPreferredSlopeDegrees);
+            var score = excessSlope * excessSlope * 0.5f + Mathf.Abs(offsetDegrees);
+            if (score >= bestScore)
+            {
+                continue;
+            }
+
+            hasCourse = true;
+            bestScore = score;
+            headingRadians = candidateHeading;
+        }
+
+        return hasCourse;
+    }
+
+    private bool TryGetAutopilotCourseSlope(Vector3 forward, float probeDistance, out float maximumSlope)
+    {
+        maximumSlope = 0.0f;
+        var start = new System.Numerics.Vector2(Position.X, Position.Z);
+        var obstacles = m_sceneryObstacleProvider();
+        foreach (var fraction in AutopilotProbeFractions)
+        {
+            var candidate = Position + forward * (probeDistance * fraction);
+            if (!TryGetSurface(candidate, out _, out var slopeDegrees) ||
+                slopeDegrees > AutopilotMaximumSlopeDegrees ||
+                SceneryCollision.TryFindBlockingObstacle(
+                    start,
+                    new System.Numerics.Vector2(candidate.X, candidate.Z),
+                    m_footprintRadius,
+                    obstacles,
+                    out _))
+            {
+                return false;
+            }
+
+            maximumSlope = Mathf.Max(maximumSlope, slopeDegrees);
+        }
+
+        return true;
     }
 
     public void SetShutdownState(bool shutdown, string reason)
@@ -474,7 +594,7 @@ public partial class PlayerMech : Node3D
 
         GD.Print(
             $"MechRewired: player controls ready (1-0 throttle; -/= adjust; Backspace reverses; " +
-            $"Left/Right steer; mouse aims torso; M aligns legs; / centers torso; C toggles follow camera; " +
+            $"Left/Right steer; A toggles NAV autopilot; mouse aims torso; M aligns legs; / centers torso; C toggles follow camera; " +
             $"maximum {Drive.Profile.MaximumForwardSpeedKph:F1} km/h, " +
             $"reverse {Drive.Profile.MaximumForwardSpeedKph * Drive.Profile.ReverseSpeedFactor:F1} km/h).");
     }
@@ -540,6 +660,10 @@ public partial class PlayerMech : Node3D
         if (manualSteering)
         {
             m_aligningLegsToTorso = false;
+        }
+        else if (m_autopilotSteering.HasValue)
+        {
+            steering = m_autopilotSteering.Value;
         }
 
         ApplyKeyboardTorsoAim(delta, isPilotCamera, headLookHeld);
@@ -652,15 +776,20 @@ public partial class PlayerMech : Node3D
             return;
         }
 
+        if (IsManualControlInput(inputEvent))
+        {
+            ManualControlRequested?.Invoke(GetManualControlName(inputEvent));
+        }
+
         switch (inputEvent)
         {
             case InputEventKey { Pressed: true, Echo: false, ShiftPressed: true } groupEvent
-                when TryGetWeaponGroup(groupEvent.Keycode, out var group):
+                when groupEvent.Unicode != '+' && TryGetWeaponGroup(groupEvent.Keycode, out var group):
                 AssignWeaponGroupRequested?.Invoke(group);
                 GetViewport().SetInputAsHandled();
                 break;
 
-            case InputEventKey { Pressed: true, Echo: false } keyEvent when TryHandleDriveKey(keyEvent.Keycode):
+            case InputEventKey { Pressed: true, Echo: false } keyEvent when TryHandleDriveKey(keyEvent):
                 GetViewport().SetInputAsHandled();
                 break;
 
@@ -671,6 +800,11 @@ public partial class PlayerMech : Node3D
 
             case InputEventKey { Pressed: true, Echo: false, Keycode: Key.O }:
                 ShutdownOverrideRequested?.Invoke();
+                GetViewport().SetInputAsHandled();
+                break;
+
+            case InputEventKey { Pressed: true, Echo: false, Keycode: Key.A }:
+                AutopilotToggleRequested?.Invoke();
                 GetViewport().SetInputAsHandled();
                 break;
 
@@ -804,6 +938,30 @@ public partial class PlayerMech : Node3D
         }
     }
 
+    private static bool IsManualControlInput(InputEvent inputEvent) => inputEvent switch
+    {
+        InputEventMouseButton { Pressed: true } => true,
+        // Aiming the torso/head never changes the computer-guided chassis route.
+        InputEventKey { Pressed: true, Echo: false, ShiftPressed: true, Keycode: Key.Left or Key.Right } => false,
+        InputEventKey { Pressed: true, Echo: false, Keycode: var key } => key is (
+            Key.Key0 or Key.Key1 or Key.Key2 or Key.Key3 or Key.Key4 or Key.Key5 or
+            Key.Key6 or Key.Key7 or Key.Key8 or Key.Key9 or
+            Key.Equal or Key.Plus or Key.Minus or Key.Backspace or Key.Quoteleft or
+            Key.Left or Key.Right or
+            Key.S or Key.O or Key.Slash or Key.C or Key.Z or Key.M or
+            Key.Enter or Key.Backslash or Key.Apostrophe or Key.Semicolon or
+            Key.T or Key.R or Key.E or Key.Q or Key.I or Key.Space),
+        _ => false
+    };
+
+    private static string GetManualControlName(InputEvent inputEvent) => inputEvent switch
+    {
+        InputEventMouseMotion => "mouse aim",
+        InputEventMouseButton => "mouse control",
+        InputEventKey keyEvent => keyEvent.AsText(),
+        _ => "manual control"
+    };
+
     public void LogMovementState()
     {
         GD.Print(
@@ -860,9 +1018,14 @@ public partial class PlayerMech : Node3D
         }
     }
 
-    private bool TryHandleDriveKey(Key key)
+    private bool TryHandleDriveKey(InputEventKey keyEvent)
     {
-        var throttleKey = key switch
+        var key = keyEvent.Keycode;
+        // macOS keyboard layouts can report '+' as a shifted number-row key. Prefer the
+        // produced character when it is available, so it cannot be misread as a speed key.
+        var isIncrease = key is Key.Equal or Key.Plus or Key.KpAdd || keyEvent.Unicode == '+';
+        var isDecrease = key is Key.Minus or Key.KpSubtract || keyEvent.Unicode == '-';
+        var throttleKey = isIncrease || isDecrease ? -1 : key switch
         {
             Key.Key0 => 0,
             Key.Key1 => 1,
@@ -878,7 +1041,7 @@ public partial class PlayerMech : Node3D
         };
         var previousTargetSpeedKph = Drive.TargetSpeedKph;
         if (m_translationLocked &&
-            (throttleKey >= 0 || key is Key.Equal or Key.Minus or Key.Backspace or Key.Quoteleft))
+            (throttleKey >= 0 || isIncrease || isDecrease || key is Key.Backspace or Key.Quoteleft))
         {
             GD.Print(
                 $"MechRewired: PlayerMech translation command ignored; movement locked for " +
@@ -887,7 +1050,7 @@ public partial class PlayerMech : Node3D
         }
 
         if (IsShutdown &&
-            (throttleKey >= 0 || key is Key.Equal or Key.Minus or Key.Backspace or Key.Quoteleft))
+            (throttleKey >= 0 || isIncrease || isDecrease || key is Key.Backspace or Key.Quoteleft))
         {
             GD.Print("MechRewired: PlayerMech translation command ignored; reactor is shut down.");
             return true;
@@ -907,20 +1070,24 @@ public partial class PlayerMech : Node3D
             return true;
         }
 
+        if (isIncrease)
+        {
+            Drive.IncreaseThrottle();
+            PlayDriveTransition(previousTargetSpeedKph);
+            LogThrottleChange();
+            return true;
+        }
+
+        if (isDecrease)
+        {
+            Drive.DecreaseThrottle();
+            PlayDriveTransition(previousTargetSpeedKph);
+            LogThrottleChange();
+            return true;
+        }
+
         switch (key)
         {
-            case Key.Equal:
-                Drive.IncreaseThrottle();
-                PlayDriveTransition(previousTargetSpeedKph);
-                LogThrottleChange();
-                return true;
-
-            case Key.Minus:
-                Drive.DecreaseThrottle();
-                PlayDriveTransition(previousTargetSpeedKph);
-                LogThrottleChange();
-                return true;
-
             case Key.Backspace:
             case Key.Quoteleft:
                 Drive.ToggleDirection();
@@ -1219,6 +1386,7 @@ public partial class PlayerMech : Node3D
         var candidate = Position - GlobalBasis.Z * distanceMeters;
         if (!TryGetSurface(candidate, out var surfaceHeight, out var slopeDegrees))
         {
+            NotifyMovementBlocked("terrain surface unavailable");
             return 0.0f;
         }
 
@@ -1232,6 +1400,7 @@ public partial class PlayerMech : Node3D
             }
 
             m_slopeBlocked = true;
+            NotifyMovementBlocked($"{slopeDegrees:F1}-degree terrain");
             return 0.0f;
         }
 
@@ -1246,6 +1415,7 @@ public partial class PlayerMech : Node3D
         if (!TryGetSurface(candidate, out surfaceHeight, out slopeDegrees) ||
             slopeDegrees > MaximumSlopeDegrees)
         {
+            NotifyMovementBlocked("terrain ahead");
             return 0.0f;
         }
 
@@ -1265,6 +1435,7 @@ public partial class PlayerMech : Node3D
 
             m_sceneryBlocked = true;
             m_lastBlockingObstacle = blockingObstacle;
+            NotifyMovementBlocked($"scenery '{blockingObstacle.Name}'");
             return 0.0f;
         }
 
@@ -1274,6 +1445,14 @@ public partial class PlayerMech : Node3D
         candidate.Y = surfaceHeight - m_modelBottomY;
         Position = candidate;
         return appliedDistance;
+    }
+
+    private void NotifyMovementBlocked(string reason)
+    {
+        if (m_autopilotSteering.HasValue)
+        {
+            MovementBlocked?.Invoke(reason);
+        }
     }
 
     private bool TryGetSurface(Vector3 position, out float height, out float slopeDegrees)

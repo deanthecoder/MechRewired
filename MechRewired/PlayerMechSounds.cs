@@ -32,6 +32,9 @@ public sealed record PlayerMechSounds(
     IReadOnlyList<AudioStreamWav> NavigationPointReports,
     AudioStreamWav DisplayZoom,
     AudioStreamWav ExternalCameraEngaged,
+    AudioStreamWav Autopilot,
+    AudioStreamWav AutopilotEnabled,
+    AudioStreamWav AutopilotDisabled,
     IReadOnlyDictionary<string, AudioStreamWav> WeaponFireSounds,
     AudioStreamWav MissileLock,
     AudioStreamWav WeaponUnavailable,
@@ -61,6 +64,9 @@ public sealed record PlayerMechSounds(
     private const string NavigationPointTonePath = "SNDS/MECNAVPT.SFL";
     private const string DisplayZoomPath = "SNDS/VIEWZOOM.SFL";
     private const string ExternalCameraEngagedPath = "SNDS/BET71.SFL";
+    private const string AutopilotPath = "SNDS/BET70.SFL";
+    private const string AutopilotEnabledPath = "SNDS/BETENGAG.SFL";
+    private const string AutopilotDisabledPath = "SNDS/BETOFF.SFL";
     private const string MissileLockPath = "SNDS/BET73.SFL";
     private const string WeaponUnavailablePath = "SNDS/MECWPTG1.SFL";
     private const string ChainFirePath = "SNDS/BET14_1.SFL";
@@ -125,6 +131,9 @@ public sealed record PlayerMechSounds(
                 .ToArray(),
             LoadResource(archive, DisplayZoomPath, true, "cockpit display zoom motor"),
             LoadResource(archive, ExternalCameraEngagedPath, false, "external-camera engaged report"),
+            LoadResource(archive, AutopilotPath, false, "autopilot report"),
+            LoadResource(archive, AutopilotEnabledPath, false, "autopilot engaged report"),
+            LoadResource(archive, AutopilotDisabledPath, false, "autopilot disabled report"),
             WeaponFireResourceNames.ToDictionary(
                 resourceName => resourceName,
                 resourceName => LoadResource(
