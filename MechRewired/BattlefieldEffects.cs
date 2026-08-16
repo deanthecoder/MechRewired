@@ -874,8 +874,8 @@ public partial class BattlefieldEffects : Node3D
     /// Handles the debug-only live battlefield-effects tuner.
     /// </summary>
     /// <remarks>
-    /// F5 selects a parameter, F6/F7 reduce/increase it, F8 restores the
-    /// authored defaults, and F9 writes the current preset to the log. Hold
+    /// F5 selects a parameter, F6/F7 reduce/increase it, F10 restores the
+    /// authored defaults, and F11 writes the current preset to the log. Hold
     /// Shift while changing a value for a larger adjustment.
     /// </remarks>
     public bool TryHandleDebugInput(InputEventKey keyEvent)
@@ -895,10 +895,10 @@ public partial class BattlefieldEffects : Node3D
             case Key.F7:
                 AdjustDebugParameter(keyEvent.ShiftPressed ? 0.5f : 0.1f);
                 return true;
-            case Key.F8:
+            case Key.F10:
                 ResetDebugTuning();
                 return true;
-            case Key.F9:
+            case Key.F11:
                 LogDebugTuning();
                 return true;
             default:
@@ -1026,7 +1026,7 @@ public partial class BattlefieldEffects : Node3D
         $"MechRewired: VFX tuner [{GetDebugParameterName(m_selectedDebugParameter)}]; " +
         $"fire density {m_fireDensity:F2}, size {m_fireSize:F2}, rise {m_fireRise:F2}, brightness {m_fireBrightness:F2}; " +
         $"smoke density {m_smokeDensity:F2}, size {m_smokeSize:F2}, rise {m_smokeRise:F2}, lifetime {m_smokeLifetime:F2}. " +
-        "F5 select; F6/F7 adjust (Shift x5); F8 reset; F9 log.");
+        "F5 select; F6/F7 adjust (Shift x5); F10 reset; F11 log.");
 
     private static string GetDebugParameterName(DebugVfxParameter parameter) => parameter switch
     {

@@ -8,6 +8,7 @@
 //
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
+using DTC.Core;
 using Godot;
 using MechRewired.Missions;
 using MechRewired.Resources;
@@ -23,11 +24,20 @@ namespace MechRewired;
 /// </remarks>
 public partial class Main : Node3D
 {
-    private const float ImplicitGroundHeight = 0.15f;
+    // MW2 terrain is authored around Y=0. Keep the fallback a centimetre below it so it fills
+    // genuine gaps without covering coplanar source polygons or producing depth-buffer flicker.
+    private const float ImplicitGroundHeight = -0.01f;
     private const int SkyTopPaletteIndex = 224;
     private const int SkyHorizonPaletteIndex = 238;
     private const float DirectionalShadowDistance = 400.0f;
     private const float FallbackSunAzimuthDegrees = 25.0f;
+    // Deliberately balanced starting point for the remaster.  The original palette supplies
+    // the colour language; direct sun, shadowless sky fill, and ambient supply the modern
+    // lighting response.
+    private const float DefaultAmbientLightEnergy = 0.10f;
+    private const float DefaultSunLightEnergy = 0.65f;
+    private const float DefaultSkyFillLightEnergy = 0.25f;
+    private const float AmbientSkyScatterWhitening = 0.45f;
     private const int GeneralIlluminationLevel = 12;
     private const int ObjectIlluminationLevel = 8;
     private const byte MaximumTexturedMechMaterialIndex = 63;
@@ -404,8 +414,13 @@ public partial class Main : Node3D
             SunCurve = 0.08f,
             UseDebanding = true
         };
-        var ambientEnergy = Math.Clamp((planet.Lighting?.AmbientLevel ?? 50) / 100.0f, 0.0f, 1.0f);
-        var directionalEnergy = 1.0f - ambientEnergy;
+        var authoredAmbientEnergy = Math.Clamp(
+            (planet.Lighting?.AmbientLevel ?? 50) / 100.0f,
+            0.0f,
+            1.0f);
+        var ambientEnergy = DefaultAmbientLightEnergy;
+        var ambientLightColor = skyHorizonColor.Lerp(Colors.White, AmbientSkyScatterWhitening);
+        var directionalEnergy = DefaultSunLightEnergy;
         m_environment = new Godot.Environment
         {
             BackgroundMode = Godot.Environment.BGMode.Sky,
@@ -414,7 +429,7 @@ public partial class Main : Node3D
                 SkyMaterial = skyMaterial
             },
             AmbientLightSource = Godot.Environment.AmbientSource.Color,
-            AmbientLightColor = skyHorizonColor,
+            AmbientLightColor = ambientLightColor,
             AmbientLightEnergy = ambientEnergy,
             FogEnabled = true,
             FogMode = Godot.Environment.FogModeEnum.Depth,
@@ -437,8 +452,9 @@ public partial class Main : Node3D
         AddChild(environment);
 
         var sunElevation = GetSunElevation(planet.TimeOfDay);
-        var light = new DirectionalLight3D
+        var sunLight = new DirectionalLight3D
         {
+            Name = "SunLight",
             RotationDegrees = new Vector3(-sunElevation, FallbackSunAzimuthDegrees, 0.0f),
             LightColor = ToGodotColor(palette[17]),
             LightEnergy = directionalEnergy,
@@ -454,11 +470,23 @@ public partial class Main : Node3D
             DirectionalShadowFadeStart = 0.9f,
             DirectionalShadowPancakeSize = 5.0f
         };
-        AddChild(light);
+        AddChild(sunLight);
+        var skyFillLight = new DirectionalLight3D
+        {
+            Name = "SkyFillLight",
+            // The top sky palette colour gives a cool, broad daylight fill without casting a second shadow.
+            LightColor = skyTopColor,
+            LightEnergy = DefaultSkyFillLightEnergy,
+            RotationDegrees = new Vector3(-90.0f, 0.0f, 0.0f),
+            ShadowEnabled = false
+        };
+        AddChild(skyFillLight);
         GD.Print(
             $"MechRewired: rendered mission atmosphere (time {planet.TimeOfDay}; " +
-            $"palette sky {SkyTopPaletteIndex}-{SkyHorizonPaletteIndex}; ambient {ambientEnergy:F2}; " +
+            $"palette sky {SkyTopPaletteIndex}-{SkyHorizonPaletteIndex}; authored ambient " +
+            $"{authoredAmbientEnergy:F2}; runtime defaults ambient {ambientEnergy:F2}, " +
             $"directional {directionalEnergy:F2}; " +
+            $"sky fill {DefaultSkyFillLightEnergy:F2} (palette {SkyTopPaletteIndex}); " +
             $"sun elevation {sunElevation:F1} degrees at {FallbackSunAzimuthDegrees:F0}-degree " +
             $"mirrored fallback azimuth; 8192px 32-bit directional shadows to " +
             $"{DirectionalShadowDistance:F0}m at 90% opacity; depth cue " +
@@ -526,7 +554,7 @@ public partial class Main : Node3D
         var meshCache = new Dictionary<string, IReadOnlyList<ArrayMesh>>(StringComparer.OrdinalIgnoreCase);
         var wireframeCache = new Dictionary<string, IReadOnlyList<ArrayMesh>>(StringComparer.OrdinalIgnoreCase);
         var modelCache = new Dictionary<string, IReadOnlyList<MechWarriorModel>>(StringComparer.OrdinalIgnoreCase);
-        var terrainPaletteCounts = new Dictionary<byte, int>();
+        var groundPaletteWeights = new Dictionary<byte, double>();
         var debugTriangles = new List<DebugTriangle>();
         var worldBounds = new Aabb();
         var hasWorldBounds = false;
@@ -569,14 +597,6 @@ public partial class Main : Node3D
                     wireframeCache.Add(
                         levelObject.ModelEntry.Path,
                         highestDetailModels.Select(MechWarriorModelMeshBuilder.BuildWireframe).ToArray());
-                    if (levelObject.ModelEntry.Name.StartsWith("T_", StringComparison.OrdinalIgnoreCase))
-                    {
-                        foreach (var polygon in highestDetailModels.SelectMany(model => model.Polygons))
-                        {
-                            terrainPaletteCounts.TryGetValue(polygon.PaletteIndex, out var usageCount);
-                            terrainPaletteCounts[polygon.PaletteIndex] = usageCount + polygon.VertexIndices.Count - 2;
-                        }
-                    }
                     GD.Print(
                         $"MechRewired: loaded {levelObject.ModelEntry.Path} ({models.Count} LODs; " +
                         $"rendering LOD {highestDetailIndex}, {highestDetailModels[0].Vertices.Count} vertices, " +
@@ -672,6 +692,14 @@ public partial class Main : Node3D
                 levelRoot.AddChild(objectRoot);
             }
 
+            if (levelObject.Kind == MechWarriorLevelObjectKind.Terrain)
+            {
+                AccumulateGroundPaletteWeights(
+                    groundPaletteWeights,
+                    objectRoot.GlobalTransform,
+                    modelCache[levelObject.ModelEntry.Path]);
+            }
+
             if (battlefieldActor != null &&
                 battlefieldActor.IsDamageable &&
                 !isDestroyedRepresentation &&
@@ -689,7 +717,11 @@ public partial class Main : Node3D
                 var solidInstance = new MeshInstance3D
                 {
                     Mesh = meshes[meshIndex],
-                    CastShadow = GeometryInstance3D.ShadowCastingSetting.DoubleSided
+                    // Terrain WTBs include hidden faces around/beneath their visible land.
+                    // Casting those two-sided shadows blacks out the fallback plane below them.
+                    CastShadow = levelObject.Kind == MechWarriorLevelObjectKind.Terrain
+                        ? GeometryInstance3D.ShadowCastingSetting.On
+                        : GeometryInstance3D.ShadowCastingSetting.DoubleSided
                 };
                 objectRoot.AddChild(solidInstance);
                 solidInstance.AddToGroup(DebugCamera.SolidMeshGroup);
@@ -780,7 +812,7 @@ public partial class Main : Node3D
         AddImplicitGround(
             levelRoot,
             worldBounds,
-            terrainPaletteCounts,
+            groundPaletteWeights,
             palette,
             luminosityTable,
             debugTriangles);
@@ -2035,35 +2067,61 @@ public partial class Main : Node3D
         transform * (MechWarriorCoordinateSystem.ToGodotPosition(vertex.Position) *
                      MechWarriorModelMeshBuilder.SourceUnitScale);
 
+    private static void AccumulateGroundPaletteWeights(
+        IDictionary<byte, double> paletteWeights,
+        Transform3D transform,
+        IReadOnlyList<MechWarriorModel> models)
+    {
+        const float minimumProjectedArea = 0.01f;
+        foreach (var model in models)
+        {
+            foreach (var polygon in model.Polygons)
+            {
+                for (var triangleIndex = 1; triangleIndex < polygon.VertexIndices.Count - 1; triangleIndex++)
+                {
+                    var first = TransformVertex(transform, model.Vertices[polygon.VertexIndices[0]]);
+                    var second = TransformVertex(transform, model.Vertices[polygon.VertexIndices[triangleIndex]]);
+                    var third = TransformVertex(transform, model.Vertices[polygon.VertexIndices[triangleIndex + 1]]);
+                    // Terrain pieces contain dark sealing faces at Y=0 but their actual land
+                    // surfaces sit above that. Select the consistently wound terrain tops and use
+                    // the visible terrain as a whole for the fallback's representative colour.
+                    var projectedArea = (second - first).Cross(third - first).Y * 0.5;
+                    if (projectedArea < minimumProjectedArea)
+                    {
+                        continue;
+                    }
+
+                    paletteWeights.TryGetValue(polygon.PaletteIndex, out var currentWeight);
+                    paletteWeights[polygon.PaletteIndex] = currentWeight + projectedArea;
+                }
+            }
+        }
+    }
+
     private static void AddImplicitGround(
         Node3D levelRoot,
         Aabb worldBounds,
-        IReadOnlyDictionary<byte, int> terrainPaletteCounts,
+        IReadOnlyDictionary<byte, double> groundPaletteWeights,
         MechWarriorPalette palette,
         MechWarriorLuminosityTable luminosityTable,
         ICollection<DebugTriangle> debugTriangles)
     {
         const float margin = 1000.0f;
-        var sourcePaletteIndex = terrainPaletteCounts.MaxBy(entry => entry.Value).Key;
-        var litPaletteIndex = luminosityTable.GetPaletteIndex(
-            sourcePaletteIndex,
-            GeneralIlluminationLevel);
-        var groundColor = ToGodotColor(palette[litPaletteIndex]);
+        var groundColor = CalculateRepresentativeGroundColor(
+            groundPaletteWeights,
+            palette,
+            luminosityTable,
+            out var representativePaletteIndex);
         var center = worldBounds.GetCenter();
         var size = new Vector2(worldBounds.Size.X + margin * 2.0f, worldBounds.Size.Z + margin * 2.0f);
         var ground = new MeshInstance3D
         {
             Name = "ImplicitGround",
             Position = new Vector3(center.X, ImplicitGroundHeight, center.Z),
-            Mesh = new PlaneMesh
-            {
-                Size = size,
-                Material = new StandardMaterial3D
-                {
-                    AlbedoColor = groundColor,
-                    Roughness = 0.95f
-                }
-            }
+            // Source terrain carries its palette colour in vertex data. Use the same path here:
+            // a material tint with the same numeric RGB is colour-managed differently by Godot
+            // and remains visibly darker even in the viewport's unshaded diagnostic mode.
+            Mesh = BuildImplicitGroundMesh(size, groundColor)
         };
         levelRoot.AddChild(ground);
         ground.AddToGroup(DebugCamera.SolidMeshGroup);
@@ -2085,7 +2143,75 @@ public partial class Main : Node3D
         GD.Print(
             $"MechRewired: added implicit ground plane at Y={ImplicitGroundHeight:F2} " +
             $"({size.X:F0} × {size.Y:F0}, " +
-            $"terrain palette index {sourcePaletteIndex} -> luminosity palette index {litPaletteIndex}).");
+            $"visible-terrain palette average -> vertex RGB " +
+            $"({groundColor.R8}, {groundColor.G8}, {groundColor.B8}); nearest palette index {representativePaletteIndex}).");
+    }
+
+    private static Mesh BuildImplicitGroundMesh(Vector2 size, Color color)
+    {
+        return new PlaneMesh
+        {
+            Size = size,
+            Material = new StandardMaterial3D
+            {
+                // Palette colours on WTB terrain are stored as linear vertex colours. Godot's
+                // material tint is sRGB, so convert explicitly to produce the same on-screen RGB.
+                AlbedoColor = color.LinearToSrgb(),
+                Metallic = 0.0f,
+                Roughness = 0.9f,
+                CullMode = BaseMaterial3D.CullModeEnum.Disabled
+            }
+        };
+    }
+
+    private static Color CalculateRepresentativeGroundColor(
+        IReadOnlyDictionary<byte, double> groundPaletteWeights,
+        MechWarriorPalette palette,
+        MechWarriorLuminosityTable luminosityTable,
+        out byte representativePaletteIndex)
+    {
+        if (groundPaletteWeights.Count == 0)
+        {
+            throw new InvalidOperationException("The mission contains no terrain polygons from which to colour the fallback ground.");
+        }
+
+        double totalWeight = 0;
+        double red = 0;
+        double green = 0;
+        double blue = 0;
+        foreach (var (sourcePaletteIndex, weight) in groundPaletteWeights)
+        {
+            var litPaletteIndex = luminosityTable.GetPaletteIndex(sourcePaletteIndex, GeneralIlluminationLevel);
+            var color = palette[litPaletteIndex];
+            totalWeight += weight;
+            red += color.R * weight;
+            green += color.G * weight;
+            blue += color.B * weight;
+        }
+
+        var sampledAverage = new Rgb(
+            (byte)Math.Round(red / totalWeight),
+            (byte)Math.Round(green / totalWeight),
+            (byte)Math.Round(blue / totalWeight));
+        representativePaletteIndex = Enumerable.Range(0, MechWarriorPalette.ColorCount)
+            .Select(index => (Index: (byte)index, Color: palette[index]))
+            .MinBy(candidate =>
+            {
+                var redDifference = candidate.Color.R - sampledAverage.R;
+                var greenDifference = candidate.Color.G - sampledAverage.G;
+                var blueDifference = candidate.Color.B - sampledAverage.B;
+                return redDifference * redDifference +
+                       greenDifference * greenDifference +
+                       blueDifference * blueDifference;
+            })
+            .Index;
+        var representativePaletteColor = palette[representativePaletteIndex];
+        GD.Print(
+            $"MechRewired: sampled visible terrain RGB " +
+            $"({sampledAverage.R},{sampledAverage.G},{sampledAverage.B}) -> palette " +
+            $"{representativePaletteIndex} RGB " +
+            $"({representativePaletteColor.R},{representativePaletteColor.G},{representativePaletteColor.B}).");
+        return ToGodotColor(representativePaletteColor);
     }
 
     /// <summary>

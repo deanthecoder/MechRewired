@@ -22,13 +22,11 @@ public partial class DebugCamera : Camera3D
 {
     public const string SolidMeshGroup = "debug_solid_meshes";
     public const string WireframeMeshGroup = "debug_wireframe_meshes";
-
     private const int WireframeMenuItemId = 1;
-    private const int UnshadedMenuItemId = 2;
-    private const int LogCameraMenuItemId = 3;
-    private const int CycleCameraMenuItemId = 4;
+    private const int LogCameraMenuItemId = 2;
+    private const int CycleCameraMenuItemId = 3;
 #if DEBUG
-    private const int DestroyHostilesMenuItemId = 5;
+    private const int DestroyHostilesMenuItemId = 4;
 #endif
     private const float MoveSpeed = 120.0f;
     private const float BoostMultiplier = 6.0f;
@@ -58,8 +56,8 @@ public partial class DebugCamera : Camera3D
         AddDebugMenu();
         GD.Print(
             "MechRewired: debug camera ready (click to capture; WASD move; Q/E descend/ascend; " +
-            "Shift boosts; F1 wireframe; F2 unshaded; F3 logs camera/cockpit; F4 cycles cameras; " +
-            "F5 VFX parameter; F6/F7 VFX adjust; F8 VFX reset; F9 VFX log; K destroys hostiles; Escape releases).");
+            "Shift boosts; F1 wireframe; F3 logs camera/cockpit; F4 cycles cameras; F5 VFX parameter; " +
+            "F6/F7 VFX adjust; F10 VFX reset; F11 VFX log; K destroys hostiles; Escape releases).");
     }
 
     public override void _Process(double delta)
@@ -115,11 +113,6 @@ public partial class DebugCamera : Camera3D
         {
             case InputEventKey { Pressed: false, Keycode: Key.F1 }:
                 ToggleWireframe();
-                GetViewport().SetInputAsHandled();
-                break;
-
-            case InputEventKey { Pressed: false, Keycode: Key.F2 }:
-                ToggleUnshaded();
                 GetViewport().SetInputAsHandled();
                 break;
 
@@ -180,7 +173,6 @@ public partial class DebugCamera : Camera3D
 
         m_debugMenu = menuButton.GetPopup();
         m_debugMenu.AddCheckItem("Wireframe (F1)", WireframeMenuItemId);
-        m_debugMenu.AddCheckItem("Unshaded (F2)", UnshadedMenuItemId);
         m_debugMenu.AddItem("Log camera (F3)", LogCameraMenuItemId);
         m_debugMenu.AddItem("Cycle camera (F4)", CycleCameraMenuItemId);
 #if DEBUG
@@ -198,25 +190,12 @@ public partial class DebugCamera : Camera3D
         GD.Print($"MechRewired: wireframe debug view {(m_wireframeEnabled ? "enabled" : "disabled")}.");
     }
 
-    private void ToggleUnshaded()
-    {
-        var viewport = GetViewport();
-        var enabled = viewport.DebugDraw != Viewport.DebugDrawEnum.Unshaded;
-        viewport.DebugDraw = enabled ? Viewport.DebugDrawEnum.Unshaded : Viewport.DebugDrawEnum.Disabled;
-        SetMenuItemChecked(UnshadedMenuItemId, enabled);
-        GD.Print($"MechRewired: unshaded debug view {(enabled ? "enabled" : "disabled")}.");
-    }
-
     private void OnDebugMenuItemPressed(long id)
     {
         switch (id)
         {
             case WireframeMenuItemId:
                 ToggleWireframe();
-                break;
-
-            case UnshadedMenuItemId:
-                ToggleUnshaded();
                 break;
 
             case LogCameraMenuItemId:
