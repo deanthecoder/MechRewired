@@ -44,6 +44,7 @@ public partial class EnemyMech : Node3D
     private readonly IReadOnlyList<DebugTriangle> m_sceneTriangles;
     private readonly float m_maximumSpeedMetersPerSecond;
     private readonly float m_acquisitionRange;
+    private readonly float m_atmosphericVisibilityRange;
     private readonly float m_weaponRange;
     private readonly IReadOnlyDictionary<string, AudioStreamWav> m_weaponSounds;
     private readonly AudioStreamPlayer3D m_weaponSound;
@@ -80,6 +81,7 @@ public partial class EnemyMech : Node3D
         BattlefieldEffects battlefieldEffects,
         IReadOnlyDictionary<string, AudioStreamWav> weaponSounds,
         MechDamageSilhouette damageSilhouette,
+        float atmosphericVisibilityRange,
         Func<Vector3, float> surfaceHeightProvider,
         Func<IReadOnlyList<SceneryObstacle>> sceneryObstacleProvider,
         IReadOnlyList<DebugTriangle> sceneTriangles)
@@ -113,9 +115,11 @@ public partial class EnemyMech : Node3D
         // Combat manoeuvres use the authored walking/cruising speed. Running is reserved for later pursuit states.
         m_maximumSpeedMetersPerSecond = (float)(mechDefinition.CruisingSpeedKph / 3.6);
         m_weaponRange = Math.Max(definition.Specification.TargetRange, 120);
-        m_acquisitionRange = Math.Max(
-            m_weaponRange,
-            Math.Max(definition.Specification.SleepRange, definition.Specification.RubberbandRange));
+        m_atmosphericVisibilityRange = atmosphericVisibilityRange;
+        m_acquisitionRange = (float)EnemyAwareness.GetVisualAcquisitionRange(
+            definition.Specification.TargetRange,
+            definition.Specification.SleepRange,
+            atmosphericVisibilityRange);
         m_combatMovement = new EnemyCombatMovement(m_weaponRange, definition.Specification.GroupId);
 
         Legs = new Node3D { Name = "Legs" };
@@ -351,7 +355,8 @@ public partial class EnemyMech : Node3D
             GD.Print(
                 $"MechRewired: {Description} acquired visible PlayerMech at {playerDistance:F0}m " +
                 $"(GPS target {Definition.Specification.TargetRange}m; sleep " +
-                $"{Definition.Specification.SleepRange}m; rubberband " +
+                $"{Definition.Specification.SleepRange}m; atmospheric visibility " +
+                $"{m_atmosphericVisibilityRange:F0}m; effective sensor range {m_acquisitionRange:F0}m; rubberband " +
                 $"{Definition.Specification.RubberbandRange}m; close awareness " +
                 $"{EnemyAwareness.GetCloseAwarenessRange(m_acquisitionRange):F0}m).");
         }
@@ -360,7 +365,10 @@ public partial class EnemyMech : Node3D
             if (m_sensorCooldown <= 0.0f)
             {
                 m_sensorCooldown = SensorIntervalSeconds;
-                m_hasLineOfSight = HasLineOfSight(TargetPosition, playerTargetPosition);
+                m_hasLineOfSight = EnemyAwareness.CanObserve(
+                    playerDistance,
+                    m_acquisitionRange,
+                    HasLineOfSight(TargetPosition, playerTargetPosition));
                 if (m_hasLineOfSight)
                 {
                     m_targetMemoryRemaining = TargetMemorySeconds;

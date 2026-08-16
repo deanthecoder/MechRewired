@@ -25,6 +25,40 @@ public static class EnemyAwareness
             MinimumCloseAwarenessRange,
             MaximumCloseAwarenessRange);
 
+    /// <summary>
+    /// Resolves the distance at which a dormant actor can visually acquire a target.
+    /// </summary>
+    /// <remarks>
+    /// GPS supplies the actor's authored target and sleep radii, while the planet's LITE data
+    /// limits what can be visually resolved through the mission atmosphere. Rubberband range is
+    /// deliberately excluded: it controls movement containment rather than perception.
+    /// </remarks>
+    public static double GetVisualAcquisitionRange(
+        double targetRange,
+        double sleepRange,
+        double atmosphericVisibilityRange)
+    {
+        var authoredRange = targetRange > 0.0
+            ? targetRange
+            : sleepRange;
+        if (authoredRange <= 0.0)
+        {
+            return Math.Max(0.0, atmosphericVisibilityRange);
+        }
+
+        if (sleepRange > 0.0)
+        {
+            authoredRange = Math.Min(authoredRange, sleepRange);
+        }
+
+        return atmosphericVisibilityRange > 0.0
+            ? Math.Min(authoredRange, atmosphericVisibilityRange)
+            : authoredRange;
+    }
+
+    public static bool CanObserve(double distance, double visualRange, bool hasLineOfSight) =>
+        hasLineOfSight && distance <= visualRange;
+
     public static bool CanAcquire(
         double distance,
         double acquisitionRange,
@@ -32,7 +66,7 @@ public static class EnemyAwareness
         double minimumForwardAlignment,
         bool hasLineOfSight)
     {
-        if (!hasLineOfSight || distance > acquisitionRange)
+        if (!CanObserve(distance, acquisitionRange, hasLineOfSight))
         {
             return false;
         }

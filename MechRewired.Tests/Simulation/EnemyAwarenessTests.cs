@@ -57,4 +57,22 @@ public sealed class EnemyAwarenessTests
     {
         Assert.That(EnemyAwareness.GetCloseAwarenessRange(acquisitionRange), Is.EqualTo(expected));
     }
+
+    [Test]
+    public void AcquisitionRangeUsesBothAuthoredGpsAndAtmosphericVisibility()
+    {
+        Assert.That(
+            EnemyAwareness.GetVisualAcquisitionRange(500.0, 600.0, 250.0),
+            Is.EqualTo(250.0));
+        Assert.That(
+            EnemyAwareness.GetVisualAcquisitionRange(600.0, 400.0, 800.0),
+            Is.EqualTo(400.0));
+    }
+
+    [Test]
+    public void ObservationIsLostPastVisibilityRangeEvenWithLineOfSight()
+    {
+        Assert.That(EnemyAwareness.CanObserve(251.0, 250.0, true), Is.False);
+        Assert.That(EnemyAwareness.CanObserve(249.0, 250.0, true), Is.True);
+    }
 }

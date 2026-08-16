@@ -444,7 +444,7 @@ public partial class Main : Node3D
             GlowBloom = 0.05f,
             GlowHdrThreshold = 1.5f
         };
-        ConfigureDepthCue(planet.Lighting?.ShadeDistance, planet.ViewDistance);
+        var atmosphericVisibilityRange = ConfigureDepthCue(planet.Lighting?.ShadeDistance, planet.ViewDistance);
         var environment = new WorldEnvironment
         {
             Environment = m_environment
@@ -1012,6 +1012,7 @@ public partial class Main : Node3D
             playerMech,
             playerMechSounds.WeaponFireSounds,
             battlefieldEffects,
+            atmosphericVisibilityRange,
             () => GetSceneryObstacles(staticSceneryObstacles, battlefieldActors),
             debugTriangles.AsReadOnly());
         GD.Print(
@@ -1141,6 +1142,7 @@ public partial class Main : Node3D
         PlayerMech playerMech,
         IReadOnlyDictionary<string, AudioStreamWav> weaponSounds,
         BattlefieldEffects battlefieldEffects,
+        float atmosphericVisibilityRange,
         Func<IReadOnlyList<SceneryObstacle>> sceneryObstacleProvider,
         IReadOnlyList<DebugTriangle> debugTriangles)
     {
@@ -1169,6 +1171,7 @@ public partial class Main : Node3D
                 battlefieldEffects,
                 weaponSounds,
                 damageSilhouette,
+                atmosphericVisibilityRange,
                 position => FindDeploymentSurfaceHeight(debugTriangles, position),
                 sceneryObstacleProvider,
                 debugTriangles);
@@ -1843,13 +1846,8 @@ public partial class Main : Node3D
         return bounds;
     }
 
-    private void ConfigureDepthCue(float? shadeDistance, float? viewDistance)
+    private float ConfigureDepthCue(float? shadeDistance, float? viewDistance)
     {
-        if (m_environment == null)
-        {
-            return;
-        }
-
         var visibleDistance = Mathf.Clamp(
             viewDistance ?? DefaultFogDistance,
             MinimumFogDistance,
@@ -1858,11 +1856,17 @@ public partial class Main : Node3D
             ? Mathf.Min(shadeDistance.Value, visibleDistance)
             : visibleDistance;
 
+        if (m_environment == null)
+        {
+            return depthCueDistance;
+        }
+
         // MW2 applies its palette depth cue from the viewer outward. The authored LITE shade
         // distance controls when terrain has fully converged on the horizon colour; VDIST is
         // the farther visibility limit, rather than the point where the colour shift starts.
         m_environment.FogDepthBegin = 0.0f;
         m_environment.FogDepthEnd = depthCueDistance;
+        return depthCueDistance;
     }
 
     private static float FindDeploymentSurfaceHeight(
