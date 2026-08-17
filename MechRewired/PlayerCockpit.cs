@@ -57,7 +57,9 @@ public partial class PlayerCockpit : Node3D
             child.QueueFree();
         }
 
-        var frameMaterial = CreateMaterial(new Color("3d4a51"), 0.7f, 0.45f);
+        // Match the exterior's restrained painted-metal finish so the canopy structure catches
+        // the sky and nearby terrain in the same light as the mech itself.
+        var frameMaterial = CreateMaterial(new Color("3d4a51"), 0.58f, 0.55f);
         var vertices = GetCrossSectionVertices();
         var rearwardOffset = FrameOffsetZ + Length * RearwardOffsetFactor;
         var crossSectionCentreZ = RearZ - Length * 0.5f + rearwardOffset;

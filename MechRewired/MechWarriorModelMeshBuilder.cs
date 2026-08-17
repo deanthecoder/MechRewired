@@ -24,6 +24,8 @@ namespace MechRewired;
 public static class MechWarriorModelMeshBuilder
 {
     public const float SourceUnitScale = 0.01f;
+    private const float MechSurfaceMetallic = 0.55f;
+    private const float MechSurfaceRoughness = 0.58f;
 
     /// <summary>
     /// Builds a flat-shaded render mesh from one decoded WTB model.
@@ -147,6 +149,29 @@ public static class MechWarriorModelMeshBuilder
             ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded
         });
         return mesh;
+    }
+
+    /// <summary>
+    /// Applies a restrained painted-metal finish to an independently-built mech mesh.
+    /// </summary>
+    /// <remarks>
+    /// Mech meshes are not cached with scenery, so their PBR material instances can be safely tuned
+    /// without making the entire battlefield reflective.
+    /// </remarks>
+    public static void ApplyMechSurfaceFinish(ArrayMesh mesh)
+    {
+        ArgumentNullException.ThrowIfNull(mesh);
+
+        for (var surfaceIndex = 0; surfaceIndex < mesh.GetSurfaceCount(); surfaceIndex++)
+        {
+            if (mesh.SurfaceGetMaterial(surfaceIndex) is not StandardMaterial3D material)
+            {
+                continue;
+            }
+
+            material.Metallic = MechSurfaceMetallic;
+            material.Roughness = MechSurfaceRoughness;
+        }
     }
 
     private static void AddVertex(SurfaceTool surfaceTool, MechWarriorModelVertex vertex, Rgb color)

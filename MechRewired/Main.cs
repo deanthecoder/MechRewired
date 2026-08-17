@@ -431,6 +431,11 @@ public partial class Main : Node3D
             AmbientLightSource = Godot.Environment.AmbientSource.Color,
             AmbientLightColor = ambientLightColor,
             AmbientLightEnergy = ambientEnergy,
+            ReflectedLightSource = Godot.Environment.ReflectionSource.Sky,
+            SsrEnabled = true,
+            SsrMaxSteps = 48,
+            SsrFadeIn = 0.12f,
+            SsrFadeOut = 2.5f,
             FogEnabled = true,
             FogMode = Godot.Environment.FogModeEnum.Depth,
             FogLightColor = skyHorizonColor,
@@ -922,6 +927,7 @@ public partial class Main : Node3D
                 luminosityTable,
                 GeneralIlluminationLevel,
                 materialImages);
+            MechWarriorModelMeshBuilder.ApplyMechSurfaceFinish(renderMesh);
             var modelInstance = new MeshInstance3D
             {
                 Name = modelEntry.Name,
@@ -1219,6 +1225,7 @@ public partial class Main : Node3D
                     luminosityTable,
                     GeneralIlluminationLevel,
                     materialImages);
+                MechWarriorModelMeshBuilder.ApplyMechSurfaceFinish(mesh);
                 var absolutePosition = MechWarriorCoordinateSystem.ToGodotPosition(
                     chassisObject.Transform.Translation);
                 var isTorsoPart = torsoObjectId != 0 &&
