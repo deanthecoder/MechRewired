@@ -580,42 +580,53 @@ public partial class Main : Node3D
         {
             if (!meshCache.TryGetValue(levelObject.ModelEntry.Path, out var meshes))
             {
-                try
+                if (levelObject.ModelEntry.Name.StartsWith("DUMMY", StringComparison.OrdinalIgnoreCase))
                 {
-                    var models = MechWarriorModel.LoadAll(archive.ReadEntry(levelObject.ModelEntry));
-                    var highestDetailIndex = Enumerable.Range(0, models.Count)
-                        .MaxBy(index => models[index].Polygons.Count);
-                    var highestDetailModels = new[] { models[highestDetailIndex] };
-                    modelCache.Add(levelObject.ModelEntry.Path, highestDetailModels);
-                    var illuminationLevel = levelObject.ModelEntry.Name.StartsWith(
-                        "T_",
-                        StringComparison.OrdinalIgnoreCase)
-                        ? GeneralIlluminationLevel
-                        : ObjectIlluminationLevel;
-                    meshes = highestDetailModels
-                        .Select(model => MechWarriorModelMeshBuilder.Build(
-                            model,
-                            palette,
-                            luminosityTable,
-                            illuminationLevel))
-                        .ToArray();
-                    wireframeCache.Add(
-                        levelObject.ModelEntry.Path,
-                        highestDetailModels.Select(MechWarriorModelMeshBuilder.BuildWireframe).ToArray());
-                    GD.Print(
-                        $"MechRewired: loaded {levelObject.ModelEntry.Path} ({models.Count} LODs; " +
-                        $"rendering LOD {highestDetailIndex}, {highestDetailModels[0].Vertices.Count} vertices, " +
-                        $"{highestDetailModels[0].Polygons.Count} polygons).");
-                }
-                catch (InvalidDataException exception)
-                {
+                    // DUMMY.WTB represents a BWD locator, often for a palette-cycled light.
+                    // Its small payload is intentionally not a renderable WTB model.
                     meshes = Array.Empty<ArrayMesh>();
                     modelCache.Add(levelObject.ModelEntry.Path, Array.Empty<MechWarriorModel>());
                     wireframeCache.Add(levelObject.ModelEntry.Path, Array.Empty<ArrayMesh>());
-                    var objectPosition = levelObject.Transform.Translation;
-                    GD.PushWarning(
-                        $"MechRewired: skipped unsupported {levelObject.ModelEntry.Path} object {levelObject.Id} at " +
-                        $"({objectPosition.X:F2}, {objectPosition.Y:F2}, {objectPosition.Z:F2}): {exception.Message}");
+                }
+                else
+                {
+                    try
+                    {
+                        var models = MechWarriorModel.LoadAll(archive.ReadEntry(levelObject.ModelEntry));
+                        var highestDetailIndex = Enumerable.Range(0, models.Count)
+                            .MaxBy(index => models[index].Polygons.Count);
+                        var highestDetailModels = new[] { models[highestDetailIndex] };
+                        modelCache.Add(levelObject.ModelEntry.Path, highestDetailModels);
+                        var illuminationLevel = levelObject.ModelEntry.Name.StartsWith(
+                            "T_",
+                            StringComparison.OrdinalIgnoreCase)
+                            ? GeneralIlluminationLevel
+                            : ObjectIlluminationLevel;
+                        meshes = highestDetailModels
+                            .Select(model => MechWarriorModelMeshBuilder.Build(
+                                model,
+                                palette,
+                                luminosityTable,
+                                illuminationLevel))
+                            .ToArray();
+                        wireframeCache.Add(
+                            levelObject.ModelEntry.Path,
+                            highestDetailModels.Select(MechWarriorModelMeshBuilder.BuildWireframe).ToArray());
+                        GD.Print(
+                            $"MechRewired: loaded {levelObject.ModelEntry.Path} ({models.Count} LODs; " +
+                            $"rendering LOD {highestDetailIndex}, {highestDetailModels[0].Vertices.Count} vertices, " +
+                            $"{highestDetailModels[0].Polygons.Count} polygons).");
+                    }
+                    catch (InvalidDataException exception)
+                    {
+                        meshes = Array.Empty<ArrayMesh>();
+                        modelCache.Add(levelObject.ModelEntry.Path, Array.Empty<MechWarriorModel>());
+                        wireframeCache.Add(levelObject.ModelEntry.Path, Array.Empty<ArrayMesh>());
+                        var objectPosition = levelObject.Transform.Translation;
+                        GD.PushWarning(
+                            $"MechRewired: skipped unsupported {levelObject.ModelEntry.Path} object {levelObject.Id} at " +
+                            $"({objectPosition.X:F2}, {objectPosition.Y:F2}, {objectPosition.Z:F2}): {exception.Message}");
+                    }
                 }
 
                 meshCache.Add(levelObject.ModelEntry.Path, meshes);
@@ -1466,17 +1477,22 @@ public partial class Main : Node3D
             foreach (var worldObject in setPieceWorld.Objects)
             {
                 var modelEntry = archive.GetEntry("POLY", worldObject.ModelResourceIndex);
-                if (modelEntry.Name.StartsWith("DUMMY", StringComparison.OrdinalIgnoreCase) &&
-                    animatedColors.TryGetValue(worldObject.Id, out var locatorColors))
+                if (modelEntry.Name.StartsWith("DUMMY", StringComparison.OrdinalIgnoreCase))
                 {
-                    var locator = new Node3D
+                    // DUMMY.WTB entries are locator records, not renderable WTB geometry. Some
+                    // carry an animated light; the rest only define attachment points.
+                    if (animatedColors.TryGetValue(worldObject.Id, out var locatorColors))
                     {
-                        Name = $"{modelEntry.Name}LightLocator",
-                        Position = MechWarriorCoordinateSystem.ToGodotPosition(worldObject.Transform.Translation)
-                    };
-                    locator.AddChild(CreateAnimatedLocatorLight(locatorColors));
-                    dropShip.AddChild(locator);
-                    renderedObjectCount++;
+                        var locator = new Node3D
+                        {
+                            Name = $"{modelEntry.Name}LightLocator",
+                            Position = MechWarriorCoordinateSystem.ToGodotPosition(worldObject.Transform.Translation)
+                        };
+                        locator.AddChild(CreateAnimatedLocatorLight(locatorColors));
+                        dropShip.AddChild(locator);
+                        renderedObjectCount++;
+                    }
+
                     continue;
                 }
 
