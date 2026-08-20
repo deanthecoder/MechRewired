@@ -50,3 +50,13 @@ FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
 COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN
 AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+## Orbitron
+
+MechRewired includes the Orbitron variable font from [Google Fonts](https://fonts.google.com/specimen/Orbitron)
+under `MechRewired/Assets/Fonts`. It is used for the in-game HUD and is
+distributed under the SIL Open Font License 1.1; the complete license is kept
+beside the font in `MechRewired/Assets/Fonts/OFL.txt`.
+
+Copyright 2018 The Orbitron Project Authors
+([source project](https://github.com/theleagueof/orbitron)).

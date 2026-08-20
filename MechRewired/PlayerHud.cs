@@ -26,9 +26,13 @@ public partial class PlayerHud : Control
     private const float ReferenceWidth = 1280.0f;
     private const float ReferenceHeight = 720.0f;
     private const float RadarRadius = 91.0f;
+    private const float RadarCenterX = 155.0f;
+    private const float RadarCenterY = 145.0f;
     private const float RadarPowerTransitionSeconds = 0.35f;
     private const float HudPowerTransitionSeconds = 0.28f;
     private const float SpeedGaugeResponseKphPerSecond = 95.0f;
+    private const float DefaultHudGlow = 1.0f;
+    private const float DefaultHudGlowRadius = 8.0f;
     private const float CompassScale = 0.75f;
     private const float CompassPixelsPerDegree = 3.2f * CompassScale;
     private const float AltimeterPixelsPerMeter = 14.0f;
@@ -60,6 +64,39 @@ public partial class PlayerHud : Control
     private float m_radarPower = 1.0f;
     private float m_hudPower = 1.0f;
     private float m_displayedTargetSpeedKph;
+    private float m_hudGlow = DefaultHudGlow;
+    private float m_hudGlowRadius = DefaultHudGlowRadius;
+    private Font m_hudFont;
+
+    /// <summary>
+    /// Controls the soft halo drawn behind green HUD elements. This is exposed
+    /// to the debug console as <c>hud.glow</c>.
+    /// </summary>
+    [Export]
+    public float HudGlow
+    {
+        get => m_hudGlow;
+        set
+        {
+            m_hudGlow = Mathf.Clamp(value, 0.0f, 2.0f);
+            QueueRedraw();
+        }
+    }
+
+    /// <summary>
+    /// Controls how far the soft halo spreads around green HUD elements.
+    /// This is exposed to the debug console as <c>hud.glow.radius</c>.
+    /// </summary>
+    [Export]
+    public float HudGlowRadius
+    {
+        get => m_hudGlowRadius;
+        set
+        {
+            m_hudGlowRadius = Mathf.Clamp(value, 0.0f, 32.0f);
+            QueueRedraw();
+        }
+    }
 
     public PlayerHud(
         PlayerMech playerMech,
@@ -83,6 +120,8 @@ public partial class PlayerHud : Control
 
     public override void _Ready()
     {
+        m_hudFont = GD.Load<FontFile>("res://Assets/Fonts/Orbitron-Variable.ttf") ??
+                    ThemeDB.FallbackFont;
         GD.Print(
             $"MechRewired: pilot HUD online (radar {RadarRanges[m_radarRangeIndex] / 1000.0f:F1}km; " +
             $"NAV '{SelectedNavigationPoint.Description}'; X/Shift+X adjusts radar range; " +
@@ -182,7 +221,7 @@ public partial class PlayerHud : Control
 
     private void DrawRadar()
     {
-        var center = Point(155.0f, 117.0f);
+        var center = Point(RadarCenterX, RadarCenterY);
         var radius = RadarRadius * m_scale * m_radarPower;
         if (radius <= 0.01f)
         {
@@ -523,13 +562,13 @@ public partial class PlayerHud : Control
         DrawPolyline(diamond, HudGreen, LineWidth(2.0f));
         var fontSize = Math.Max((int)(14 * m_scale), 1);
         const string label = "NAV";
-        var labelWidth = ThemeDB.FallbackFont.GetStringSize(
+        var labelWidth = HudFont.GetStringSize(
             label,
             HorizontalAlignment.Left,
             -1.0f,
             fontSize).X;
         DrawString(
-            ThemeDB.FallbackFont,
+            HudFont,
             markerCenter + new Vector2(-labelWidth * 0.5f, -11.0f * m_scale),
             label,
             HorizontalAlignment.Left,
@@ -748,13 +787,13 @@ public partial class PlayerHud : Control
         var center = targetRect.GetCenter();
         var radius = Math.Max(targetRect.Size.X, targetRect.Size.Y) * 0.5f;
         var fontSize = Math.Max((int)(18 * m_scale), 1);
-        var labelWidth = ThemeDB.FallbackFont.GetStringSize(
+        var labelWidth = HudFont.GetStringSize(
             description,
             HorizontalAlignment.Left,
             -1.0f,
             fontSize).X;
         DrawString(
-            ThemeDB.FallbackFont,
+            HudFont,
             center + new Vector2(-labelWidth * 0.5f, radius + 22.0f * m_scale),
             description,
             HorizontalAlignment.Left,
@@ -815,13 +854,13 @@ public partial class PlayerHud : Control
         {
             var fontSize = Math.Max((int)(16 * m_scale), 1);
             const string label = "INSPECT [I]";
-            var labelWidth = ThemeDB.FallbackFont.GetStringSize(
+            var labelWidth = HudFont.GetStringSize(
                 label,
                 HorizontalAlignment.Left,
                 -1.0f,
                 fontSize).X;
             DrawString(
-                ThemeDB.FallbackFont,
+                HudFont,
                 targetRect.GetCenter() + new Vector2(-labelWidth * 0.5f, 42.0f * m_scale),
                 label,
                 HorizontalAlignment.Left,
@@ -1023,10 +1062,193 @@ public partial class PlayerHud : Control
 
     private float LineWidth(float width) => Math.Max(width * m_scale, 1.0f);
 
+    private Font HudFont => m_hudFont ?? ThemeDB.FallbackFont;
+
+    private bool IsHudGreen(Color color) =>
+        Mathf.IsEqualApprox(color.R, HudGreen.R) &&
+        Mathf.IsEqualApprox(color.G, HudGreen.G) &&
+        Mathf.IsEqualApprox(color.B, HudGreen.B);
+
+    private Color GlowColor(Color color, float falloff = 1.0f) =>
+        new(
+            color.R,
+            color.G,
+            color.B,
+            Mathf.Clamp((0.012f + HudGlow * 0.055f) * falloff, 0.0f, 0.20f));
+
+    private float GlowSpread(int layer) => HudGlowRadius * m_scale * layer / 5.0f;
+
+    private float GlowFalloff(int layer) => 0.10f + (5.0f - layer) * 0.06f;
+
+    private float GlowWidth(float width, float spread) =>
+        Math.Max(width, 1.0f) + spread * 1.25f;
+
+    private new void DrawLine(
+        Vector2 from,
+        Vector2 to,
+        Color color,
+        float width = -1.0f,
+        bool antialiased = false)
+    {
+        if (IsHudGreen(color) && HudGlow > 0.0f)
+        {
+            for (var layer = 5; layer >= 1; layer--)
+            {
+                var spread = GlowSpread(layer);
+                base.DrawLine(
+                    from,
+                    to,
+                    GlowColor(color, GlowFalloff(layer)),
+                    GlowWidth(width, spread),
+                    antialiased);
+            }
+        }
+
+        base.DrawLine(from, to, color, width, antialiased);
+    }
+
+    private new void DrawArc(
+        Vector2 center,
+        float radius,
+        float startAngle,
+        float endAngle,
+        int pointCount,
+        Color color,
+        float width = -1.0f,
+        bool antialiased = false)
+    {
+        if (IsHudGreen(color) && HudGlow > 0.0f)
+        {
+            for (var layer = 5; layer >= 1; layer--)
+            {
+                var spread = GlowSpread(layer);
+                base.DrawArc(
+                    center,
+                    radius,
+                    startAngle,
+                    endAngle,
+                    pointCount,
+                    GlowColor(color, GlowFalloff(layer)),
+                    GlowWidth(width, spread),
+                    antialiased);
+            }
+        }
+
+        base.DrawArc(center, radius, startAngle, endAngle, pointCount, color, width, antialiased);
+    }
+
+    private new void DrawPolyline(
+        Vector2[] points,
+        Color color,
+        float width = -1.0f,
+        bool antialiased = false)
+    {
+        if (IsHudGreen(color) && HudGlow > 0.0f)
+        {
+            for (var layer = 5; layer >= 1; layer--)
+            {
+                var spread = GlowSpread(layer);
+                base.DrawPolyline(
+                    points,
+                    GlowColor(color, GlowFalloff(layer)),
+                    GlowWidth(width, spread),
+                    antialiased);
+            }
+        }
+
+        base.DrawPolyline(points, color, width, antialiased);
+    }
+
+    private new void DrawRect(
+        Rect2 rect,
+        Color color,
+        bool filled = true,
+        float width = -1.0f,
+        bool antialiased = false)
+    {
+        if (IsHudGreen(color) && HudGlow > 0.0f)
+        {
+            for (var layer = 5; layer >= 1; layer--)
+            {
+                var spread = GlowSpread(layer);
+                base.DrawRect(
+                    new Rect2(rect.Position - Vector2.One * spread, rect.Size + Vector2.One * spread * 2.0f),
+                    GlowColor(color, GlowFalloff(layer)),
+                    filled,
+                    width,
+                    antialiased);
+            }
+        }
+
+        base.DrawRect(rect, color, filled, width, antialiased);
+    }
+
+    private void DrawString(
+        Font font,
+        Vector2 pos,
+        string text,
+        HorizontalAlignment alignment,
+        float width,
+        int fontSize,
+        Color modulate)
+    {
+        if (IsHudGreen(modulate) && HudGlow > 0.0f)
+        {
+            // Draw a series of faint, circularly offset copies. This gives the
+            // bitmap font a soft CRT-like bleed without scaling the glyph itself.
+            for (var layer = 5; layer >= 1; layer--)
+            {
+                var spread = GlowSpread(layer) * 0.75f;
+                var sampleCount = layer == 1 ? 8 : 12;
+                var glow = GlowColor(modulate, GlowFalloff(layer));
+                for (var sample = 0; sample < sampleCount; sample++)
+                {
+                    var angle = Mathf.Tau * sample / sampleCount;
+                    var offset = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * spread;
+
+                    base.DrawString(
+                        font,
+                        pos + offset,
+                        text,
+                        alignment,
+                        width,
+                        fontSize,
+                        glow);
+                }
+            }
+        }
+
+        base.DrawString(font, pos, text, alignment, width, fontSize, modulate);
+    }
+
+    private void DrawTextureRect(
+        Texture2D texture,
+        Rect2 rect,
+        bool tile,
+        Color modulate = default,
+        bool transpose = false)
+    {
+        if (IsHudGreen(modulate) && HudGlow > 0.0f)
+        {
+            for (var layer = 5; layer >= 1; layer--)
+            {
+                var spread = GlowSpread(layer);
+                base.DrawTextureRect(
+                    texture,
+                    new Rect2(rect.Position - Vector2.One * spread, rect.Size + Vector2.One * spread * 2.0f),
+                    tile,
+                    GlowColor(modulate, GlowFalloff(layer)),
+                    transpose);
+            }
+        }
+
+        base.DrawTextureRect(texture, rect, tile, modulate, transpose);
+    }
+
     private void DrawText(Vector2 position, string text, Color color, int fontSize)
     {
         DrawString(
-            ThemeDB.FallbackFont,
+            HudFont,
             Point(position.X, position.Y),
             text,
             HorizontalAlignment.Left,
@@ -1038,13 +1260,13 @@ public partial class PlayerHud : Control
     private void DrawCenteredText(float centerX, float baselineY, string text, Color color, int fontSize)
     {
         var scaledFontSize = Math.Max((int)(fontSize * m_scale), 1);
-        var width = ThemeDB.FallbackFont.GetStringSize(
+        var width = HudFont.GetStringSize(
             text,
             HorizontalAlignment.Left,
             -1.0f,
             scaledFontSize).X;
         DrawString(
-            ThemeDB.FallbackFont,
+            HudFont,
             Point(centerX, baselineY) - new Vector2(width * 0.5f, 0.0f),
             text,
             HorizontalAlignment.Left,

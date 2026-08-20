@@ -13,6 +13,7 @@ using Godot;
 using MechRewired.Missions;
 using MechRewired.Resources;
 using MechRewired.Simulation;
+using System.Globalization;
 
 namespace MechRewired;
 
@@ -80,6 +81,10 @@ public partial class Main : Node3D
 
     private Godot.Environment m_environment;
     private BattlefieldEffects m_battlefieldEffects;
+#if DEBUG
+    private Node m_debugConsole;
+    private PlayerHud m_debugHud;
+#endif
 
     public override void _Ready()
     {
@@ -134,14 +139,14 @@ public partial class Main : Node3D
 #if DEBUG
     private void ConfigureDebugConsole()
     {
-        var console = GetNodeOrNull<Node>("/root/Console");
-        if (console == null)
+        m_debugConsole = GetNodeOrNull<Node>("/root/Console");
+        if (m_debugConsole == null)
         {
             GD.PushWarning("MechRewired: debug console autoload is unavailable.");
             return;
         }
 
-        console.Call(
+        m_debugConsole.Call(
             "add_command",
             "version",
             Callable.From(PrintApplicationVersion),
@@ -150,14 +155,58 @@ public partial class Main : Node3D
             "Reports the MechRewired application version.");
     }
 
+    private void RegisterDebugConsoleHud(PlayerHud playerHud)
+    {
+        m_debugHud = playerHud;
+        if (m_debugConsole == null)
+        {
+            return;
+        }
+
+        m_debugConsole.Call(
+            "add_cvar",
+            "hud.glow",
+            playerHud.HudGlow,
+            "Controls the soft halo around green HUD lines and text (0 disables it; default 1).");
+        m_debugConsole.Call(
+            "add_cvar",
+            "hud.glow.radius",
+            playerHud.HudGlowRadius,
+            "Controls the HUD halo spread in pixels (0 disables the spread; default 8). Use with hud.glow for a wide, dim halo.");
+        m_debugConsole.Connect(
+            "console_cvar_changed",
+            Callable.From<string, Variant>(OnDebugConsoleCvarChanged));
+    }
+
+    private void OnDebugConsoleCvarChanged(string name, Variant value)
+    {
+        if (m_debugHud == null ||
+            !float.TryParse(
+                value.ToString(),
+                NumberStyles.Float,
+                CultureInfo.InvariantCulture,
+                out var numericValue))
+        {
+            return;
+        }
+
+        if (string.Equals(name, "hud.glow", StringComparison.OrdinalIgnoreCase))
+        {
+            m_debugHud.HudGlow = numericValue;
+        }
+        else if (string.Equals(name, "hud.glow.radius", StringComparison.OrdinalIgnoreCase))
+        {
+            m_debugHud.HudGlowRadius = numericValue;
+        }
+    }
+
     private void PrintApplicationVersion()
     {
         var applicationVersion = ProjectSettings
             .GetSetting("application/config/version", "0.1.0")
             .ToString();
         var engineVersion = Engine.GetVersionInfo()["string"].ToString();
-        var console = GetNodeOrNull<Node>("/root/Console");
-        console?.Call("print_line", $"MechRewired {applicationVersion} (Godot {engineVersion})");
+        m_debugConsole?.Call("print_line", $"MechRewired {applicationVersion} (Godot {engineVersion})");
     }
 #endif
 
@@ -1120,6 +1169,9 @@ public partial class Main : Node3D
             MouseFilter = Control.MouseFilterEnum.Ignore
         };
         hudLayer.AddChild(playerHud);
+#if DEBUG
+        RegisterDebugConsoleHud(playerHud);
+#endif
         var missionDebrief = new MissionDebrief(playerMission);
         AddChild(missionDebrief);
         // A failure is presented only after the external death camera has concluded.
