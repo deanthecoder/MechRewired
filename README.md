@@ -27,6 +27,8 @@ The first vertical slice will establish:
 
 The remaster will preserve the DOS version's stark geometry, colors and atmosphere while adding modern lighting, particles, depth fog, bloom, shadows and material detail.
 
+The longer-term visual direction is captured in [the visual target](docs/VISUAL_TARGET.md): a cinematic, dusty desert cockpit with physically richer materials and atmosphere, while retaining the original HUD layout, retro-vector character and gameplay readability.
+
 Battlefield fire and smoke use an adapted GPU flipbook shader and smoke atlas from [GodotExplosionVFX](https://github.com/memo1918/GodotExplosionVFX); the required MIT attribution is in [THIRD_PARTY_LICENSES.md](docs/THIRD_PARTY_LICENSES.md).
 
 See the [development roadmap](docs/ROADMAP.md) for the planned sequence of playable milestones.
@@ -74,28 +76,28 @@ Open `MechRewired/project.godot` with the .NET edition of Godot to run the appli
 
 The application starts in the 3D cockpit. The current piloting controls follow the original game's defaults:
 
-- Press <kbd>1</kbd> to stop, <kbd>2</kbd>–<kbd>9</kbd> for 20–90% throttle, or <kbd>0</kbd> for full throttle. Press <kbd>-</kbd>/<kbd>=</kbd> to adjust the throttle in 10% steps.
-- Press <kbd>Backspace</kbd> or <kbd>`</kbd> to toggle forward/reverse. Reverse is limited to half the forward speed.
-- Use <kbd>Left</kbd>/<kbd>Right</kbd> to steer the legs, <kbd>Up</kbd>/<kbd>Down</kbd> to tilt the torso, and <kbd>,</kbd>/<kbd>.</kbd> to turn the torso.
-- Click the viewport to capture the mouse, then move it to aim the torso. All weapons begin in green group 1; <kbd>Shift</kbd>+<kbd>1</kbd>/<kbd>2</kbd>/<kbd>3</kbd> assigns the selected weapon to green/white/yellow groups. Left-click or <kbd>Space</kbd> fires the current weapon and advances within its group; right-click, <kbd>Enter</kbd> or <kbd>Tab</kbd> selects the next usable weapon in that group. <kbd>'</kbd> selects the first usable weapon in the next populated group, and <kbd>;</kbd> fires every ready weapon in that group. The original <kbd>\</kbd> binding has no observed DOS behaviour. Pyre Light's two LRM20 launchers each draw from their own authored 120-round ammunition bin; heat builds against the authored mech's heat-sink threshold. <kbd>S</kbd> manually shuts down or restarts the reactor when safe, and <kbd>O</kbd> toggles shutdown override (with the original thermal warning reports). The faithful implemented target controls are <kbd>T</kbd>/<kbd>R</kbd> for next/previous live hostile, <kbd>Ctrl</kbd>+<kbd>T</kbd> to clear targeting, <kbd>E</kbd> for nearest live hostile, <kbd>Q</kbd> (or middle-click) for the actor under the reticle, and <kbd>I</kbd> to inspect the selected or nearby active inspection objective. Friendly targeting is not implemented yet. Control-click remains a trackpad-friendly weapon-cycle alias.
-- In debug builds, selecting maximum speed with <kbd>0</kbd> applies a 3× travel multiplier to shorten mission playtesting; release builds retain the original speed.
-- Hold <kbd>Shift</kbd> and use the arrow keys for a quick, damped pilot head pivot. Releasing <kbd>Shift</kbd> or the arrows smoothly returns the pilot view to centre.
-- Press <kbd>C</kbd> or keypad <kbd>5</kbd> to centre both the torso and pilot view. Keypad <kbd>5</kbd> matches the original key map; <kbd>C</kbd> is the laptop-friendly alias.
-- Press <kbd>M</kbd> to turn the legs and chassis smoothly towards the torso's current bearing.
-- Press <kbd>X</kbd> to reduce the radar range or <kbd>Shift</kbd>+<kbd>X</kbd> to increase it. Press <kbd>N</kbd>/<kbd>Shift</kbd>+<kbd>N</kbd> to cycle forwards/backwards through mission NAV points.
-- Press <kbd>Escape</kbd> to release the mouse.
+- Press `1` to stop, `2`–`9` for 20–90% throttle, or `0` for full throttle. Press `-`/`=` to adjust the throttle in 10% steps.
+- Press `Backspace` or the backtick key to toggle forward/reverse. Reverse is limited to half the forward speed.
+- Use `Left`/`Right` to steer the legs, `Up`/`Down` to tilt the torso, and `,`/`.` to turn the torso.
+- Click the viewport to capture the mouse, then move it to aim the torso. All weapons begin in green group 1; `Shift`+`1`/`2`/`3` assigns the selected weapon to green/white/yellow groups. Left-click or `Space` fires the current weapon and advances within its group; right-click, `Enter` or `Tab` selects the next usable weapon in that group. `'` selects the first usable weapon in the next populated group, and `;` fires every ready weapon in that group. The original `\` binding has no observed DOS behaviour. Pyre Light's two LRM20 launchers each draw from their own authored 120-round ammunition bin; heat builds against the authored mech's heat-sink threshold. `S` manually shuts down or restarts the reactor when safe, and `O` toggles shutdown override (with the original thermal warning reports). The faithful implemented target controls are `T`/`R` for next/previous live hostile, `Ctrl`+`T` to clear targeting, `E` for nearest live hostile, `Q` (or middle-click) for the actor under the reticle, and `I` to inspect the selected or nearby active inspection objective. Friendly targeting is not implemented yet. Control-click remains a trackpad-friendly weapon-cycle alias.
+- In debug builds, selecting maximum speed with `0` applies a 3× travel multiplier to shorten mission playtesting; release builds retain the original speed.
+- Hold `Shift` and use the arrow keys for a quick, damped pilot head pivot. Releasing `Shift` or the arrows smoothly returns the pilot view to centre.
+- Press `C` or keypad `5` to centre both the torso and pilot view. Keypad `5` matches the original key map; `C` is the laptop-friendly alias.
+- Press `M` to turn the legs and chassis smoothly towards the torso's current bearing.
+- Press `X` to reduce the radar range or `Shift`+`X` to increase it. Press `N`/`Shift`+`N` to cycle forwards/backwards through mission NAV points.
+- Press `Escape` to release the mouse.
 
 The camera and battlefield inspection controls are:
 
-- Press <kbd>F4</kbd> to cycle through cockpit, external and free-flight inspector cameras.
-- Press <kbd>C</kbd> to toggle between cockpit and the damped external follow camera; press <kbd>/</kbd> to centre the torso and pilot view with the legs.
-- In inspector view, use <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> to fly and <kbd>Q</kbd>/<kbd>E</kbd> to descend/ascend.
-- Hold <kbd>Shift</kbd> for an inspector-camera speed boost.
-- Press <kbd>F1</kbd> to toggle wireframe rendering or <kbd>F2</kbd> to toggle unshaded rendering.
-- Press <kbd>F3</kbd> to log the active camera's MW2-space transform, its nearest rendered-triangle ray hit, the current cockpit dimensions and the PlayerMech movement state.
+- Press `F4` to cycle through cockpit, external and free-flight inspector cameras.
+- Press `C` to toggle between cockpit and the damped external follow camera; press `/` to centre the torso and pilot view with the legs.
+- In inspector view, use `W`/`A`/`S`/`D` to fly and `Q`/`E` to descend/ascend.
+- Hold `Shift` for an inspector-camera speed boost.
+- Press `F1` to toggle wireframe rendering or `F2` to toggle unshaded rendering.
+- Press `F3` to log the active camera's MW2-space transform, its nearest rendered-triangle ray hit, the current cockpit dimensions and the PlayerMech movement state.
 - The on-screen **Debug** menu provides the same rendering diagnostics when function keys are unavailable.
-- In debug builds, <kbd>F5</kbd> cycles the live fire/smoke VFX parameter, <kbd>F6</kbd>/<kbd>F7</kbd> decreases/increases it, <kbd>F8</kbd> restores the default preset and <kbd>F9</kbd> logs it. Hold <kbd>Shift</kbd> with <kbd>F6</kbd>/<kbd>F7</kbd> for 5× steps.
-- In debug builds, press <kbd>`</kbd> to open the developer console. Type `help` for its built-in commands, `commands_list` for registered MechRewired commands, and `version` for the application version. Press <kbd>Esc</kbd> or <kbd>`</kbd> to close it.
+- In debug builds, `F5` cycles the live fire/smoke VFX parameter, `F6`/`F7` decreases/increases it, `F8` restores the default preset and `F9` logs it. Hold `Shift` with `F6`/`F7` for 5× steps.
+- In debug builds, press the backtick key to open the developer console. Type `help` for its built-in commands, `commands_list` for registered MechRewired commands, and `version` for the application version. Press `Esc` or the backtick key to close it.
 
 ## VR
 
