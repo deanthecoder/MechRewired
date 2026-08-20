@@ -22,6 +22,22 @@ public partial class PlayerCockpit : Node3D
     private const float RearZ = 0.6f;
     private const float FrameOffsetZ = 0.5f;
     private const float RearwardOffsetFactor = 0.25f;
+    private const float DefaultFrameTextureScale = 1.5f;
+    private const float DefaultFrameMetallic = 0.65f;
+    private const float DefaultFrameRoughness = 0.72f;
+    private const string FrameAlbedoTexturePath =
+        "res://Assets/Textures/Cockpit/Metal029/Metal029_1K-PNG_Color.png";
+    private const string FrameMetalnessTexturePath =
+        "res://Assets/Textures/Cockpit/Metal029/Metal029_1K-PNG_Metalness.png";
+    private const string FrameNormalTexturePath =
+        "res://Assets/Textures/Cockpit/Metal029/Metal029_1K-PNG_NormalGL.png";
+    private const string FrameRoughnessTexturePath =
+        "res://Assets/Textures/Cockpit/Metal029/Metal029_1K-PNG_Roughness.png";
+
+    private StandardMaterial3D m_frameMaterial;
+    private float m_frameTextureScale = DefaultFrameTextureScale;
+    private float m_frameMetallic = DefaultFrameMetallic;
+    private float m_frameRoughness = DefaultFrameRoughness;
 
     public PlayerCockpit()
     {
@@ -37,6 +53,48 @@ public partial class PlayerCockpit : Node3D
     public float PostThickness { get; } = 0.04f;
 
     public float SideTaper { get; }
+
+    /// <summary>
+    /// Controls the number of Metal029 repetitions across each metre of cockpit structure.
+    /// </summary>
+    [Export]
+    public float FrameTextureScale
+    {
+        get => m_frameTextureScale;
+        set
+        {
+            m_frameTextureScale = Mathf.Clamp(value, 0.1f, 12.0f);
+            ApplyFrameMaterialProperties();
+        }
+    }
+
+    /// <summary>
+    /// Controls how strongly the cockpit frame behaves as painted metal.
+    /// </summary>
+    [Export]
+    public float FrameMetallic
+    {
+        get => m_frameMetallic;
+        set
+        {
+            m_frameMetallic = Mathf.Clamp(value, 0.0f, 1.0f);
+            ApplyFrameMaterialProperties();
+        }
+    }
+
+    /// <summary>
+    /// Controls the cockpit frame's reflected-light blur.
+    /// </summary>
+    [Export]
+    public float FrameRoughness
+    {
+        get => m_frameRoughness;
+        set
+        {
+            m_frameRoughness = Mathf.Clamp(value, 0.0f, 1.0f);
+            ApplyFrameMaterialProperties();
+        }
+    }
 
     public override void _Ready()
     {
@@ -57,9 +115,9 @@ public partial class PlayerCockpit : Node3D
             child.QueueFree();
         }
 
-        // Match the exterior's restrained painted-metal finish so the canopy structure catches
-        // the sky and nearby terrain in the same light as the mech itself.
-        var frameMaterial = CreateMaterial(new Color("3d4a51"), 0.58f, 0.55f);
+        // Keep the cockpit as a shared PBR material. The separate beams are BoxMeshes, so
+        // triplanar projection prevents a narrow face from stretching its source UV island.
+        m_frameMaterial = CreateFrameMaterial();
         var vertices = GetCrossSectionVertices();
         var rearwardOffset = FrameOffsetZ + Length * RearwardOffsetFactor;
         var crossSectionCentreZ = RearZ - Length * 0.5f + rearwardOffset;
@@ -73,7 +131,7 @@ public partial class PlayerCockpit : Node3D
                 new Vector3(halfRailWidth * 2.0f, PostThickness, PostThickness),
                 new Vector3(0.0f, vertex.Y, crossSectionCentreZ + vertex.X),
                 Vector3.Zero,
-                frameMaterial);
+                m_frameMaterial);
 
             var nextIndex = (index + 1) % vertices.Length;
             var next = vertices[nextIndex];
@@ -81,12 +139,12 @@ public partial class PlayerCockpit : Node3D
                 $"LeftBrace{index + 1}",
                 ToBracePosition(vertex, index, -1.0f, crossSectionCentreZ),
                 ToBracePosition(next, nextIndex, -1.0f, crossSectionCentreZ),
-                frameMaterial);
+                m_frameMaterial);
             AddBeamBetween(
                 $"RightBrace{index + 1}",
                 ToBracePosition(vertex, index, 1.0f, crossSectionCentreZ),
                 ToBracePosition(next, nextIndex, 1.0f, crossSectionCentreZ),
-                frameMaterial);
+                m_frameMaterial);
         }
 
     }
@@ -160,14 +218,36 @@ public partial class PlayerCockpit : Node3D
         });
     }
 
-    private static StandardMaterial3D CreateMaterial(Color color, float roughness, float metallic) =>
-        new()
+    private StandardMaterial3D CreateFrameMaterial()
+    {
+        var material = new StandardMaterial3D
         {
-            AlbedoColor = color,
-            EmissionEnabled = true,
-            Emission = color,
-            EmissionEnergyMultiplier = 0.35f,
-            Roughness = roughness,
-            Metallic = metallic
+            AlbedoTexture = GD.Load<Texture2D>(FrameAlbedoTexturePath),
+            MetallicTexture = GD.Load<Texture2D>(FrameMetalnessTexturePath),
+            MetallicTextureChannel = BaseMaterial3D.TextureChannel.Red,
+            NormalEnabled = true,
+            NormalTexture = GD.Load<Texture2D>(FrameNormalTexturePath),
+            RoughnessTexture = GD.Load<Texture2D>(FrameRoughnessTexturePath),
+            RoughnessTextureChannel = BaseMaterial3D.TextureChannel.Red,
+            TextureFilter = BaseMaterial3D.TextureFilterEnum.LinearWithMipmapsAnisotropic,
+            Uv1Triplanar = true,
+            Uv1TriplanarSharpness = 12.0f,
+            Uv1WorldTriplanar = false
         };
+        m_frameMaterial = material;
+        ApplyFrameMaterialProperties();
+        return material;
+    }
+
+    private void ApplyFrameMaterialProperties()
+    {
+        if (m_frameMaterial == null)
+        {
+            return;
+        }
+
+        m_frameMaterial.Metallic = m_frameMetallic;
+        m_frameMaterial.Roughness = m_frameRoughness;
+        m_frameMaterial.Uv1Scale = Vector3.One * m_frameTextureScale;
+    }
 }

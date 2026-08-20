@@ -97,7 +97,7 @@ The camera and battlefield inspection controls are:
 - Press `F3` to log the active camera's MW2-space transform, its nearest rendered-triangle ray hit, the current cockpit dimensions and the PlayerMech movement state.
 - The on-screen **Debug** menu provides the same rendering diagnostics when function keys are unavailable.
 - In debug builds, `F5` cycles the live fire/smoke VFX parameter, `F6`/`F7` decreases/increases it, `F8` restores the default preset and `F9` logs it. Hold `Shift` with `F6`/`F7` for 5× steps.
-- In debug builds, press the backtick key to open the developer console. Type `help` for its built-in commands, `commands_list` for registered MechRewired commands, and `version` for the application version. Press `Esc` or the backtick key to close it. Type `hud.glow` to read the HUD halo strength, or `hud.glow 0.8` to change it while running. Type `hud.glow.radius` to read the spread, or `hud.glow.radius 9` for a larger, softer halo.
+- In debug builds, press the backtick key to open the developer console. Type `help` for its built-in commands, `commands_list` for registered MechRewired commands, and `version` for the application version. Press `Esc` or the backtick key to close it. Type `hud.glow` to read the HUD halo strength, or `hud.glow 0.8` to change it while running. Type `hud.glow.radius` to read the spread, or `hud.glow.radius 9` for a larger, softer halo. The cockpit-frame material supports `cockpit.texture_scale`, `cockpit.metallic`, and `cockpit.roughness` for live PBR tuning.
 
 ## VR
 

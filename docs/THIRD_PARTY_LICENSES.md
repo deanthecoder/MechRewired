@@ -60,3 +60,13 @@ beside the font in `MechRewired/Assets/Fonts/OFL.txt`.
 
 Copyright 2018 The Orbitron Project Authors
 ([source project](https://github.com/theleagueof/orbitron)).
+
+## Metal029
+
+MechRewired includes the Metal029 1K PBR maps from
+[ambientCG](https://ambientcg.com/view?id=Metal029), under
+`MechRewired/Assets/Textures/Cockpit/Metal029`. They provide the cockpit-frame
+albedo, metalness, roughness and OpenGL normal maps.
+
+Metal029 is released under [Creative Commons CC0](https://docs.ambientcg.com/license/),
+which permits use, modification and redistribution without attribution.

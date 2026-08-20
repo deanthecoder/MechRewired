@@ -84,6 +84,7 @@ public partial class Main : Node3D
 #if DEBUG
     private Node m_debugConsole;
     private PlayerHud m_debugHud;
+    private PlayerCockpit m_debugCockpit;
 #endif
 
     public override void _Ready()
@@ -178,10 +179,34 @@ public partial class Main : Node3D
             Callable.From<string, Variant>(OnDebugConsoleCvarChanged));
     }
 
+    private void RegisterDebugConsoleCockpit(PlayerCockpit cockpit)
+    {
+        m_debugCockpit = cockpit;
+        if (m_debugConsole == null)
+        {
+            return;
+        }
+
+        m_debugConsole.Call(
+            "add_cvar",
+            "cockpit.texture_scale",
+            cockpit.FrameTextureScale,
+            "Controls Metal029 texture repetitions per cockpit metre (default 1.5).");
+        m_debugConsole.Call(
+            "add_cvar",
+            "cockpit.metallic",
+            cockpit.FrameMetallic,
+            "Controls cockpit-frame metalness from 0 to 1 (default 0.65).");
+        m_debugConsole.Call(
+            "add_cvar",
+            "cockpit.roughness",
+            cockpit.FrameRoughness,
+            "Controls cockpit-frame reflection blur from 0 to 1 (default 0.72).");
+    }
+
     private void OnDebugConsoleCvarChanged(string name, Variant value)
     {
-        if (m_debugHud == null ||
-            !float.TryParse(
+        if (!float.TryParse(
                 value.ToString(),
                 NumberStyles.Float,
                 CultureInfo.InvariantCulture,
@@ -190,13 +215,30 @@ public partial class Main : Node3D
             return;
         }
 
-        if (string.Equals(name, "hud.glow", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(name, "hud.glow", StringComparison.OrdinalIgnoreCase) &&
+            m_debugHud != null)
         {
             m_debugHud.HudGlow = numericValue;
         }
-        else if (string.Equals(name, "hud.glow.radius", StringComparison.OrdinalIgnoreCase))
+        else if (string.Equals(name, "hud.glow.radius", StringComparison.OrdinalIgnoreCase) &&
+                 m_debugHud != null)
         {
             m_debugHud.HudGlowRadius = numericValue;
+        }
+        else if (string.Equals(name, "cockpit.texture_scale", StringComparison.OrdinalIgnoreCase) &&
+                 m_debugCockpit != null)
+        {
+            m_debugCockpit.FrameTextureScale = numericValue;
+        }
+        else if (string.Equals(name, "cockpit.metallic", StringComparison.OrdinalIgnoreCase) &&
+                 m_debugCockpit != null)
+        {
+            m_debugCockpit.FrameMetallic = numericValue;
+        }
+        else if (string.Equals(name, "cockpit.roughness", StringComparison.OrdinalIgnoreCase) &&
+                 m_debugCockpit != null)
+        {
+            m_debugCockpit.FrameRoughness = numericValue;
         }
     }
 
@@ -1085,6 +1127,9 @@ public partial class Main : Node3D
             BuildWeaponMounts(playerChassis, playerObjectsById, playerTorsoObjectId),
             debugTriangles.AsReadOnly(),
             () => GetSceneryObstacles(staticSceneryObstacles, battlefieldActors));
+#if DEBUG
+        RegisterDebugConsoleCockpit(playerMech.Cockpit);
+#endif
         var playerMission = new PlayerMission(archive, missionDefinition);
         AddChild(playerMission);
         var playerDeathSequence = new PlayerDeathSequence(
