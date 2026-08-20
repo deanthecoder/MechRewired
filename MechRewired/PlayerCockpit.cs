@@ -25,6 +25,7 @@ public partial class PlayerCockpit : Node3D
     private const float DefaultFrameTextureScale = 1.5f;
     private const float DefaultFrameMetallic = 0.65f;
     private const float DefaultFrameRoughness = 0.72f;
+    private const float RailChamferRatio = 0.22f;
     private const string FrameAlbedoTexturePath =
         "res://Assets/Textures/Cockpit/Metal029/Metal029_1K-PNG_Color.png";
     private const string FrameMetalnessTexturePath =
@@ -126,11 +127,10 @@ public partial class PlayerCockpit : Node3D
         {
             var vertex = vertices[index];
             var halfRailWidth = GetHalfRailWidth(index);
-            AddBox(
+            AddRailAlongX(
                 $"LongitudinalPost{index + 1}",
                 new Vector3(halfRailWidth * 2.0f, PostThickness, PostThickness),
                 new Vector3(0.0f, vertex.Y, crossSectionCentreZ + vertex.X),
-                Vector3.Zero,
                 m_frameMaterial);
 
             var nextIndex = (index + 1) % vertices.Length;
@@ -186,37 +186,142 @@ public partial class PlayerCockpit : Node3D
         AddChild(new MeshInstance3D
         {
             Name = name,
-            Mesh = new BoxMesh
-            {
-                Size = new Vector3(PostThickness, PostThickness, difference.Length() + PostThickness),
-                Material = material
-            },
+            Mesh = CreateChamferedRailMesh(PostThickness, difference.Length() + PostThickness, material),
             Position = midpoint,
             Basis = new Basis(xAxis, yAxis, zAxis),
             Layers = RenderLayer
         });
     }
 
-    private void AddBox(
+    private void AddRailAlongX(
         string name,
         Vector3 size,
         Vector3 position,
-        Vector3 rotationDegrees,
         Godot.Material material)
     {
         AddChild(new MeshInstance3D
         {
             Name = name,
-            Mesh = new BoxMesh
-            {
-                Size = size,
-                Material = material
-            },
+            Mesh = CreateChamferedRailMesh(PostThickness, size.X, material),
             Position = position,
-            RotationDegrees = rotationDegrees,
+            RotationDegrees = new Vector3(0.0f, 90.0f, 0.0f),
             Layers = RenderLayer
         });
     }
+
+    /// <summary>
+    /// Builds an octagonal rail with long flat faces and small clipped corners. It is an
+    /// engineered chamfered square rather than a regular cylinder, so it still reads as a
+    /// sturdy cockpit spar while catching a useful highlight along its edges.
+    /// </summary>
+    private static ArrayMesh CreateChamferedRailMesh(float thickness, float length, Godot.Material material)
+    {
+        var halfThickness = thickness * 0.5f;
+        var chamfer = thickness * RailChamferRatio;
+        var halfLength = length * 0.5f;
+        var profile = new[]
+        {
+            new Vector2(-halfThickness + chamfer, -halfThickness),
+            new Vector2(halfThickness - chamfer, -halfThickness),
+            new Vector2(halfThickness, -halfThickness + chamfer),
+            new Vector2(halfThickness, halfThickness - chamfer),
+            new Vector2(halfThickness - chamfer, halfThickness),
+            new Vector2(-halfThickness + chamfer, halfThickness),
+            new Vector2(-halfThickness, halfThickness - chamfer),
+            new Vector2(-halfThickness, -halfThickness + chamfer)
+        };
+        var surfaceTool = new SurfaceTool();
+        surfaceTool.Begin(Mesh.PrimitiveType.Triangles);
+
+        for (var index = 0; index < profile.Length; index++)
+        {
+            var nextIndex = (index + 1) % profile.Length;
+            var a = profile[index];
+            var b = profile[nextIndex];
+            var u0 = index / (float)profile.Length;
+            var u1 = (index + 1) / (float)profile.Length;
+            AddTriangle(
+                surfaceTool,
+                a,
+                -halfLength,
+                b,
+                -halfLength,
+                b,
+                halfLength,
+                new Vector2(u0, 0.0f),
+                new Vector2(u1, 0.0f),
+                new Vector2(u1, 1.0f));
+            AddTriangle(
+                surfaceTool,
+                a,
+                -halfLength,
+                b,
+                halfLength,
+                a,
+                halfLength,
+                new Vector2(u0, 0.0f),
+                new Vector2(u1, 1.0f),
+                new Vector2(u0, 1.0f));
+        }
+
+        var centre = Vector2.Zero;
+        for (var index = 0; index < profile.Length; index++)
+        {
+            var nextIndex = (index + 1) % profile.Length;
+            var a = profile[index];
+            var b = profile[nextIndex];
+            AddTriangle(
+                surfaceTool,
+                centre,
+                halfLength,
+                a,
+                halfLength,
+                b,
+                halfLength,
+                Vector2.One * 0.5f,
+                ToUv(a, thickness),
+                ToUv(b, thickness));
+            AddTriangle(
+                surfaceTool,
+                centre,
+                -halfLength,
+                b,
+                -halfLength,
+                a,
+                -halfLength,
+                Vector2.One * 0.5f,
+                ToUv(b, thickness),
+                ToUv(a, thickness));
+        }
+
+        surfaceTool.GenerateNormals();
+        surfaceTool.GenerateTangents();
+        var mesh = surfaceTool.Commit();
+        mesh.SurfaceSetMaterial(0, material);
+        return mesh;
+    }
+
+    private static void AddTriangle(
+        SurfaceTool surfaceTool,
+        Vector2 a,
+        float az,
+        Vector2 b,
+        float bz,
+        Vector2 c,
+        float cz,
+        Vector2 uvA,
+        Vector2 uvB,
+        Vector2 uvC)
+    {
+        surfaceTool.SetUV(uvA);
+        surfaceTool.AddVertex(new Vector3(a.X, a.Y, az));
+        surfaceTool.SetUV(uvB);
+        surfaceTool.AddVertex(new Vector3(b.X, b.Y, bz));
+        surfaceTool.SetUV(uvC);
+        surfaceTool.AddVertex(new Vector3(c.X, c.Y, cz));
+    }
+
+    private static Vector2 ToUv(Vector2 point, float thickness) => point / thickness + Vector2.One * 0.5f;
 
     private StandardMaterial3D CreateFrameMaterial()
     {
