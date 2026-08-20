@@ -95,6 +95,7 @@ The camera and battlefield inspection controls are:
 - Press <kbd>F3</kbd> to log the active camera's MW2-space transform, its nearest rendered-triangle ray hit, the current cockpit dimensions and the PlayerMech movement state.
 - The on-screen **Debug** menu provides the same rendering diagnostics when function keys are unavailable.
 - In debug builds, <kbd>F5</kbd> cycles the live fire/smoke VFX parameter, <kbd>F6</kbd>/<kbd>F7</kbd> decreases/increases it, <kbd>F8</kbd> restores the default preset and <kbd>F9</kbd> logs it. Hold <kbd>Shift</kbd> with <kbd>F6</kbd>/<kbd>F7</kbd> for 5× steps.
+- In debug builds, press <kbd>`</kbd> to open the developer console. Type `help` for its built-in commands, `commands_list` for registered MechRewired commands, and `version` for the application version. Press <kbd>Esc</kbd> or <kbd>`</kbd> to close it.
 
 ## VR
 

@@ -87,6 +87,9 @@ public partial class Main : Node3D
         GD.Print(
             $"MechRewired: rendering with {RenderingServer.GetCurrentRenderingMethod()} " +
             $"on {RenderingServer.GetCurrentRenderingDriverName()}.");
+#if DEBUG
+        ConfigureDebugConsole();
+#endif
         if (!TryLoadGameData(
                 out var archive,
                 out var palette,
@@ -127,6 +130,36 @@ public partial class Main : Node3D
             GD.PushError($"MechRewired cannot render the scene: {exception.Message}");
         }
     }
+
+#if DEBUG
+    private void ConfigureDebugConsole()
+    {
+        var console = GetNodeOrNull<Node>("/root/Console");
+        if (console == null)
+        {
+            GD.PushWarning("MechRewired: debug console autoload is unavailable.");
+            return;
+        }
+
+        console.Call(
+            "add_command",
+            "version",
+            Callable.From(PrintApplicationVersion),
+            0,
+            0,
+            "Reports the MechRewired application version.");
+    }
+
+    private void PrintApplicationVersion()
+    {
+        var applicationVersion = ProjectSettings
+            .GetSetting("application/config/version", "0.1.0")
+            .ToString();
+        var engineVersion = Engine.GetVersionInfo()["string"].ToString();
+        var console = GetNodeOrNull<Node>("/root/Console");
+        console?.Call("print_line", $"MechRewired {applicationVersion} (Godot {engineVersion})");
+    }
+#endif
 
     public override void _UnhandledInput(InputEvent inputEvent)
     {
