@@ -171,21 +171,13 @@ public sealed partial class DebugVisualCapture : Node
     /// Recreates the tester-supplied view of the scattered-rock terrain for shader regression
     /// captures without moving the player mech or depending on manual navigation.
     /// </summary>
-    public async void CaptureTerrainStoneFixture(bool quitAfterCapture = false)
+    public async void CaptureTerrainStoneFixture(
+        TerrainDiagnostics terrain = null,
+        bool quitAfterCapture = false)
     {
         var restoreConsoleAfterCapture = HideConsoleForCapture();
-        var fixtureCamera = new Camera3D
-        {
-            Name = "TerrainStoneFixtureCamera",
-            CullMask = m_camera.CullMask,
-            Fov = m_camera.Fov,
-            Current = true
-        };
+        var fixtureCamera = CreateTerrainStoneFixtureCamera();
         AddChild(fixtureCamera);
-
-        var position = MechWarriorCoordinateSystem.ToGodotPosition(StoneFixtureSourcePosition);
-        var direction = MechWarriorCoordinateSystem.ToGodotPosition(StoneFixtureSourceDirection).Normalized();
-        fixtureCamera.LookAtFromPosition(position, position + direction, Vector3.Up);
 
         try
         {
@@ -195,10 +187,59 @@ public sealed partial class DebugVisualCapture : Node
             WriteCapture(
                 "terrain-stones-fixture",
                 terrainDiagnostic: "lit scattered-rock fixture",
+                terrain: terrain,
                 captureCamera: fixtureCamera);
         }
         finally
         {
+            m_camera.Current = true;
+            fixtureCamera.QueueFree();
+            RestoreConsoleAfterCapture(restoreConsoleAfterCapture);
+            if (quitAfterCapture)
+            {
+                GetTree().Quit();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Captures the fixed scattered-rock view with parallax disabled, at the authored default and
+    /// at a deliberately stronger reference value. The active tuning is restored afterwards.
+    /// </summary>
+    public async void CaptureTerrainParallaxSweep(
+        TerrainDiagnostics terrain,
+        bool quitAfterCapture = false)
+    {
+        ArgumentNullException.ThrowIfNull(terrain);
+        var restoreConsoleAfterCapture = HideConsoleForCapture();
+        var originalParallax = terrain.ParallaxDepthMetres;
+        var fixtureCamera = CreateTerrainStoneFixtureCamera();
+        AddChild(fixtureCamera);
+
+        try
+        {
+            foreach (var comparison in new[]
+                     {
+                         (Name: "off", Depth: 0.0f),
+                         (Name: "default", Depth: TerrainSurfaceMaterial.ParallaxDepthMetres),
+                         (Name: "strong", Depth: 0.36f)
+                     })
+            {
+                terrain.ParallaxDepthMetres = comparison.Depth;
+                terrain.ApplySurfaceTuning();
+                await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+                await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+                WriteCapture(
+                    $"terrain-parallax-{comparison.Name}",
+                    terrainDiagnostic: $"lit scattered-rock fixture; parallax {comparison.Depth:F2}m",
+                    terrain: terrain,
+                    captureCamera: fixtureCamera);
+            }
+        }
+        finally
+        {
+            terrain.ParallaxDepthMetres = originalParallax;
+            terrain.ApplySurfaceTuning();
             m_camera.Current = true;
             fixtureCamera.QueueFree();
             RestoreConsoleAfterCapture(restoreConsoleAfterCapture);
@@ -339,6 +380,7 @@ public sealed partial class DebugVisualCapture : Node
         float? cockpitRoughness = null,
         float? cockpitTextureScale = null,
         string terrainDiagnostic = null,
+        TerrainDiagnostics terrain = null,
         Camera3D captureCamera = null)
     {
         var outputDirectory = ProjectSettings.GlobalizePath("user://visual-captures");
@@ -377,6 +419,19 @@ public sealed partial class DebugVisualCapture : Node
             sky = m_sky.Describe(),
             cockpitDiagnostic,
             terrainDiagnostic,
+            terrainSurface = terrain == null
+                ? null
+                : new
+                {
+                    textureScale = terrain.TextureScale,
+                    detailStrength = terrain.DetailStrength,
+                    normalStrength = terrain.NormalStrength,
+                    stoneCoverage = terrain.StonePatchCoverage,
+                    stoneTextureScale = terrain.StoneTextureScale,
+                    parallaxDepthMetres = terrain.ParallaxDepthMetres,
+                    rockSlopeStartDegrees = terrain.RockSlopeStartDegrees,
+                    rockSlopeEndDegrees = terrain.RockSlopeEndDegrees
+                },
             cockpitMaterial = cockpitMetallic.HasValue
                 ? new
                 {
@@ -394,6 +449,21 @@ public sealed partial class DebugVisualCapture : Node
         GD.Print(
             $"MechRewired: wrote visual baseline '{preset}' to {imagePath} " +
             $"({image.GetWidth()}x{image.GetHeight()}; manifest {manifestPath}).");
+    }
+
+    private Camera3D CreateTerrainStoneFixtureCamera()
+    {
+        var camera = new Camera3D
+        {
+            Name = "TerrainStoneFixtureCamera",
+            CullMask = m_camera.CullMask,
+            Fov = m_camera.Fov,
+            Current = true
+        };
+        var position = MechWarriorCoordinateSystem.ToGodotPosition(StoneFixtureSourcePosition);
+        var direction = MechWarriorCoordinateSystem.ToGodotPosition(StoneFixtureSourceDirection).Normalized();
+        camera.LookAtFromPosition(position, position + direction, Vector3.Up);
+        return camera;
     }
 
     private static string ToFileSafeName(string value)

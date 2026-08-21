@@ -289,10 +289,17 @@ public partial class Main : Node3D
         m_debugConsole.Call(
             "add_command",
             "terrain.capture_stones",
-            Callable.From(() => m_debugVisualCapture?.CaptureTerrainStoneFixture()),
+            Callable.From(() => m_debugVisualCapture?.CaptureTerrainStoneFixture(m_debugTerrain)),
             0,
             0,
             "Recreates and captures the scattered-rock terrain regression view.");
+        m_debugConsole.Call(
+            "add_command",
+            "terrain.parallax_sweep",
+            Callable.From(() => m_debugVisualCapture?.CaptureTerrainParallaxSweep(m_debugTerrain)),
+            0,
+            0,
+            "Captures the fixed terrain view with parallax off, default and strong.");
         RegisterTerrainInspectionCommand("terrain.inspect_lit", "lit");
         RegisterTerrainInspectionCommand("terrain.inspect_albedo", "albedo");
         RegisterTerrainInspectionCommand("terrain.inspect_raw", "raw");
@@ -327,6 +334,11 @@ public partial class Main : Node3D
             "Scales the scattered-rock texture relative to the terrain texture (default 0.5).");
         m_debugConsole.Call(
             "add_cvar",
+            "terrain.parallax",
+            terrain.ParallaxDepthMetres,
+            "Sets terrain parallax depth in metres from 0 to 1 (default 0.18).");
+        m_debugConsole.Call(
+            "add_cvar",
             "terrain.rock_start",
             terrain.RockSlopeStartDegrees,
             "Sets the slope in degrees where sandstone begins blending in (default 12).");
@@ -338,7 +350,15 @@ public partial class Main : Node3D
 
         if (OS.GetCmdlineUserArgs().Contains("--capture-terrain-stones"))
         {
-            m_debugVisualCapture?.CaptureTerrainStoneFixture(quitAfterCapture: true);
+            m_debugVisualCapture?.CaptureTerrainStoneFixture(
+                m_debugTerrain,
+                quitAfterCapture: true);
+        }
+        else if (OS.GetCmdlineUserArgs().Contains("--capture-terrain-parallax-sweep"))
+        {
+            m_debugVisualCapture?.CaptureTerrainParallaxSweep(
+                m_debugTerrain,
+                quitAfterCapture: true);
         }
     }
 
@@ -537,6 +557,12 @@ public partial class Main : Node3D
                  m_debugTerrain != null)
         {
             m_debugTerrain.StoneTextureScale = numericValue;
+            m_debugTerrain.ApplySurfaceTuning();
+        }
+        else if (string.Equals(name, "terrain.parallax", StringComparison.OrdinalIgnoreCase) &&
+                 m_debugTerrain != null)
+        {
+            m_debugTerrain.ParallaxDepthMetres = numericValue;
             m_debugTerrain.ApplySurfaceTuning();
         }
         else if (string.Equals(name, "terrain.rock_start", StringComparison.OrdinalIgnoreCase) &&
@@ -1275,6 +1301,7 @@ public partial class Main : Node3D
             $"MechRewired: applied palette-preserving triplanar sand, scattered-rock and " +
             $"sandstone detail to {level.TerrainObjects.Count} authored terrain objects and " +
             $"the implicit ground (stone coverage {TerrainSurfaceMaterial.StonePatchCoverage:F2}; " +
+            $"parallax {TerrainSurfaceMaterial.ParallaxDepthMetres:F2}m; " +
             $"roughness {TerrainSurfaceMaterial.Roughness:F2}).");
 #if DEBUG
         GD.Print(

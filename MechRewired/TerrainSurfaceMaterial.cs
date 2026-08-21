@@ -25,9 +25,10 @@ public static class TerrainSurfaceMaterial
     public const float Roughness = 0.9f;
     public const float TextureScale = 0.06f;
     public const float DetailStrength = 0.24f;
-    public const float NormalStrength = 0.42f;
+    public const float NormalStrength = 0.70f;
     public const float StonePatchCoverage = 0.10f;
     public const float StoneTextureScale = 0.50f;
+    public const float ParallaxDepthMetres = 0.50f;
     public const float RockSlopeStartDegrees = 12.0f;
     public const float RockSlopeEndDegrees = 38.0f;
 
@@ -37,18 +38,24 @@ public static class TerrainSurfaceMaterial
         "res://Assets/Textures/Terrain/Ground054/Ground054_1K-PNG_NormalGL.png";
     private const string SandRoughnessPath =
         "res://Assets/Textures/Terrain/Ground054/Ground054_1K-PNG_Roughness.png";
+    private const string SandHeightPath =
+        "res://Assets/Textures/Terrain/Ground054/Ground054_1K-PNG_Displacement.png";
     private const string RockColorPath =
         "res://Assets/Textures/Terrain/Ground088/Ground088_1K-PNG_Color.png";
     private const string RockNormalPath =
         "res://Assets/Textures/Terrain/Ground088/Ground088_1K-PNG_NormalGL.png";
     private const string RockRoughnessPath =
         "res://Assets/Textures/Terrain/Ground088/Ground088_1K-PNG_Roughness.png";
+    private const string RockHeightPath =
+        "res://Assets/Textures/Terrain/Ground088/Ground088_1K-PNG_Displacement.png";
     private const string StoneColorPath =
         "res://Assets/Textures/Terrain/Rocks019/Rocks019_1K-PNG_Color.png";
     private const string StoneNormalPath =
         "res://Assets/Textures/Terrain/Rocks019/Rocks019_1K-PNG_NormalGL.png";
     private const string StoneRoughnessPath =
         "res://Assets/Textures/Terrain/Rocks019/Rocks019_1K-PNG_Roughness.png";
+    private const string StoneHeightPath =
+        "res://Assets/Textures/Terrain/Rocks019/Rocks019_1K-PNG_Displacement.png";
 
     /// <summary>
     /// Creates one terrain material, optionally tinting a synthetic mesh which has no vertex color.
@@ -63,17 +70,21 @@ public static class TerrainSurfaceMaterial
         material.SetShaderParameter("sand_color", GD.Load<Texture2D>(SandColorPath));
         material.SetShaderParameter("sand_normal", GD.Load<Texture2D>(SandNormalPath));
         material.SetShaderParameter("sand_roughness", GD.Load<Texture2D>(SandRoughnessPath));
+        material.SetShaderParameter("sand_height", GD.Load<Texture2D>(SandHeightPath));
         material.SetShaderParameter("rock_color", GD.Load<Texture2D>(RockColorPath));
         material.SetShaderParameter("rock_normal", GD.Load<Texture2D>(RockNormalPath));
         material.SetShaderParameter("rock_roughness", GD.Load<Texture2D>(RockRoughnessPath));
+        material.SetShaderParameter("rock_height", GD.Load<Texture2D>(RockHeightPath));
         material.SetShaderParameter("stone_color", GD.Load<Texture2D>(StoneColorPath));
         material.SetShaderParameter("stone_normal", GD.Load<Texture2D>(StoneNormalPath));
         material.SetShaderParameter("stone_roughness", GD.Load<Texture2D>(StoneRoughnessPath));
+        material.SetShaderParameter("stone_height", GD.Load<Texture2D>(StoneHeightPath));
         material.SetShaderParameter("texture_scale", TextureScale);
         material.SetShaderParameter("detail_strength", DetailStrength);
         material.SetShaderParameter("normal_strength", NormalStrength);
         material.SetShaderParameter("stone_patch_coverage", StonePatchCoverage);
         material.SetShaderParameter("stone_texture_scale", StoneTextureScale);
+        material.SetShaderParameter("parallax_depth_metres", ParallaxDepthMetres);
         material.SetShaderParameter("slope_blend_start", ToSteepness(RockSlopeStartDegrees));
         material.SetShaderParameter("slope_blend_end", ToSteepness(RockSlopeEndDegrees));
         return material;
@@ -90,12 +101,15 @@ public static class TerrainSurfaceMaterial
         uniform sampler2D sand_color : source_color, repeat_enable, filter_linear_mipmap_anisotropic;
         uniform sampler2D sand_normal : hint_normal, repeat_enable, filter_linear_mipmap_anisotropic;
         uniform sampler2D sand_roughness : repeat_enable, filter_linear_mipmap_anisotropic;
+        uniform sampler2D sand_height : repeat_enable, filter_linear_mipmap_anisotropic;
         uniform sampler2D rock_color : source_color, repeat_enable, filter_linear_mipmap_anisotropic;
         uniform sampler2D rock_normal : hint_normal, repeat_enable, filter_linear_mipmap_anisotropic;
         uniform sampler2D rock_roughness : repeat_enable, filter_linear_mipmap_anisotropic;
+        uniform sampler2D rock_height : repeat_enable, filter_linear_mipmap_anisotropic;
         uniform sampler2D stone_color : source_color, repeat_enable, filter_linear_mipmap_anisotropic;
         uniform sampler2D stone_normal : hint_normal, repeat_enable, filter_linear_mipmap_anisotropic;
         uniform sampler2D stone_roughness : repeat_enable, filter_linear_mipmap_anisotropic;
+        uniform sampler2D stone_height : repeat_enable, filter_linear_mipmap_anisotropic;
         uniform vec4 albedo_tint : source_color = vec4(1.0);
 
         // The source tiles are 3.5m square, but MW2's decoded world scale looks most convincing
@@ -106,6 +120,7 @@ public static class TerrainSurfaceMaterial
         uniform float normal_strength = 0.42;
         uniform float stone_patch_coverage = 0.10;
         uniform float stone_texture_scale = 0.50;
+        uniform float parallax_depth_metres = 0.18;
         uniform float macro_variation_strength = 0.07;
         uniform float slope_blend_start = 0.021852;
         uniform float slope_blend_end = 0.211989;
@@ -128,6 +143,71 @@ public static class TerrainSurfaceMaterial
             vec4 y_projection = textureLod(map, position.xz, lod);
             vec4 z_projection = textureLod(map, position.xy, lod);
             return x_projection * weights.x + y_projection * weights.y + z_projection * weights.z;
+        }
+
+        // Offset the dominant triplanar projection using the authored displacement map. The
+        // source mesh and physics stay untouched: this adds close-range depth without changing
+        // MW2's terrain silhouette, feet placement or collision response.
+        vec3 parallax_position(
+            sampler2D height_map,
+            vec3 position,
+            vec3 geometric_normal,
+            vec3 world_view,
+            float coordinate_depth) {
+            if (coordinate_depth <= 0.00001) {
+                return position;
+            }
+
+            vec3 dominant = abs(geometric_normal);
+            float height_value;
+            float baseline_height;
+            vec2 tangent_view;
+            float normal_view;
+            float axis_sign;
+            if (dominant.y >= dominant.x && dominant.y >= dominant.z) {
+                height_value = texture(height_map, position.xz).r;
+                baseline_height = textureLod(height_map, position.xz, 6.0).r;
+                tangent_view = world_view.xz;
+                normal_view = world_view.y;
+                axis_sign = sign(geometric_normal.y);
+                vec2 offset = clamp(
+                    tangent_view / max(abs(normal_view), 0.28),
+                    vec2(-2.0),
+                    vec2(2.0));
+                position.xz -= offset * clamp(
+                    height_value - baseline_height,
+                    -0.35,
+                    0.65) * coordinate_depth * axis_sign;
+            } else if (dominant.x >= dominant.z) {
+                height_value = texture(height_map, position.zy).r;
+                baseline_height = textureLod(height_map, position.zy, 6.0).r;
+                tangent_view = world_view.zy;
+                normal_view = world_view.x;
+                axis_sign = sign(geometric_normal.x);
+                vec2 offset = clamp(
+                    tangent_view / max(abs(normal_view), 0.28),
+                    vec2(-2.0),
+                    vec2(2.0));
+                position.zy -= offset * clamp(
+                    height_value - baseline_height,
+                    -0.35,
+                    0.65) * coordinate_depth * axis_sign;
+            } else {
+                height_value = texture(height_map, position.xy).r;
+                baseline_height = textureLod(height_map, position.xy, 6.0).r;
+                tangent_view = world_view.xy;
+                normal_view = world_view.z;
+                axis_sign = sign(geometric_normal.z);
+                vec2 offset = clamp(
+                    tangent_view / max(abs(normal_view), 0.28),
+                    vec2(-2.0),
+                    vec2(2.0));
+                position.xy -= offset * clamp(
+                    height_value - baseline_height,
+                    -0.35,
+                    0.65) * coordinate_depth * axis_sign;
+            }
+            return position;
         }
 
         vec3 axis_normal_x(vec3 tangent_normal, float axis_sign) {
@@ -185,6 +265,30 @@ public static class TerrainSurfaceMaterial
             vec3 weights = triplanar_weights(geometric_normal);
             vec3 sample_position = world_position * texture_scale;
             vec3 stone_sample_position = sample_position * stone_texture_scale;
+            vec3 world_view = normalize(CAMERA_POSITION_WORLD - world_position);
+            float parallax_distance_fade = 1.0 - smoothstep(
+                80.0,
+                140.0,
+                distance(CAMERA_POSITION_WORLD, world_position));
+            float visible_parallax_depth = parallax_depth_metres * parallax_distance_fade;
+            vec3 sand_sample_position = parallax_position(
+                sand_height,
+                sample_position,
+                geometric_normal,
+                world_view,
+                visible_parallax_depth * texture_scale * 0.22);
+            vec3 rock_sample_position = parallax_position(
+                rock_height,
+                sample_position,
+                geometric_normal,
+                world_view,
+                visible_parallax_depth * texture_scale * 0.55);
+            stone_sample_position = parallax_position(
+                stone_height,
+                stone_sample_position,
+                geometric_normal,
+                world_view,
+                visible_parallax_depth * texture_scale * stone_texture_scale);
             float steepness = 1.0 - abs(geometric_normal.y);
             float rock_blend = smoothstep(slope_blend_start, slope_blend_end, steepness);
 
@@ -199,15 +303,15 @@ public static class TerrainSurfaceMaterial
                 stone_threshold + 0.14,
                 stone_noise) * (1.0 - rock_blend);
 
-            vec3 sand = sample_triplanar(sand_color, sample_position, weights, 0.0).rgb;
-            vec3 rock = sample_triplanar(rock_color, sample_position, weights, 0.0).rgb;
+            vec3 sand = sample_triplanar(sand_color, sand_sample_position, weights, 0.0).rgb;
+            vec3 rock = sample_triplanar(rock_color, rock_sample_position, weights, 0.0).rgb;
             vec3 stones = sample_triplanar(
                 stone_color,
                 stone_sample_position,
                 weights,
                 0.0).rgb;
-            vec3 broad_sand = sample_triplanar(sand_color, sample_position, weights, 6.0).rgb;
-            vec3 broad_rock = sample_triplanar(rock_color, sample_position, weights, 6.0).rgb;
+            vec3 broad_sand = sample_triplanar(sand_color, sand_sample_position, weights, 6.0).rgb;
+            vec3 broad_rock = sample_triplanar(rock_color, rock_sample_position, weights, 6.0).rgb;
             vec3 broad_stones = sample_triplanar(
                 stone_color,
                 stone_sample_position,
@@ -251,12 +355,12 @@ public static class TerrainSurfaceMaterial
 
             vec3 sand_world_normal = sample_triplanar_normal(
                 sand_normal,
-                sample_position,
+                sand_sample_position,
                 geometric_normal,
                 weights);
             vec3 rock_world_normal = sample_triplanar_normal(
                 rock_normal,
-                sample_position,
+                rock_sample_position,
                 geometric_normal,
                 weights);
             vec3 stone_world_normal = sample_triplanar_normal(
@@ -276,12 +380,12 @@ public static class TerrainSurfaceMaterial
 
             float sand_surface_roughness = sample_triplanar(
                 sand_roughness,
-                sample_position,
+                sand_sample_position,
                 weights,
                 0.0).r;
             float rock_surface_roughness = sample_triplanar(
                 rock_roughness,
-                sample_position,
+                rock_sample_position,
                 weights,
                 0.0).r;
             float stone_surface_roughness = sample_triplanar(

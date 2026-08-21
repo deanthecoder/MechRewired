@@ -3,15 +3,16 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://cbdirkcmp1rtl"
-path="res://.godot/imported/Rocks019_1K-PNG_NormalGL.png-d726642c4a61cf7a1484e37bbfc98411.ctex"
+path.bptc="res://.godot/imported/Rocks019_1K-PNG_NormalGL.png-d726642c4a61cf7a1484e37bbfc98411.bptc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 
 [deps]
 
 source_file="res://Assets/Textures/Terrain/Rocks019/Rocks019_1K-PNG_NormalGL.png"
-dest_files=["res://.godot/imported/Rocks019_1K-PNG_NormalGL.png-d726642c4a61cf7a1484e37bbfc98411.ctex"]
+dest_files=["res://.godot/imported/Rocks019_1K-PNG_NormalGL.png-d726642c4a61cf7a1484e37bbfc98411.bptc.ctex"]
 
 [params]
 
