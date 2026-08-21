@@ -10,6 +10,8 @@ MechRewired is an independent engine written in C# with Godot. Its first target 
 
 ![Chemical Plant objective at Nav Epsilon](img/ChemPlant.png)
 
+![Pyre Light cockpit with palette-driven Sky3D atmosphere](img/PyreLightSky.png)
+
 The immediate goal is intentionally narrow: load original game data, enter a battlefield, pilot a BattleMech, target enemies, manage heat and weapons, and complete a mission. Intro videos, menus, the mech lab and campaign presentation come later.
 
 ## Project status
@@ -30,6 +32,8 @@ The remaster will preserve the DOS version's stark geometry, colors and atmosphe
 The longer-term visual direction is captured in [the visual target](docs/VISUAL_TARGET.md): a cinematic, dusty desert cockpit with physically richer materials and atmosphere, while retaining the original HUD layout, retro-vector character and gameplay readability.
 
 Battlefield fire and smoke use an adapted GPU flipbook shader and smoke atlas from [GodotExplosionVFX](https://github.com/memo1918/GodotExplosionVFX); the required MIT attribution is in [THIRD_PARTY_LICENSES.md](docs/THIRD_PARTY_LICENSES.md).
+
+Mission skies are rendered with the [Sky3D](https://github.com/TokisanGames/Sky3D) atmosphere under its MIT licence. MW2's mission palette, `INIT`, `LITE` and `VIEW` data provide the colour language, starting time of day, sun direction and visibility range; the palette is converted into a brightness-safe atmospheric tint before Sky3D's physically based scattering. Sky3D supplies the modern atmosphere, sparse drifting desert cirrus, fog, sunlight and moon/stars, and progresses time through a two-hour day/night cycle.
 
 See the [development roadmap](docs/ROADMAP.md) for the planned sequence of playable milestones.
 
@@ -98,6 +102,7 @@ The camera and battlefield inspection controls are:
 - The on-screen **Debug** menu provides the same rendering diagnostics when function keys are unavailable.
 - In debug builds, `F5` cycles the live fire/smoke VFX parameter, `F6`/`F7` decreases/increases it, `F8` restores the default preset and `F9` logs it. Hold `Shift` with `F6`/`F7` for 5× steps.
 - In debug builds, press the backtick key to open the developer console. Type `help` for its built-in commands, `commands_list` for registered MechRewired commands, and `version` for the application version. Press `Esc` or the backtick key to close it. Type `hud.glow` to read the HUD halo strength, or `hud.glow 0.8` to change it while running. Type `hud.glow.radius` to read the spread, or `hud.glow.radius 9` for a larger, softer halo. The cockpit-frame material supports `cockpit.texture_scale`, `cockpit.metallic`, and `cockpit.roughness` for live PBR tuning.
+- Sky tuning is also debug-only: `sky.time`, `sky.cloud.coverage`, `sky.cloud.density`, `sky.cloud.height`, `sky.fog.multiplier`, `sky.sun.azimuth_offset`, and `sky.exposure` all report their current value when entered without an argument. Use `visual.capture authored` (or `day`, `dusk`, `night`) to write a PNG and JSON manifest to Godot's `user://visual-captures` directory; `visual.capture_all` writes all four. The console automatically hides while a capture is made and reopens afterwards. These captures preserve the active camera transform in the manifest so a named view can be recreated deliberately after later rendering changes.
 
 ## VR
 

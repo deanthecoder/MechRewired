@@ -30,15 +30,6 @@ public partial class Main : Node3D
     private const float ImplicitGroundHeight = -0.01f;
     private const int SkyTopPaletteIndex = 224;
     private const int SkyHorizonPaletteIndex = 238;
-    private const float DirectionalShadowDistance = 400.0f;
-    private const float FallbackSunAzimuthDegrees = 25.0f;
-    // Deliberately balanced starting point for the remaster.  The original palette supplies
-    // the colour language; direct sun, shadowless sky fill, and ambient supply the modern
-    // lighting response.
-    private const float DefaultAmbientLightEnergy = 0.10f;
-    private const float DefaultSunLightEnergy = 0.65f;
-    private const float DefaultSkyFillLightEnergy = 0.25f;
-    private const float AmbientSkyScatterWhitening = 0.45f;
     private const int GeneralIlluminationLevel = 12;
     private const int ObjectIlluminationLevel = 8;
     private const byte MaximumTexturedMechMaterialIndex = 63;
@@ -79,12 +70,13 @@ public partial class Main : Node3D
         "POLY/CHUNKLET.WTB"
     ];
 
-    private Godot.Environment m_environment;
     private BattlefieldEffects m_battlefieldEffects;
 #if DEBUG
     private Node m_debugConsole;
     private PlayerHud m_debugHud;
     private PlayerCockpit m_debugCockpit;
+    private MissionSkyController m_debugSky;
+    private DebugVisualCapture m_debugVisualCapture;
 #endif
 
     public override void _Ready()
@@ -204,6 +196,73 @@ public partial class Main : Node3D
             "Controls cockpit-frame reflection blur from 0 to 1 (default 0.72).");
     }
 
+    private void RegisterDebugConsoleSky(
+        MissionSkyController sky,
+        Camera3D camera,
+        string missionId)
+    {
+        m_debugSky = sky;
+        m_debugVisualCapture = new DebugVisualCapture(sky, camera, missionId, m_debugConsole)
+        {
+            Name = "DebugVisualCapture"
+        };
+        AddChild(m_debugVisualCapture);
+        if (m_debugConsole == null)
+        {
+            return;
+        }
+
+        m_debugConsole.Call(
+            "add_cvar",
+            "sky.time",
+            sky.TimeOfDay,
+            "Sets the fixed MW2 mission time in hours (0-24; default comes from INIT).");
+        m_debugConsole.Call(
+            "add_cvar",
+            "sky.cloud.coverage",
+            sky.CloudCoverage,
+            "Sets sparse high-cloud coverage from 0 to 1 (desert default 0.4).");
+        m_debugConsole.Call(
+            "add_cvar",
+            "sky.cloud.density",
+            sky.CloudDensity,
+            "Sets high-cloud brightness/density (default 1.0).");
+        m_debugConsole.Call(
+            "add_cvar",
+            "sky.cloud.height",
+            sky.CloudHeight,
+            "Sets apparent high-cloud scale/height (default 1.8).");
+        m_debugConsole.Call(
+            "add_cvar",
+            "sky.fog.multiplier",
+            sky.FogMultiplier,
+            "Scales level-authored atmospheric depth cue (1 is the 75%-density remaster default).");
+        m_debugConsole.Call(
+            "add_cvar",
+            "sky.sun.azimuth_offset",
+            sky.SunAzimuthOffsetDegrees,
+            "Offsets the MW2 LITE sun direction in degrees for visual tuning.");
+        m_debugConsole.Call(
+            "add_cvar",
+            "sky.exposure",
+            sky.Exposure,
+            "Sets Sky3D tonemap exposure (default 1).");
+        m_debugConsole.Call(
+            "add_command",
+            "visual.capture",
+            Callable.From<string>(m_debugVisualCapture.Capture),
+            new[] { "preset" },
+            1,
+            "Writes a named visual baseline: authored, day, dusk or night.");
+        m_debugConsole.Call(
+            "add_command",
+            "visual.capture_all",
+            Callable.From(m_debugVisualCapture.CaptureAll),
+            0,
+            0,
+            "Writes authored, day, dusk and night visual baselines.");
+    }
+
     private void OnDebugConsoleCvarChanged(string name, Variant value)
     {
         if (!float.TryParse(
@@ -239,6 +298,41 @@ public partial class Main : Node3D
                  m_debugCockpit != null)
         {
             m_debugCockpit.FrameRoughness = numericValue;
+        }
+        else if (string.Equals(name, "sky.time", StringComparison.OrdinalIgnoreCase) &&
+                 m_debugSky != null)
+        {
+            m_debugSky.TimeOfDay = numericValue;
+        }
+        else if (string.Equals(name, "sky.cloud.coverage", StringComparison.OrdinalIgnoreCase) &&
+                 m_debugSky != null)
+        {
+            m_debugSky.CloudCoverage = numericValue;
+        }
+        else if (string.Equals(name, "sky.cloud.density", StringComparison.OrdinalIgnoreCase) &&
+                 m_debugSky != null)
+        {
+            m_debugSky.CloudDensity = numericValue;
+        }
+        else if (string.Equals(name, "sky.cloud.height", StringComparison.OrdinalIgnoreCase) &&
+                 m_debugSky != null)
+        {
+            m_debugSky.CloudHeight = numericValue;
+        }
+        else if (string.Equals(name, "sky.fog.multiplier", StringComparison.OrdinalIgnoreCase) &&
+                 m_debugSky != null)
+        {
+            m_debugSky.FogMultiplier = numericValue;
+        }
+        else if (string.Equals(name, "sky.sun.azimuth_offset", StringComparison.OrdinalIgnoreCase) &&
+                 m_debugSky != null)
+        {
+            m_debugSky.SunAzimuthOffsetDegrees = numericValue;
+        }
+        else if (string.Equals(name, "sky.exposure", StringComparison.OrdinalIgnoreCase) &&
+                 m_debugSky != null)
+        {
+            m_debugSky.Exposure = numericValue;
         }
     }
 
@@ -524,102 +618,23 @@ public partial class Main : Node3D
         IReadOnlyList<MechWarriorMissionGamePiece> missionGamePieces,
         MechWarriorMissionResources missionResources)
     {
-        var skyTopColor = ToGodotColor(palette[SkyTopPaletteIndex]);
-        var skyHorizonColor = ToGodotColor(palette[SkyHorizonPaletteIndex]);
-        var skyMaterial = new ProceduralSkyMaterial
-        {
-            SkyTopColor = skyTopColor,
-            SkyHorizonColor = skyHorizonColor,
-            SkyCurve = 0.35f,
-            GroundBottomColor = skyHorizonColor,
-            GroundHorizonColor = skyHorizonColor,
-            GroundCurve = 0.2f,
-            SunAngleMax = 1.5f,
-            SunCurve = 0.08f,
-            UseDebanding = true
-        };
-        var authoredAmbientEnergy = Math.Clamp(
-            (planet.Lighting?.AmbientLevel ?? 50) / 100.0f,
-            0.0f,
-            1.0f);
-        var ambientEnergy = DefaultAmbientLightEnergy;
-        var ambientLightColor = skyHorizonColor.Lerp(Colors.White, AmbientSkyScatterWhitening);
-        var directionalEnergy = DefaultSunLightEnergy;
-        m_environment = new Godot.Environment
-        {
-            BackgroundMode = Godot.Environment.BGMode.Sky,
-            Sky = new Sky
-            {
-                SkyMaterial = skyMaterial
-            },
-            AmbientLightSource = Godot.Environment.AmbientSource.Color,
-            AmbientLightColor = ambientLightColor,
-            AmbientLightEnergy = ambientEnergy,
-            ReflectedLightSource = Godot.Environment.ReflectionSource.Sky,
-            SsrEnabled = true,
-            SsrMaxSteps = 48,
-            SsrFadeIn = 0.12f,
-            SsrFadeOut = 2.5f,
-            FogEnabled = true,
-            FogMode = Godot.Environment.FogModeEnum.Depth,
-            FogLightColor = skyHorizonColor,
-            FogLightEnergy = 1.0f,
-            FogDensity = 1.0f,
-            FogDepthCurve = 1.0f,
-            FogSkyAffect = 0.0f,
-            GlowEnabled = true,
-            GlowIntensity = 0.8f,
-            GlowStrength = 1.0f,
-            GlowBloom = 0.05f,
-            GlowHdrThreshold = 1.5f
-        };
-        var atmosphericVisibilityRange = ConfigureDepthCue(planet.Lighting?.ShadeDistance, planet.ViewDistance);
-        var environment = new WorldEnvironment
-        {
-            Environment = m_environment
-        };
-        AddChild(environment);
-
-        var sunElevation = GetSunElevation(planet.TimeOfDay);
-        var sunLight = new DirectionalLight3D
-        {
-            Name = "SunLight",
-            RotationDegrees = new Vector3(-sunElevation, FallbackSunAzimuthDegrees, 0.0f),
-            LightColor = ToGodotColor(palette[17]),
-            LightEnergy = directionalEnergy,
-            ShadowEnabled = true,
-            ShadowOpacity = 0.9f,
-            ShadowBlur = 0.6f,
-            DirectionalShadowMode = DirectionalLight3D.ShadowMode.Parallel4Splits,
-            DirectionalShadowMaxDistance = DirectionalShadowDistance,
-            DirectionalShadowSplit1 = 0.04f,
-            DirectionalShadowSplit2 = 0.12f,
-            DirectionalShadowSplit3 = 0.35f,
-            DirectionalShadowBlendSplits = true,
-            DirectionalShadowFadeStart = 0.9f,
-            DirectionalShadowPancakeSize = 5.0f
-        };
-        AddChild(sunLight);
-        var skyFillLight = new DirectionalLight3D
-        {
-            Name = "SkyFillLight",
-            // The top sky palette colour gives a cool, broad daylight fill without casting a second shadow.
-            LightColor = skyTopColor,
-            LightEnergy = DefaultSkyFillLightEnergy,
-            RotationDegrees = new Vector3(-90.0f, 0.0f, 0.0f),
-            ShadowEnabled = false
-        };
-        AddChild(skyFillLight);
+        var atmosphericVisibilityRange = CalculateDepthCueDistance(
+            planet.Lighting?.ShadeDistance,
+            planet.ViewDistance);
+        var skyProfile = MissionSkyProfile.FromWorld(
+            planet,
+            palette,
+            atmosphericVisibilityRange,
+            SkyTopPaletteIndex,
+            SkyHorizonPaletteIndex,
+            17);
+        var missionSky = MissionSkyController.Create(this, skyProfile);
         GD.Print(
-            $"MechRewired: rendered mission atmosphere (time {planet.TimeOfDay}; " +
-            $"palette sky {SkyTopPaletteIndex}-{SkyHorizonPaletteIndex}; authored ambient " +
-            $"{authoredAmbientEnergy:F2}; runtime defaults ambient {ambientEnergy:F2}, " +
-            $"directional {directionalEnergy:F2}; " +
-            $"sky fill {DefaultSkyFillLightEnergy:F2} (palette {SkyTopPaletteIndex}); " +
-            $"sun elevation {sunElevation:F1} degrees at {FallbackSunAzimuthDegrees:F0}-degree " +
-            $"mirrored fallback azimuth; 8192px 32-bit directional shadows to " +
-            $"{DirectionalShadowDistance:F0}m at 90% opacity; depth cue " +
-            $"{m_environment.FogDepthBegin:F0}-{m_environment.FogDepthEnd:F0}m).");
+            $"MechRewired: rendered Sky3D mission atmosphere ({missionSky.Describe()}; " +
+            $"palette sky {SkyTopPaletteIndex}-{SkyHorizonPaletteIndex}; LITE ambient " +
+            $"{skyProfile.AuthoredAmbientLevel:F2}; authored depth cue {atmosphericVisibilityRange:F0}m; " +
+            $"LITE sun direction {skyProfile.AuthoredSunDirection}; sky tint {skyProfile.SkyTopColor}; " +
+            $"horizon tint {skyProfile.HorizonColor}).");
 
         var levelRoot = new Node3D
         {
@@ -1129,6 +1144,10 @@ public partial class Main : Node3D
             () => GetSceneryObstacles(staticSceneryObstacles, battlefieldActors));
 #if DEBUG
         RegisterDebugConsoleCockpit(playerMech.Cockpit);
+        RegisterDebugConsoleSky(
+            missionSky,
+            playerMech.CockpitCamera,
+            Path.GetFileNameWithoutExtension(missionResources.ScenarioEntry.Name));
 #endif
         var playerMission = new PlayerMission(archive, missionDefinition);
         AddChild(playerMission);
@@ -2006,7 +2025,7 @@ public partial class Main : Node3D
         return bounds;
     }
 
-    private float ConfigureDepthCue(float? shadeDistance, float? viewDistance)
+    private static float CalculateDepthCueDistance(float? shadeDistance, float? viewDistance)
     {
         var visibleDistance = Mathf.Clamp(
             viewDistance ?? DefaultFogDistance,
@@ -2016,16 +2035,9 @@ public partial class Main : Node3D
             ? Mathf.Min(shadeDistance.Value, visibleDistance)
             : visibleDistance;
 
-        if (m_environment == null)
-        {
-            return depthCueDistance;
-        }
-
         // MW2 applies its palette depth cue from the viewer outward. The authored LITE shade
-        // distance controls when terrain has fully converged on the horizon colour; VDIST is
-        // the farther visibility limit, rather than the point where the colour shift starts.
-        m_environment.FogDepthBegin = 0.0f;
-        m_environment.FogDepthEnd = depthCueDistance;
+        // distance controls when terrain has fully converged on the horizon colour. Sky3D maps
+        // this range to its screen-space fog; VDIST remains the outer visibility limit.
         return depthCueDistance;
     }
 
@@ -2184,20 +2196,6 @@ public partial class Main : Node3D
 
     private static Color ToGodotColor(DTC.Core.Rgb color) =>
         new(color.R / 255.0f, color.G / 255.0f, color.B / 255.0f);
-
-    private static float GetSunElevation(int? militaryTime)
-    {
-        if (!militaryTime.HasValue)
-        {
-            return 45.0f;
-        }
-
-        var hours = militaryTime.Value / 100;
-        var minutes = militaryTime.Value % 100;
-        var solarTime = hours + minutes / 60.0f;
-        var daylightProgress = Math.Clamp((solarTime - 6.0f) / 12.0f, 0.0f, 1.0f);
-        return 10.0f + MathF.Sin(daylightProgress * MathF.PI) * 55.0f;
-    }
 
     private static void AddDebugTriangles(
         ICollection<DebugTriangle> triangles,

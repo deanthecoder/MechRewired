@@ -47,6 +47,7 @@ This phase is complete when one original mission can be played from deployment t
 - Add restrained bump or normal mapping without losing the DOS art direction.
 - Add remaining original voice, weapon, fire and mission sound resources, plus CD music where appropriate.
 - Make major enhancements independently adjustable where useful.
+- Keep the implemented debug visual-capture harness (`visual.capture` / `visual.capture_all`) available as the level catalogue grows. Its named sky presets and camera manifest form the visual baseline for later terrain, lighting, VFX and HUD comparisons.
 
 ## 5. Productization
 
@@ -66,6 +67,7 @@ This phase is complete when one original mission can be played from deployment t
 - Add small NUnit tests for meaningful behavior and failure isolation using synthetic binary fixtures.
 - Log edition detection, resource counts, asset metadata, parser context and important gameplay transitions.
 - Avoid routine per-frame logging outside an explicit diagnostic mode.
+- Treat named debug screenshots as long-lived visual fixtures rather than one-off captures. Capture manifests record mission, camera transform, time of day, sky tuning and render size so the scene can be deliberately recreated before a comparison.
 
 ## Visual direction
 
