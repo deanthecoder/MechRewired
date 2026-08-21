@@ -208,12 +208,52 @@ public sealed partial class DebugVisualCapture : Node
         }
     }
 
+    /// <summary>
+    /// Captures comparable terrain inputs and lighting responses without moving the active
+    /// gameplay camera. The original diagnostic mode is restored when the set is complete.
+    /// </summary>
+    public async void CaptureTerrainDiagnostics(TerrainDiagnostics terrain)
+    {
+        var restoreConsoleAfterCapture = HideConsoleForCapture();
+        var originalMode = terrain.Mode;
+        try
+        {
+            foreach (var mode in new[]
+                     {
+                         TerrainDiagnosticMode.Lit,
+                         TerrainDiagnosticMode.LumaAlbedo,
+                         TerrainDiagnosticMode.RawPaletteAlbedo,
+                         TerrainDiagnosticMode.GeometricNormal,
+                         TerrainDiagnosticMode.DirectSun,
+                         TerrainDiagnosticMode.Roughness
+                     })
+            {
+                terrain.Mode = mode;
+                await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+                await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+                WriteCapture(
+                    $"terrain-{terrain.ModeName.Replace(' ', '-')}",
+                    terrainDiagnostic: terrain.ModeName);
+            }
+
+            GD.Print(
+                "MechRewired: wrote six terrain diagnostic comparisons to " +
+                "user://visual-captures from the current camera.");
+        }
+        finally
+        {
+            terrain.Mode = originalMode;
+            RestoreConsoleAfterCapture(restoreConsoleAfterCapture);
+        }
+    }
+
     private void WriteCapture(
         string preset,
         string cockpitDiagnostic = null,
         float? cockpitMetallic = null,
         float? cockpitRoughness = null,
-        float? cockpitTextureScale = null)
+        float? cockpitTextureScale = null,
+        string terrainDiagnostic = null)
     {
         var outputDirectory = ProjectSettings.GlobalizePath("user://visual-captures");
         if (DirAccess.MakeDirRecursiveAbsolute(outputDirectory) != Error.Ok)
@@ -244,6 +284,7 @@ public sealed partial class DebugVisualCapture : Node
             },
             sky = m_sky.Describe(),
             cockpitDiagnostic,
+            terrainDiagnostic,
             cockpitMaterial = cockpitMetallic.HasValue
                 ? new
                 {

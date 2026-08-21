@@ -124,6 +124,41 @@ public static class MechWarriorModelMeshBuilder
     }
 
     /// <summary>
+    /// Builds an untextured diagnostic mesh using source palette indices without applying an
+    /// MW2 luminosity-table level. This makes the baked LUMA contribution directly comparable
+    /// with the palette art from the same camera and geometry.
+    /// </summary>
+    public static ArrayMesh BuildRawPalette(
+        MechWarriorModel model,
+        MechWarriorPalette palette)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+        ArgumentNullException.ThrowIfNull(palette);
+
+        var mesh = new ArrayMesh();
+        using var surfaceTool = BeginTriangles();
+        foreach (var polygon in model.Polygons)
+        {
+            var color = palette[polygon.PaletteIndex];
+            for (var triangleIndex = 1; triangleIndex < polygon.VertexIndices.Count - 1; triangleIndex++)
+            {
+                AddVertex(surfaceTool, model.Vertices[polygon.VertexIndices[0]], color);
+                AddVertex(surfaceTool, model.Vertices[polygon.VertexIndices[triangleIndex + 1]], color);
+                AddVertex(surfaceTool, model.Vertices[polygon.VertexIndices[triangleIndex]], color);
+            }
+        }
+
+        CommitSurface(surfaceTool, mesh, new StandardMaterial3D
+        {
+            AlbedoColor = Colors.White,
+            Metallic = 0.0f,
+            Roughness = 0.9f,
+            VertexColorUseAsAlbedo = true
+        });
+        return mesh;
+    }
+
+    /// <summary>
     /// Builds an unshaded diagnostic mesh containing every source polygon edge.
     /// </summary>
     public static ArrayMesh BuildWireframe(MechWarriorModel model)

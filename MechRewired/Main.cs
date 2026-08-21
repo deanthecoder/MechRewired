@@ -77,6 +77,7 @@ public partial class Main : Node3D
     private PlayerCockpit m_debugCockpit;
     private MissionSkyController m_debugSky;
     private DebugVisualCapture m_debugVisualCapture;
+    private TerrainDiagnostics m_debugTerrain;
 #endif
 
     public override void _Ready()
@@ -261,6 +262,61 @@ public partial class Main : Node3D
         }
 
         m_debugVisualCapture.CaptureCockpitMaterialSweep(m_debugCockpit);
+    }
+
+    private void RegisterDebugConsoleTerrain(TerrainDiagnostics terrain)
+    {
+        m_debugTerrain = terrain;
+        if (m_debugConsole == null)
+        {
+            return;
+        }
+
+        m_debugConsole.Call(
+            "add_command",
+            "terrain.inspect",
+            Callable.From<string>(SetTerrainInspection),
+            new[] { "view" },
+            1,
+            "Shows terrain lit, albedo, raw, normal, directsun or roughness diagnostics. Use terrain.inspect_all to capture every view.");
+        m_debugConsole.Call(
+            "add_command",
+            "terrain.inspect_all",
+            Callable.From(CaptureTerrainInspection),
+            0,
+            0,
+            "Writes the complete terrain diagnostic capture set from the current camera.");
+    }
+
+    private void SetTerrainInspection(string view)
+    {
+        if (m_debugTerrain == null)
+        {
+            return;
+        }
+
+        if (!m_debugTerrain.TrySetMode(view))
+        {
+            m_debugConsole?.Call(
+                "print_warning",
+                "Unknown terrain view. Use lit, albedo, raw, normal, directsun or roughness; " +
+                "terrain.inspect_all captures the complete set.");
+            return;
+        }
+
+        m_debugConsole?.Call(
+            "print_line",
+            $"MechRewired: terrain inspection set to {m_debugTerrain.ModeName}.");
+    }
+
+    private void CaptureTerrainInspection()
+    {
+        if (m_debugTerrain == null || m_debugVisualCapture == null)
+        {
+            return;
+        }
+
+        m_debugVisualCapture.CaptureTerrainDiagnostics(m_debugTerrain);
     }
 
     private void RegisterDebugConsoleSky(
@@ -708,6 +764,15 @@ public partial class Main : Node3D
             Name = "MissionWorld"
         };
         AddChild(levelRoot);
+        var terrainMaterial = TerrainSurfaceMaterial.Create();
+        TerrainDiagnostics terrainDiagnostics = null;
+#if DEBUG
+        terrainDiagnostics = new TerrainDiagnostics
+        {
+            Name = "TerrainDiagnostics"
+        };
+        AddChild(terrainDiagnostics);
+#endif
 
         var actorRoot = new Node3D
         {
@@ -765,6 +830,9 @@ public partial class Main : Node3D
         var meshCache = new Dictionary<string, IReadOnlyList<ArrayMesh>>(StringComparer.OrdinalIgnoreCase);
         var wireframeCache = new Dictionary<string, IReadOnlyList<ArrayMesh>>(StringComparer.OrdinalIgnoreCase);
         var modelCache = new Dictionary<string, IReadOnlyList<MechWarriorModel>>(StringComparer.OrdinalIgnoreCase);
+#if DEBUG
+        var rawTerrainMeshCache = new Dictionary<string, IReadOnlyList<ArrayMesh>>(StringComparer.OrdinalIgnoreCase);
+#endif
         var groundPaletteWeights = new Dictionary<byte, double>();
         var debugTriangles = new List<DebugTriangle>();
         var worldBounds = new Aabb();
@@ -934,11 +1002,25 @@ public partial class Main : Node3D
                     debugTriangles);
             }
             var wireframes = wireframeCache[levelObject.ModelEntry.Path];
+#if DEBUG
+            IReadOnlyList<ArrayMesh> rawTerrainMeshes = null;
+            if (levelObject.Kind == MechWarriorLevelObjectKind.Terrain &&
+                !rawTerrainMeshCache.TryGetValue(levelObject.ModelEntry.Path, out rawTerrainMeshes))
+            {
+                rawTerrainMeshes = modelCache[levelObject.ModelEntry.Path]
+                    .Select(model => MechWarriorModelMeshBuilder.BuildRawPalette(model, palette))
+                    .ToArray();
+                rawTerrainMeshCache.Add(levelObject.ModelEntry.Path, rawTerrainMeshes);
+            }
+#endif
             for (var meshIndex = 0; meshIndex < meshes.Count; meshIndex++)
             {
                 var solidInstance = new MeshInstance3D
                 {
                     Mesh = meshes[meshIndex],
+                    MaterialOverride = levelObject.Kind == MechWarriorLevelObjectKind.Terrain
+                        ? terrainMaterial
+                        : null,
                     // Terrain WTBs include hidden faces around/beneath their visible land.
                     // Casting those two-sided shadows blacks out the fallback plane below them.
                     CastShadow = levelObject.Kind == MechWarriorLevelObjectKind.Terrain
@@ -947,6 +1029,12 @@ public partial class Main : Node3D
                 };
                 objectRoot.AddChild(solidInstance);
                 solidInstance.AddToGroup(DebugCamera.SolidMeshGroup);
+#if DEBUG
+                if (rawTerrainMeshes != null)
+                {
+                    terrainDiagnostics.Register(solidInstance, rawTerrainMeshes[meshIndex]);
+                }
+#endif
 
                 var wireframeInstance = new MeshInstance3D
                 {
@@ -1037,7 +1125,17 @@ public partial class Main : Node3D
             groundPaletteWeights,
             palette,
             luminosityTable,
-            debugTriangles);
+            debugTriangles,
+            terrainDiagnostics);
+        GD.Print(
+            $"MechRewired: applied the shared palette-driven shader to " +
+            $"{level.TerrainObjects.Count} authored terrain objects; implicit ground retains " +
+            $"its matching palette-tint material (roughness {TerrainSurfaceMaterial.Roughness:F2}).");
+#if DEBUG
+        GD.Print(
+            $"MechRewired: terrain diagnostics registered {terrainDiagnostics.RegisteredMeshCount} " +
+            "terrain mesh instances (including implicit ground; raw palette comparison available).");
+#endif
         BattlefieldPhysics.AddTerrainCollision(levelRoot, debugTriangles);
         battlefieldEffects.ConfigureTerrain(debugTriangles.AsReadOnly());
         LoadAmbientEffects(
@@ -1215,6 +1313,7 @@ public partial class Main : Node3D
             missionSky,
             playerMech.CockpitCamera,
             Path.GetFileNameWithoutExtension(missionResources.ScenarioEntry.Name));
+        RegisterDebugConsoleTerrain(terrainDiagnostics);
 #endif
         var playerMission = new PlayerMission(archive, missionDefinition);
         AddChild(playerMission);
@@ -2334,7 +2433,8 @@ public partial class Main : Node3D
         IReadOnlyDictionary<byte, double> groundPaletteWeights,
         MechWarriorPalette palette,
         MechWarriorLuminosityTable luminosityTable,
-        ICollection<DebugTriangle> debugTriangles)
+        ICollection<DebugTriangle> debugTriangles,
+        TerrainDiagnostics terrainDiagnostics)
     {
         const float margin = 1000.0f;
         var groundColor = CalculateRepresentativeGroundColor(
@@ -2348,13 +2448,25 @@ public partial class Main : Node3D
         {
             Name = "ImplicitGround",
             Position = new Vector3(center.X, ImplicitGroundHeight, center.Z),
-            // Source terrain carries its palette colour in vertex data. Use the same path here:
-            // a material tint with the same numeric RGB is colour-managed differently by Godot
-            // and remains visibly darker even in the viewport's unshaded diagnostic mode.
+            // Preserve the proven palette-tint path for the synthetic fill plane. Authored terrain
+            // carries the same color as vertex data, but Godot color-manages a material tint
+            // differently; converting here keeps the two paths visually matched.
             Mesh = BuildImplicitGroundMesh(size, groundColor)
         };
         levelRoot.AddChild(ground);
         ground.AddToGroup(DebugCamera.SolidMeshGroup);
+#if DEBUG
+        var rawGroundColor = CalculateRepresentativeGroundColor(
+            groundPaletteWeights,
+            palette,
+            sourcePaletteIndex => sourcePaletteIndex,
+            "raw visible terrain",
+            out _);
+        terrainDiagnostics.Register(
+            ground,
+            BuildImplicitGroundDiagnosticMesh(size, rawGroundColor),
+            BuildImplicitGroundDiagnosticMesh(size, groundColor));
+#endif
 
         var minimum = new Vector3(
             center.X - size.X / 2.0f,
@@ -2384,20 +2496,54 @@ public partial class Main : Node3D
             Size = size,
             Material = new StandardMaterial3D
             {
-                // Palette colours on WTB terrain are stored as linear vertex colours. Godot's
-                // material tint is sRGB, so convert explicitly to produce the same on-screen RGB.
                 AlbedoColor = color.LinearToSrgb(),
                 Metallic = 0.0f,
-                Roughness = 0.9f,
+                Roughness = TerrainSurfaceMaterial.Roughness,
                 CullMode = BaseMaterial3D.CullModeEnum.Disabled
             }
         };
     }
 
+#if DEBUG
+    private static Mesh BuildImplicitGroundDiagnosticMesh(Vector2 size, Color color)
+    {
+        var halfWidth = size.X / 2.0f;
+        var halfDepth = size.Y / 2.0f;
+        var cornerA = new Vector3(-halfWidth, 0.0f, -halfDepth);
+        var cornerB = new Vector3(halfWidth, 0.0f, -halfDepth);
+        var cornerC = new Vector3(halfWidth, 0.0f, halfDepth);
+        var cornerD = new Vector3(-halfWidth, 0.0f, halfDepth);
+        using var surfaceTool = new SurfaceTool();
+        surfaceTool.Begin(Mesh.PrimitiveType.Triangles);
+        foreach (var vertex in new[] { cornerA, cornerD, cornerC, cornerA, cornerC, cornerB })
+        {
+            surfaceTool.SetColor(color);
+            surfaceTool.SetNormal(Vector3.Up);
+            surfaceTool.AddVertex(vertex);
+        }
+
+        return surfaceTool.Commit() ??
+               throw new InvalidOperationException("Godot did not create the diagnostic implicit-ground mesh.");
+    }
+#endif
+
     private static Color CalculateRepresentativeGroundColor(
         IReadOnlyDictionary<byte, double> groundPaletteWeights,
         MechWarriorPalette palette,
         MechWarriorLuminosityTable luminosityTable,
+        out byte representativePaletteIndex) =>
+        CalculateRepresentativeGroundColor(
+            groundPaletteWeights,
+            palette,
+            sourcePaletteIndex => luminosityTable.GetPaletteIndex(sourcePaletteIndex, GeneralIlluminationLevel),
+            "LUMA-adjusted visible terrain",
+            out representativePaletteIndex);
+
+    private static Color CalculateRepresentativeGroundColor(
+        IReadOnlyDictionary<byte, double> groundPaletteWeights,
+        MechWarriorPalette palette,
+        Func<byte, byte> mapPaletteIndex,
+        string description,
         out byte representativePaletteIndex)
     {
         if (groundPaletteWeights.Count == 0)
@@ -2411,8 +2557,7 @@ public partial class Main : Node3D
         double blue = 0;
         foreach (var (sourcePaletteIndex, weight) in groundPaletteWeights)
         {
-            var litPaletteIndex = luminosityTable.GetPaletteIndex(sourcePaletteIndex, GeneralIlluminationLevel);
-            var color = palette[litPaletteIndex];
+            var color = palette[mapPaletteIndex(sourcePaletteIndex)];
             totalWeight += weight;
             red += color.R * weight;
             green += color.G * weight;
@@ -2437,7 +2582,7 @@ public partial class Main : Node3D
             .Index;
         var representativePaletteColor = palette[representativePaletteIndex];
         GD.Print(
-            $"MechRewired: sampled visible terrain RGB " +
+            $"MechRewired: sampled {description} RGB " +
             $"({sampledAverage.R},{sampledAverage.G},{sampledAverage.B}) -> palette " +
             $"{representativePaletteIndex} RGB " +
             $"({representativePaletteColor.R},{representativePaletteColor.G},{representativePaletteColor.B}).");
