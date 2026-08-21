@@ -286,6 +286,13 @@ public partial class Main : Node3D
             0,
             0,
             "Writes the complete terrain diagnostic capture set from the current camera.");
+        m_debugConsole.Call(
+            "add_command",
+            "terrain.capture_stones",
+            Callable.From(() => m_debugVisualCapture?.CaptureTerrainStoneFixture()),
+            0,
+            0,
+            "Recreates and captures the scattered-rock terrain regression view.");
         RegisterTerrainInspectionCommand("terrain.inspect_lit", "lit");
         RegisterTerrainInspectionCommand("terrain.inspect_albedo", "albedo");
         RegisterTerrainInspectionCommand("terrain.inspect_raw", "raw");
@@ -310,6 +317,16 @@ public partial class Main : Node3D
             "Controls terrain normal-map strength from 0 to 2 (default 0.42).");
         m_debugConsole.Call(
             "add_cvar",
+            "terrain.stones",
+            terrain.StonePatchCoverage,
+            "Controls scattered-rock patch coverage from 0 to 1 (default 0.10).");
+        m_debugConsole.Call(
+            "add_cvar",
+            "terrain.stone_scale",
+            terrain.StoneTextureScale,
+            "Scales the scattered-rock texture relative to the terrain texture (default 0.5).");
+        m_debugConsole.Call(
+            "add_cvar",
             "terrain.rock_start",
             terrain.RockSlopeStartDegrees,
             "Sets the slope in degrees where sandstone begins blending in (default 12).");
@@ -318,6 +335,11 @@ public partial class Main : Node3D
             "terrain.rock_end",
             terrain.RockSlopeEndDegrees,
             "Sets the slope in degrees which becomes fully sandstone (default 38).");
+
+        if (OS.GetCmdlineUserArgs().Contains("--capture-terrain-stones"))
+        {
+            m_debugVisualCapture?.CaptureTerrainStoneFixture(quitAfterCapture: true);
+        }
     }
 
     private void RegisterTerrainInspectionCommand(string command, string view)
@@ -442,6 +464,13 @@ public partial class Main : Node3D
             0,
             0,
             "Writes authored, day, dusk and night visual baselines.");
+        m_debugConsole.Call(
+            "add_command",
+            "snap",
+            Callable.From(m_debugVisualCapture.Snap),
+            0,
+            0,
+            "Closes the console and saves a timestamped screenshot to Downloads.");
     }
 
     private void OnDebugConsoleCvarChanged(string name, Variant value)
@@ -496,6 +525,18 @@ public partial class Main : Node3D
                  m_debugTerrain != null)
         {
             m_debugTerrain.NormalStrength = numericValue;
+            m_debugTerrain.ApplySurfaceTuning();
+        }
+        else if (string.Equals(name, "terrain.stones", StringComparison.OrdinalIgnoreCase) &&
+                 m_debugTerrain != null)
+        {
+            m_debugTerrain.StonePatchCoverage = numericValue;
+            m_debugTerrain.ApplySurfaceTuning();
+        }
+        else if (string.Equals(name, "terrain.stone_scale", StringComparison.OrdinalIgnoreCase) &&
+                 m_debugTerrain != null)
+        {
+            m_debugTerrain.StoneTextureScale = numericValue;
             m_debugTerrain.ApplySurfaceTuning();
         }
         else if (string.Equals(name, "terrain.rock_start", StringComparison.OrdinalIgnoreCase) &&
@@ -1231,9 +1272,10 @@ public partial class Main : Node3D
             debugTriangles,
             terrainDiagnostics);
         GD.Print(
-            $"MechRewired: applied palette-preserving triplanar sand/rock detail to " +
-            $"{level.TerrainObjects.Count} authored terrain objects and the implicit ground " +
-            $"(roughness {TerrainSurfaceMaterial.Roughness:F2}).");
+            $"MechRewired: applied palette-preserving triplanar sand, scattered-rock and " +
+            $"sandstone detail to {level.TerrainObjects.Count} authored terrain objects and " +
+            $"the implicit ground (stone coverage {TerrainSurfaceMaterial.StonePatchCoverage:F2}; " +
+            $"roughness {TerrainSurfaceMaterial.Roughness:F2}).");
 #if DEBUG
         GD.Print(
             $"MechRewired: terrain diagnostics registered {terrainDiagnostics.RegisteredMeshCount} " +

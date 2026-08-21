@@ -21,6 +21,11 @@ namespace MechRewired;
 /// </summary>
 public sealed partial class DebugVisualCapture : Node
 {
+    private static readonly System.Numerics.Vector3 StoneFixtureSourcePosition =
+        new(3665.61f, 8.52f, 3357.93f);
+    private static readonly System.Numerics.Vector3 StoneFixtureSourceDirection =
+        new(0.4836f, -0.3709f, -0.7928f);
+
     private readonly MissionSkyController m_sky;
     private readonly Camera3D m_camera;
     private readonly string m_missionId;
@@ -64,7 +69,13 @@ public sealed partial class DebugVisualCapture : Node
 
         var fileStem = $"{ToFileSafeName(m_missionId)}-{ToFileSafeName(preset)}";
         var imagePath = Path.Combine(outputDirectory, $"{fileStem}.png");
-        var image = GetViewport().GetTexture().GetImage();
+        var image = GetViewport().GetTexture()?.GetImage();
+        if (image == null)
+        {
+            GD.PushError("MechRewired: the active renderer cannot provide a screenshot image.");
+            RestoreConsoleAfterCapture(restoreConsoleAfterCapture);
+            return;
+        }
         var saveError = image.SavePng(imagePath);
         if (saveError != Error.Ok)
         {
@@ -121,6 +132,80 @@ public sealed partial class DebugVisualCapture : Node
         finally
         {
             RestoreConsoleAfterCapture(restoreConsoleAfterCapture);
+        }
+    }
+
+    /// <summary>
+    /// Hides the console and writes a timestamped screenshot directly to the user's Downloads
+    /// directory. Unlike comparison captures, the console deliberately remains closed.
+    /// </summary>
+    public async void Snap()
+    {
+        HideConsoleForCapture();
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+
+        var outputDirectory = OS.GetSystemDir(OS.SystemDir.Downloads);
+        var imagePath = Path.Combine(
+            outputDirectory,
+            $"MechRewired-{DateTime.Now:yyyyMMdd-HHmmss}.png");
+        var image = GetViewport().GetTexture()?.GetImage();
+        if (image == null)
+        {
+            GD.PushError("MechRewired: the active renderer cannot provide a screenshot image.");
+            return;
+        }
+        var saveError = image.SavePng(imagePath);
+        if (saveError != Error.Ok)
+        {
+            GD.PushError($"MechRewired: could not save screenshot '{imagePath}' ({saveError}).");
+            return;
+        }
+
+        GD.Print(
+            $"MechRewired: saved screenshot to {imagePath} " +
+            $"({image.GetWidth()}x{image.GetHeight()}).");
+    }
+
+    /// <summary>
+    /// Recreates the tester-supplied view of the scattered-rock terrain for shader regression
+    /// captures without moving the player mech or depending on manual navigation.
+    /// </summary>
+    public async void CaptureTerrainStoneFixture(bool quitAfterCapture = false)
+    {
+        var restoreConsoleAfterCapture = HideConsoleForCapture();
+        var fixtureCamera = new Camera3D
+        {
+            Name = "TerrainStoneFixtureCamera",
+            CullMask = m_camera.CullMask,
+            Fov = m_camera.Fov,
+            Current = true
+        };
+        AddChild(fixtureCamera);
+
+        var position = MechWarriorCoordinateSystem.ToGodotPosition(StoneFixtureSourcePosition);
+        var direction = MechWarriorCoordinateSystem.ToGodotPosition(StoneFixtureSourceDirection).Normalized();
+        fixtureCamera.LookAtFromPosition(position, position + direction, Vector3.Up);
+
+        try
+        {
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            WriteCapture(
+                "terrain-stones-fixture",
+                terrainDiagnostic: "lit scattered-rock fixture",
+                captureCamera: fixtureCamera);
+        }
+        finally
+        {
+            m_camera.Current = true;
+            fixtureCamera.QueueFree();
+            RestoreConsoleAfterCapture(restoreConsoleAfterCapture);
+            if (quitAfterCapture)
+            {
+                GetTree().Quit();
+            }
         }
     }
 
@@ -253,7 +338,8 @@ public sealed partial class DebugVisualCapture : Node
         float? cockpitMetallic = null,
         float? cockpitRoughness = null,
         float? cockpitTextureScale = null,
-        string terrainDiagnostic = null)
+        string terrainDiagnostic = null,
+        Camera3D captureCamera = null)
     {
         var outputDirectory = ProjectSettings.GlobalizePath("user://visual-captures");
         if (DirAccess.MakeDirRecursiveAbsolute(outputDirectory) != Error.Ok)
@@ -263,13 +349,19 @@ public sealed partial class DebugVisualCapture : Node
 
         var fileStem = $"{ToFileSafeName(m_missionId)}-{ToFileSafeName(preset)}";
         var imagePath = Path.Combine(outputDirectory, $"{fileStem}.png");
-        var image = GetViewport().GetTexture().GetImage();
+        var image = GetViewport().GetTexture()?.GetImage();
+        if (image == null)
+        {
+            GD.PushError("MechRewired: the active renderer cannot provide a visual capture image.");
+            return;
+        }
         if (image.SavePng(imagePath) != Error.Ok)
         {
             return;
         }
 
         var manifestPath = Path.Combine(outputDirectory, $"{fileStem}.json");
+        var camera = captureCamera ?? m_camera;
         var manifest = new
         {
             mission = m_missionId,
@@ -278,9 +370,9 @@ public sealed partial class DebugVisualCapture : Node
             renderHeight = image.GetHeight(),
             camera = new
             {
-                position = new[] { m_camera.GlobalPosition.X, m_camera.GlobalPosition.Y, m_camera.GlobalPosition.Z },
-                rotationDegrees = new[] { m_camera.GlobalRotationDegrees.X, m_camera.GlobalRotationDegrees.Y, m_camera.GlobalRotationDegrees.Z },
-                fov = m_camera.Fov
+                position = new[] { camera.GlobalPosition.X, camera.GlobalPosition.Y, camera.GlobalPosition.Z },
+                rotationDegrees = new[] { camera.GlobalRotationDegrees.X, camera.GlobalRotationDegrees.Y, camera.GlobalRotationDegrees.Z },
+                fov = camera.Fov
             },
             sky = m_sky.Describe(),
             cockpitDiagnostic,

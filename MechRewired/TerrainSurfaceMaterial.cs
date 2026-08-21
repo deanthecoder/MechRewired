@@ -17,8 +17,8 @@ namespace MechRewired;
 /// </summary>
 /// <remarks>
 /// World-space triplanar projection avoids inventing UVs for the original terrain. Sand is used on
-/// level ground and sandstone is introduced by slope, while MW2's authored palette remains the
-/// dominant source of color.
+/// level ground, scattered stones break up open areas and sandstone is introduced by slope, while
+/// MW2's authored palette remains the dominant source of color.
 /// </remarks>
 public static class TerrainSurfaceMaterial
 {
@@ -26,6 +26,8 @@ public static class TerrainSurfaceMaterial
     public const float TextureScale = 0.06f;
     public const float DetailStrength = 0.24f;
     public const float NormalStrength = 0.42f;
+    public const float StonePatchCoverage = 0.10f;
+    public const float StoneTextureScale = 0.50f;
     public const float RockSlopeStartDegrees = 12.0f;
     public const float RockSlopeEndDegrees = 38.0f;
 
@@ -41,6 +43,12 @@ public static class TerrainSurfaceMaterial
         "res://Assets/Textures/Terrain/Ground088/Ground088_1K-PNG_NormalGL.png";
     private const string RockRoughnessPath =
         "res://Assets/Textures/Terrain/Ground088/Ground088_1K-PNG_Roughness.png";
+    private const string StoneColorPath =
+        "res://Assets/Textures/Terrain/Rocks019/Rocks019_1K-PNG_Color.png";
+    private const string StoneNormalPath =
+        "res://Assets/Textures/Terrain/Rocks019/Rocks019_1K-PNG_NormalGL.png";
+    private const string StoneRoughnessPath =
+        "res://Assets/Textures/Terrain/Rocks019/Rocks019_1K-PNG_Roughness.png";
 
     /// <summary>
     /// Creates one terrain material, optionally tinting a synthetic mesh which has no vertex color.
@@ -58,9 +66,14 @@ public static class TerrainSurfaceMaterial
         material.SetShaderParameter("rock_color", GD.Load<Texture2D>(RockColorPath));
         material.SetShaderParameter("rock_normal", GD.Load<Texture2D>(RockNormalPath));
         material.SetShaderParameter("rock_roughness", GD.Load<Texture2D>(RockRoughnessPath));
+        material.SetShaderParameter("stone_color", GD.Load<Texture2D>(StoneColorPath));
+        material.SetShaderParameter("stone_normal", GD.Load<Texture2D>(StoneNormalPath));
+        material.SetShaderParameter("stone_roughness", GD.Load<Texture2D>(StoneRoughnessPath));
         material.SetShaderParameter("texture_scale", TextureScale);
         material.SetShaderParameter("detail_strength", DetailStrength);
         material.SetShaderParameter("normal_strength", NormalStrength);
+        material.SetShaderParameter("stone_patch_coverage", StonePatchCoverage);
+        material.SetShaderParameter("stone_texture_scale", StoneTextureScale);
         material.SetShaderParameter("slope_blend_start", ToSteepness(RockSlopeStartDegrees));
         material.SetShaderParameter("slope_blend_end", ToSteepness(RockSlopeEndDegrees));
         return material;
@@ -80,6 +93,9 @@ public static class TerrainSurfaceMaterial
         uniform sampler2D rock_color : source_color, repeat_enable, filter_linear_mipmap_anisotropic;
         uniform sampler2D rock_normal : hint_normal, repeat_enable, filter_linear_mipmap_anisotropic;
         uniform sampler2D rock_roughness : repeat_enable, filter_linear_mipmap_anisotropic;
+        uniform sampler2D stone_color : source_color, repeat_enable, filter_linear_mipmap_anisotropic;
+        uniform sampler2D stone_normal : hint_normal, repeat_enable, filter_linear_mipmap_anisotropic;
+        uniform sampler2D stone_roughness : repeat_enable, filter_linear_mipmap_anisotropic;
         uniform vec4 albedo_tint : source_color = vec4(1.0);
 
         // The source tiles are 3.5m square, but MW2's decoded world scale looks most convincing
@@ -88,6 +104,8 @@ public static class TerrainSurfaceMaterial
         uniform float detail_strength = 0.24;
         uniform float texture_color_strength = 0.08;
         uniform float normal_strength = 0.42;
+        uniform float stone_patch_coverage = 0.10;
+        uniform float stone_texture_scale = 0.50;
         uniform float macro_variation_strength = 0.07;
         uniform float slope_blend_start = 0.021852;
         uniform float slope_blend_end = 0.211989;
@@ -166,22 +184,46 @@ public static class TerrainSurfaceMaterial
             vec3 geometric_normal = normalize(world_geometric_normal);
             vec3 weights = triplanar_weights(geometric_normal);
             vec3 sample_position = world_position * texture_scale;
+            vec3 stone_sample_position = sample_position * stone_texture_scale;
             float steepness = 1.0 - abs(geometric_normal.y);
             float rock_blend = smoothstep(slope_blend_start, slope_blend_end, steepness);
 
+            // Two differently scaled noise fields keep the scattered-rock material in broad,
+            // irregular patches instead of exposing another repeated square tile.
+            float stone_noise =
+                value_noise(world_position.xz * 0.012) * 0.65 +
+                value_noise((world_position.xz + vec2(31.7, -19.2)) * 0.027) * 0.35;
+            float stone_threshold = 0.72 - stone_patch_coverage * 0.70;
+            float stone_patch = smoothstep(
+                stone_threshold,
+                stone_threshold + 0.14,
+                stone_noise) * (1.0 - rock_blend);
+
             vec3 sand = sample_triplanar(sand_color, sample_position, weights, 0.0).rgb;
             vec3 rock = sample_triplanar(rock_color, sample_position, weights, 0.0).rgb;
+            vec3 stones = sample_triplanar(
+                stone_color,
+                stone_sample_position,
+                weights,
+                0.0).rgb;
             vec3 broad_sand = sample_triplanar(sand_color, sample_position, weights, 6.0).rgb;
             vec3 broad_rock = sample_triplanar(rock_color, sample_position, weights, 6.0).rgb;
-            vec3 surface_color = mix(sand, rock, rock_blend);
-            vec3 broad_color = mix(broad_sand, broad_rock, rock_blend);
+            vec3 broad_stones = sample_triplanar(
+                stone_color,
+                stone_sample_position,
+                weights,
+                6.0).rgb;
+            vec3 flat_surface_color = mix(sand, stones, stone_patch);
+            vec3 flat_broad_color = mix(broad_sand, broad_stones, stone_patch);
+            vec3 surface_color = mix(flat_surface_color, rock, rock_blend);
+            vec3 broad_color = mix(flat_broad_color, broad_rock, rock_blend);
 
             // Remove the material's average brightness before applying it. The texture supplies
             // grain and restrained hue variation, but the MW2 vertex palette still chooses the land color.
             float local_contrast = clamp(
                 luminance(surface_color) / max(luminance(broad_color), 0.02),
-                0.70,
-                1.30);
+                0.45,
+                1.35);
             vec3 texture_chroma = clamp(
                 surface_color / max(vec3(luminance(surface_color)), vec3(0.02)),
                 vec3(0.82),
@@ -194,12 +236,18 @@ public static class TerrainSurfaceMaterial
                 detail_strength,
                 min(detail_strength * 1.55, 1.0),
                 rock_blend);
+            surface_detail_strength = max(surface_detail_strength, stone_patch * 0.75);
             vec3 detail_color = mix(vec3(1.0), texture_chroma, surface_color_strength);
             detail_color *= mix(1.0, local_contrast, surface_detail_strength);
 
             float macro = value_noise(world_position.xz * 0.006);
             float macro_multiplier = 1.0 + (macro - 0.5) * 2.0 * macro_variation_strength;
-            ALBEDO = COLOR.rgb * albedo_tint.rgb * detail_color * macro_multiplier;
+            vec3 palette_albedo = COLOR.rgb * albedo_tint.rgb * detail_color * macro_multiplier;
+
+            // Rocks019 already contains sand that agrees with the mission surface and authored
+            // charcoal stones. Preserve that complete colour relationship inside stone patches;
+            // palette tinting the source made its granite appear sandy.
+            ALBEDO = mix(palette_albedo, stones, stone_patch);
 
             vec3 sand_world_normal = sample_triplanar_normal(
                 sand_normal,
@@ -211,7 +259,19 @@ public static class TerrainSurfaceMaterial
                 sample_position,
                 geometric_normal,
                 weights);
-            vec3 detail_world_normal = normalize(mix(sand_world_normal, rock_world_normal, rock_blend));
+            vec3 stone_world_normal = sample_triplanar_normal(
+                stone_normal,
+                stone_sample_position,
+                geometric_normal,
+                weights);
+            vec3 flat_world_normal = normalize(mix(
+                sand_world_normal,
+                stone_world_normal,
+                stone_patch));
+            vec3 detail_world_normal = normalize(mix(
+                flat_world_normal,
+                rock_world_normal,
+                rock_blend));
             NORMAL = normalize((VIEW_MATRIX * vec4(detail_world_normal, 0.0)).xyz);
 
             float sand_surface_roughness = sample_triplanar(
@@ -224,7 +284,19 @@ public static class TerrainSurfaceMaterial
                 sample_position,
                 weights,
                 0.0).r;
-            ROUGHNESS = mix(0.90, mix(sand_surface_roughness, rock_surface_roughness, rock_blend), 0.45);
+            float stone_surface_roughness = sample_triplanar(
+                stone_roughness,
+                stone_sample_position,
+                weights,
+                0.0).r;
+            float flat_surface_roughness = mix(
+                sand_surface_roughness,
+                stone_surface_roughness,
+                stone_patch);
+            ROUGHNESS = mix(
+                0.90,
+                mix(flat_surface_roughness, rock_surface_roughness, rock_blend),
+                0.45);
             METALLIC = 0.0;
         }
         """;

@@ -59,6 +59,10 @@ public sealed partial class TerrainDiagnostics : Node
 
     public float NormalStrength { get; set; } = TerrainSurfaceMaterial.NormalStrength;
 
+    public float StonePatchCoverage { get; set; } = TerrainSurfaceMaterial.StonePatchCoverage;
+
+    public float StoneTextureScale { get; set; } = TerrainSurfaceMaterial.StoneTextureScale;
+
     public float RockSlopeStartDegrees { get; set; } = TerrainSurfaceMaterial.RockSlopeStartDegrees;
 
     public float RockSlopeEndDegrees { get; set; } = TerrainSurfaceMaterial.RockSlopeEndDegrees;
@@ -92,6 +96,8 @@ public sealed partial class TerrainDiagnostics : Node
         TextureScale = Mathf.Clamp(TextureScale, 0.02f, 2.0f);
         DetailStrength = Mathf.Clamp(DetailStrength, 0.0f, 1.0f);
         NormalStrength = Mathf.Clamp(NormalStrength, 0.0f, 2.0f);
+        StonePatchCoverage = Mathf.Clamp(StonePatchCoverage, 0.0f, 1.0f);
+        StoneTextureScale = Mathf.Clamp(StoneTextureScale, 0.25f, 4.0f);
         RockSlopeStartDegrees = Mathf.Clamp(RockSlopeStartDegrees, 0.0f, 80.0f);
         RockSlopeEndDegrees = Mathf.Clamp(
             RockSlopeEndDegrees,
@@ -104,6 +110,8 @@ public sealed partial class TerrainDiagnostics : Node
             material.SetShaderParameter("texture_scale", TextureScale);
             material.SetShaderParameter("detail_strength", DetailStrength);
             material.SetShaderParameter("normal_strength", NormalStrength);
+            material.SetShaderParameter("stone_patch_coverage", StonePatchCoverage);
+            material.SetShaderParameter("stone_texture_scale", StoneTextureScale);
             material.SetShaderParameter("slope_blend_start", slopeBlendStart);
             material.SetShaderParameter("slope_blend_end", slopeBlendEnd);
         }
@@ -121,6 +129,8 @@ public sealed partial class TerrainDiagnostics : Node
         shaderMaterial.SetShaderParameter("texture_scale", TextureScale);
         shaderMaterial.SetShaderParameter("detail_strength", DetailStrength);
         shaderMaterial.SetShaderParameter("normal_strength", NormalStrength);
+        shaderMaterial.SetShaderParameter("stone_patch_coverage", StonePatchCoverage);
+        shaderMaterial.SetShaderParameter("stone_texture_scale", StoneTextureScale);
         shaderMaterial.SetShaderParameter(
             "slope_blend_start",
             TerrainSurfaceMaterial.ToSteepness(RockSlopeStartDegrees));
