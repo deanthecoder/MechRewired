@@ -24,6 +24,7 @@ public sealed class MissionSkyController
     private const float DefaultAmbientLightEnergy = 0.10f;
     private const float DefaultSunLightEnergy = 0.65f;
     private const float DefaultSkyFillLightEnergy = 0.25f;
+    private const float DefaultSunShadowOpacity = 0.72f;
     private const float DefaultCloudCoverage = 0.40f;
     private const float DefaultCloudDensity = 1.00f;
     private const float DefaultCloudHeight = 1.8f;
@@ -31,6 +32,7 @@ public sealed class MissionSkyController
 
     private readonly Node m_sky3D;
     private readonly Node m_skyDome;
+    private readonly DirectionalLight3D m_sunLight;
     private readonly Godot.Environment m_environment;
     private readonly MissionSkyProfile m_profile;
     private float m_time;
@@ -41,11 +43,13 @@ public sealed class MissionSkyController
     private MissionSkyController(
         Node sky3D,
         Node skyDome,
+        DirectionalLight3D sunLight,
         Godot.Environment environment,
         MissionSkyProfile profile)
     {
         m_sky3D = sky3D;
         m_skyDome = skyDome;
+        m_sunLight = sunLight;
         m_environment = environment;
         m_profile = profile;
         m_time = profile.TimeOfDay;
@@ -65,9 +69,11 @@ public sealed class MissionSkyController
 
         var skyDome = sky3D.GetNodeOrNull<Node>("SkyDome") ??
                       throw new InvalidOperationException("Sky3D did not create its SkyDome child.");
+        var sunLight = sky3D.GetNodeOrNull<DirectionalLight3D>("SunLight") ??
+                       throw new InvalidOperationException("Sky3D did not create its directional sunlight.");
         var environment = sky3D.Get("environment").As<Godot.Environment>() ??
                           throw new InvalidOperationException("Sky3D created no usable Godot environment.");
-        var controller = new MissionSkyController(sky3D, skyDome, environment, profile);
+        var controller = new MissionSkyController(sky3D, skyDome, sunLight, environment, profile);
         controller.ApplyProfile();
         // SkyDome is created dynamically and initially disables its own processing in _ready.
         // Re-enable its normal-process cloud drift after that setup has completed.
@@ -144,6 +150,18 @@ public sealed class MissionSkyController
         }
     }
 
+    public float SunShadowDistance
+    {
+        get => m_sunLight.DirectionalShadowMaxDistance;
+        set => m_sunLight.DirectionalShadowMaxDistance = Mathf.Clamp(value, 250.0f, 6000.0f);
+    }
+
+    public float SunShadowOpacity
+    {
+        get => m_sunLight.ShadowOpacity;
+        set => m_sunLight.ShadowOpacity = Mathf.Clamp(value, 0.0f, 1.0f);
+    }
+
     public float Exposure
     {
         get => m_sky3D.Get("tonemap_exposure").AsSingle();
@@ -180,7 +198,8 @@ public sealed class MissionSkyController
     public string Describe() =>
         $"time {TimeOfDay:F2}h; authored {m_profile.TimeOfDay:F2}h; fog x{FogMultiplier:F2}; " +
         $"cirrus coverage {CloudCoverage:F2}, density {CloudDensity:F2}, scale {CloudHeight:F2}; " +
-        $"sun azimuth offset {SunAzimuthOffsetDegrees:F1} degrees; exposure {Exposure:F2}.";
+        $"sun azimuth offset {SunAzimuthOffsetDegrees:F1} degrees; shadow distance " +
+        $"{SunShadowDistance:F0}m, opacity {SunShadowOpacity:F2}; exposure {Exposure:F2}.";
 
     private void ApplyProfile()
     {
@@ -199,6 +218,7 @@ public sealed class MissionSkyController
         m_sky3D.Set("sky_contribution", DefaultSkyFillLightEnergy);
         m_sky3D.Set("ambient_energy", DefaultAmbientLightEnergy);
         m_sky3D.Set("sun_energy", DefaultSunLightEnergy);
+        ConfigureSunShadows();
         m_sky3D.Set("cloud_intensity", DefaultCloudDensity);
         m_sky3D.Set("tonemap_exposure", 1.0f);
         m_sky3D.Set("auto_exposure", false);
@@ -251,6 +271,24 @@ public sealed class MissionSkyController
         TimeOfDay = m_profile.TimeOfDay;
         m_sky3D.Call("resume");
         ApplyFog();
+    }
+
+    private void ConfigureSunShadows()
+    {
+        // Godot's short default directional-shadow range causes entire hills to acquire shadows
+        // only as the camera approaches them. Four cascades preserve cockpit detail while the
+        // far cascade covers the battlefield out to roughly twice MW2's authored depth cue.
+        m_sunLight.DirectionalShadowMode = DirectionalLight3D.ShadowMode.Parallel4Splits;
+        m_sunLight.DirectionalShadowSplit1 = 0.08f;
+        m_sunLight.DirectionalShadowSplit2 = 0.22f;
+        m_sunLight.DirectionalShadowSplit3 = 0.50f;
+        m_sunLight.DirectionalShadowBlendSplits = true;
+        m_sunLight.DirectionalShadowFadeStart = 0.90f;
+        SunShadowDistance = Mathf.Clamp(m_profile.DepthCueDistance * 2.0f, 1800.0f, 4000.0f);
+
+        // A bright desert sky scatters substantial light into nominally shadowed surfaces. This
+        // inexpensive approximation retains readable terrain without changing direct sunlight.
+        SunShadowOpacity = DefaultSunShadowOpacity;
     }
 
     private void ApplyFog()

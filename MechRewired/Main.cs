@@ -415,6 +415,16 @@ public partial class Main : Node3D
             "Offsets the MW2 LITE sun direction in degrees for visual tuning.");
         m_debugConsole.Call(
             "add_cvar",
+            "sky.shadow.distance",
+            sky.SunShadowDistance,
+            "Sets the directional-sun shadow coverage distance in metres.");
+        m_debugConsole.Call(
+            "add_cvar",
+            "sky.shadow.opacity",
+            sky.SunShadowOpacity,
+            "Sets sun-shadow opacity from 0 to 1 (default 0.72 for desert bounce light).");
+        m_debugConsole.Call(
+            "add_cvar",
             "sky.exposure",
             sky.Exposure,
             "Sets Sky3D tonemap exposure (default 1).");
@@ -534,6 +544,16 @@ public partial class Main : Node3D
                  m_debugSky != null)
         {
             m_debugSky.SunAzimuthOffsetDegrees = numericValue;
+        }
+        else if (string.Equals(name, "sky.shadow.distance", StringComparison.OrdinalIgnoreCase) &&
+                 m_debugSky != null)
+        {
+            m_debugSky.SunShadowDistance = numericValue;
+        }
+        else if (string.Equals(name, "sky.shadow.opacity", StringComparison.OrdinalIgnoreCase) &&
+                 m_debugSky != null)
+        {
+            m_debugSky.SunShadowOpacity = numericValue;
         }
         else if (string.Equals(name, "sky.exposure", StringComparison.OrdinalIgnoreCase) &&
                  m_debugSky != null)
