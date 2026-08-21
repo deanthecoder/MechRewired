@@ -1300,6 +1300,7 @@ public partial class Main : Node3D
             MouseFilter = Control.MouseFilterEnum.Ignore
         };
         hudLayer.AddChild(playerHud);
+        playerHud.BeginPowerUp();
 #if DEBUG
         RegisterDebugConsoleHud(playerHud);
 #endif

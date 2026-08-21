@@ -30,6 +30,8 @@ public partial class PlayerHud : Control
     private const float RadarCenterY = 145.0f;
     private const float RadarPowerTransitionSeconds = 0.35f;
     private const float HudPowerTransitionSeconds = 0.28f;
+    private const float StartupRadarPowerTransitionSeconds = 1.35f;
+    private const float StartupHudPowerTransitionSeconds = 0.95f;
     private const float SpeedGaugeResponseKphPerSecond = 95.0f;
     private const float DefaultHudGlow = 1.0f;
     private const float DefaultHudGlowRadius = 8.0f;
@@ -63,6 +65,7 @@ public partial class PlayerHud : Control
     private Vector2 m_offset;
     private float m_radarPower = 1.0f;
     private float m_hudPower = 1.0f;
+    private bool m_initialPowerUp;
     private float m_displayedTargetSpeedKph;
     private float m_hudGlow = DefaultHudGlow;
     private float m_hudGlowRadius = DefaultHudGlowRadius;
@@ -128,6 +131,19 @@ public partial class PlayerHud : Control
             $"Z/Shift+Z adjusts display zoom; N/Shift+N cycles NAV points).");
     }
 
+    /// <summary>
+    /// Starts the first cockpit presentation with its instruments powered down. Gameplay remains
+    /// online; this only gives the existing HUD power transition a longer startup cadence.
+    /// </summary>
+    public void BeginPowerUp()
+    {
+        m_initialPowerUp = true;
+        m_radarPower = 0.0f;
+        m_hudPower = 0.0f;
+        QueueRedraw();
+        GD.Print("MechRewired: pilot HUD power-up sequence started.");
+    }
+
     public override void _Process(double delta)
     {
         var shouldBeVisible = m_playerMech.CockpitCamera?.Current == true;
@@ -137,14 +153,30 @@ public partial class PlayerHud : Control
         }
 
         var radarTarget = m_targeting.IsShutdown ? 0.0f : 1.0f;
+        if (m_targeting.IsShutdown)
+        {
+            m_initialPowerUp = false;
+        }
+
+        var radarTransitionSeconds = m_initialPowerUp
+            ? StartupRadarPowerTransitionSeconds
+            : RadarPowerTransitionSeconds;
+        var hudTransitionSeconds = m_initialPowerUp
+            ? StartupHudPowerTransitionSeconds
+            : HudPowerTransitionSeconds;
         m_radarPower = Mathf.MoveToward(
             m_radarPower,
             radarTarget,
-            (float)delta / RadarPowerTransitionSeconds);
+            (float)delta / radarTransitionSeconds);
         m_hudPower = Mathf.MoveToward(
             m_hudPower,
             radarTarget,
-            (float)delta / HudPowerTransitionSeconds);
+            (float)delta / hudTransitionSeconds);
+        if (m_initialPowerUp && m_radarPower >= 0.999f && m_hudPower >= 0.999f)
+        {
+            m_initialPowerUp = false;
+            GD.Print("MechRewired: pilot HUD power-up complete.");
+        }
         m_displayedTargetSpeedKph = Mathf.MoveToward(
             m_displayedTargetSpeedKph,
             (float)m_playerMech.Drive.TargetSpeedKph,
