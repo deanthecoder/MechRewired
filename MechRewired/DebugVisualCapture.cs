@@ -124,7 +124,96 @@ public sealed partial class DebugVisualCapture : Node
         }
     }
 
-    private void WriteCapture(string preset)
+    /// <summary>
+    /// Captures the cockpit's lit and material-diagnostic views from the tester's current
+    /// position.  A single command therefore produces comparable evidence for lighting,
+    /// source textures and geometric normal direction without manual screenshot juggling.
+    /// </summary>
+    public async void CaptureCockpitDiagnostics(PlayerCockpit cockpit)
+    {
+        var restoreConsoleAfterCapture = HideConsoleForCapture();
+        var originalMode = cockpit.FrameDiagnosticMode;
+        try
+        {
+            foreach (var mode in new[]
+                     {
+                         CockpitFrameDiagnosticMode.Lit,
+                         CockpitFrameDiagnosticMode.Albedo,
+                         CockpitFrameDiagnosticMode.GeometricNormal,
+                         CockpitFrameDiagnosticMode.NormalMap,
+                         CockpitFrameDiagnosticMode.Roughness,
+                         CockpitFrameDiagnosticMode.Metallic,
+                         CockpitFrameDiagnosticMode.DirectSun
+                     })
+            {
+                cockpit.FrameDiagnosticMode = mode;
+                await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+                await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+                WriteCapture(
+                    $"cockpit-{cockpit.FrameDiagnosticModeName.Replace(' ', '-')}",
+                    cockpit.FrameDiagnosticModeName);
+            }
+        }
+        finally
+        {
+            cockpit.FrameDiagnosticMode = originalMode;
+            RestoreConsoleAfterCapture(restoreConsoleAfterCapture);
+        }
+    }
+
+    /// <summary>
+    /// Captures a compact metallic/roughness matrix from the current cockpit view. The values
+    /// deliberately span painted, weathered and exposed-metal responses while keeping the
+    /// texture, camera, sky and geometry identical between images.
+    /// </summary>
+    public async void CaptureCockpitMaterialSweep(PlayerCockpit cockpit)
+    {
+        var restoreConsoleAfterCapture = HideConsoleForCapture();
+        var originalMode = cockpit.FrameDiagnosticMode;
+        var originalMetallic = cockpit.FrameMetallic;
+        var originalRoughness = cockpit.FrameRoughness;
+        var metallicValues = new[] { 0.0f, 0.25f, 0.50f, 0.75f };
+        var roughnessValues = new[] { 0.35f, 0.60f, 0.85f };
+
+        try
+        {
+            cockpit.FrameDiagnosticMode = CockpitFrameDiagnosticMode.Lit;
+            foreach (var metallic in metallicValues)
+            {
+                foreach (var roughness in roughnessValues)
+                {
+                    cockpit.FrameMetallic = metallic;
+                    cockpit.FrameRoughness = roughness;
+                    await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+                    await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+                    WriteCapture(
+                        $"cockpit-material-m{metallic * 100:000}-r{roughness * 100:000}",
+                        "material sweep",
+                        metallic,
+                        roughness,
+                        cockpit.FrameTextureScale);
+                }
+            }
+
+            GD.Print(
+                $"MechRewired: wrote {metallicValues.Length * roughnessValues.Length} cockpit " +
+                "material comparisons to user://visual-captures.");
+        }
+        finally
+        {
+            cockpit.FrameMetallic = originalMetallic;
+            cockpit.FrameRoughness = originalRoughness;
+            cockpit.FrameDiagnosticMode = originalMode;
+            RestoreConsoleAfterCapture(restoreConsoleAfterCapture);
+        }
+    }
+
+    private void WriteCapture(
+        string preset,
+        string cockpitDiagnostic = null,
+        float? cockpitMetallic = null,
+        float? cockpitRoughness = null,
+        float? cockpitTextureScale = null)
     {
         var outputDirectory = ProjectSettings.GlobalizePath("user://visual-captures");
         if (DirAccess.MakeDirRecursiveAbsolute(outputDirectory) != Error.Ok)
@@ -154,6 +243,15 @@ public sealed partial class DebugVisualCapture : Node
                 fov = m_camera.Fov
             },
             sky = m_sky.Describe(),
+            cockpitDiagnostic,
+            cockpitMaterial = cockpitMetallic.HasValue
+                ? new
+                {
+                    metallic = cockpitMetallic.Value,
+                    roughness = cockpitRoughness,
+                    textureScale = cockpitTextureScale
+                }
+                : null,
             engine = Engine.GetVersionInfo()["string"].ToString(),
             generatedUtc = DateTimeOffset.UtcNow.ToString("O")
         };

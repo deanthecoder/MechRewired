@@ -13,6 +13,20 @@ using Godot;
 namespace MechRewired;
 
 /// <summary>
+/// Selects the debug-only material view used to investigate cockpit-frame rendering.
+/// </summary>
+public enum CockpitFrameDiagnosticMode
+{
+    Lit,
+    Albedo,
+    GeometricNormal,
+    NormalMap,
+    Roughness,
+    Metallic,
+    DirectSun
+}
+
+/// <summary>
 /// Provides the native 3D interpretation of the original cockpit shell.
 /// </summary>
 public partial class PlayerCockpit : Node3D
@@ -23,8 +37,8 @@ public partial class PlayerCockpit : Node3D
     private const float FrameOffsetZ = 0.5f;
     private const float RearwardOffsetFactor = 0.25f;
     private const float DefaultFrameTextureScale = 1.5f;
-    private const float DefaultFrameMetallic = 0.65f;
-    private const float DefaultFrameRoughness = 0.72f;
+    private const float DefaultFrameMetallic = 0.75f;
+    private const float DefaultFrameRoughness = 0.60f;
     private const float RailChamferRatio = 0.22f;
     private const string FrameAlbedoTexturePath =
         "res://Assets/Textures/Cockpit/Metal029/Metal029_1K-PNG_Color.png";
@@ -36,9 +50,11 @@ public partial class PlayerCockpit : Node3D
         "res://Assets/Textures/Cockpit/Metal029/Metal029_1K-PNG_Roughness.png";
 
     private StandardMaterial3D m_frameMaterial;
+    private MeshInstance3D m_frameMesh;
     private float m_frameTextureScale = DefaultFrameTextureScale;
     private float m_frameMetallic = DefaultFrameMetallic;
     private float m_frameRoughness = DefaultFrameRoughness;
+    private CockpitFrameDiagnosticMode m_frameDiagnosticMode;
 
     public PlayerCockpit()
     {
@@ -54,6 +70,18 @@ public partial class PlayerCockpit : Node3D
     public float PostThickness { get; } = 0.04f;
 
     public float SideTaper { get; }
+
+    public CockpitFrameDiagnosticMode FrameDiagnosticMode
+    {
+        get => m_frameDiagnosticMode;
+        set
+        {
+            m_frameDiagnosticMode = value;
+            ApplyFrameDiagnosticMaterial();
+        }
+    }
+
+    public string FrameDiagnosticModeName => ToDiagnosticName(FrameDiagnosticMode);
 
     /// <summary>
     /// Controls the number of Metal029 repetitions across each metre of cockpit structure.
@@ -100,6 +128,45 @@ public partial class PlayerCockpit : Node3D
     public override void _Ready()
     {
         Rebuild();
+    }
+
+    /// <summary>
+    /// Selects a named material view for a cockpit-frame investigation.
+    /// </summary>
+    public bool TrySetFrameDiagnosticMode(string name)
+    {
+        switch (name.Trim().ToLowerInvariant())
+        {
+            case "lit":
+            case "default":
+                FrameDiagnosticMode = CockpitFrameDiagnosticMode.Lit;
+                return true;
+            case "albedo":
+            case "basecolor":
+                FrameDiagnosticMode = CockpitFrameDiagnosticMode.Albedo;
+                return true;
+            case "normal":
+            case "normals":
+            case "geometricnormal":
+                FrameDiagnosticMode = CockpitFrameDiagnosticMode.GeometricNormal;
+                return true;
+            case "normalmap":
+                FrameDiagnosticMode = CockpitFrameDiagnosticMode.NormalMap;
+                return true;
+            case "roughness":
+                FrameDiagnosticMode = CockpitFrameDiagnosticMode.Roughness;
+                return true;
+            case "metallic":
+            case "metalness":
+                FrameDiagnosticMode = CockpitFrameDiagnosticMode.Metallic;
+                return true;
+            case "directsun":
+            case "sun":
+                FrameDiagnosticMode = CockpitFrameDiagnosticMode.DirectSun;
+                return true;
+            default:
+                return false;
+        }
     }
 
     public void SetPose(float pitchDegrees, float yaw, Vector3 gaitPosition, float gaitRoll)
@@ -157,12 +224,14 @@ public partial class PlayerCockpit : Node3D
         frameBuilder.GenerateTangents();
         var frameMesh = frameBuilder.Commit();
         frameMesh.SurfaceSetMaterial(0, m_frameMaterial);
-        AddChild(new MeshInstance3D
+        m_frameMesh = new MeshInstance3D
         {
             Name = "CockpitFrame",
             Mesh = frameMesh,
             Layers = RenderLayer
-        });
+        };
+        AddChild(m_frameMesh);
+        ApplyFrameDiagnosticMaterial();
     }
 
     private Vector2[] GetCrossSectionVertices()
@@ -329,12 +398,15 @@ public partial class PlayerCockpit : Node3D
         Vector2 uvB,
         Vector2 uvC)
     {
+        // SurfaceTool treats clockwise triangles as front-facing.  Keep the generated
+        // cockpit normals pointing out of its rails rather than into them by reversing
+        // the conventional counter-clockwise order used by the profile construction.
         surfaceTool.SetUV(uvA);
         surfaceTool.AddVertex(transform * new Vector3(a.X, a.Y, az));
-        surfaceTool.SetUV(uvB);
-        surfaceTool.AddVertex(transform * new Vector3(b.X, b.Y, bz));
         surfaceTool.SetUV(uvC);
         surfaceTool.AddVertex(transform * new Vector3(c.X, c.Y, cz));
+        surfaceTool.SetUV(uvB);
+        surfaceTool.AddVertex(transform * new Vector3(b.X, b.Y, bz));
     }
 
     private static void AddTriangle(
@@ -348,10 +420,10 @@ public partial class PlayerCockpit : Node3D
     {
         surfaceTool.SetUV(uvA);
         surfaceTool.AddVertex(a);
-        surfaceTool.SetUV(uvB);
-        surfaceTool.AddVertex(b);
         surfaceTool.SetUV(uvC);
         surfaceTool.AddVertex(c);
+        surfaceTool.SetUV(uvB);
+        surfaceTool.AddVertex(b);
     }
 
     private static Vector2 ToUv(Vector2 point, float thickness) => point / thickness + Vector2.One * 0.5f;
@@ -361,17 +433,18 @@ public partial class PlayerCockpit : Node3D
         var material = new StandardMaterial3D
         {
             AlbedoTexture = GD.Load<Texture2D>(FrameAlbedoTexturePath),
-            MetallicTexture = GD.Load<Texture2D>(FrameMetalnessTexturePath),
-            MetallicTextureChannel = BaseMaterial3D.TextureChannel.Red,
             NormalEnabled = true,
             NormalTexture = GD.Load<Texture2D>(FrameNormalTexturePath),
-            RoughnessTexture = GD.Load<Texture2D>(FrameRoughnessTexturePath),
-            RoughnessTextureChannel = BaseMaterial3D.TextureChannel.Red,
             TextureFilter = BaseMaterial3D.TextureFilterEnum.LinearWithMipmapsAnisotropic,
             Uv1Triplanar = true,
             Uv1TriplanarSharpness = 12.0f,
             Uv1WorldTriplanar = false
         };
+        // Metal029's metalness map is uniformly white and its roughness averages about 0.30.
+        // Multiplying those by the previous controls produced a near-black, mirror-like frame
+        // whose sky reflections looked like light arriving from the wrong direction. Keep the
+        // useful colour and normal detail, but model the cockpit as dark painted steel with
+        // restrained metal response and a broad, stable reflection.
         m_frameMaterial = material;
         ApplyFrameMaterialProperties();
         return material;
@@ -387,5 +460,102 @@ public partial class PlayerCockpit : Node3D
         m_frameMaterial.Metallic = m_frameMetallic;
         m_frameMaterial.Roughness = m_frameRoughness;
         m_frameMaterial.Uv1Scale = Vector3.One * m_frameTextureScale;
+        if (FrameDiagnosticMode is CockpitFrameDiagnosticMode.Albedo or
+            CockpitFrameDiagnosticMode.NormalMap or
+            CockpitFrameDiagnosticMode.Roughness or
+            CockpitFrameDiagnosticMode.Metallic)
+        {
+            ApplyFrameDiagnosticMaterial();
+        }
     }
+
+    private void ApplyFrameDiagnosticMaterial()
+    {
+        if (m_frameMesh == null)
+        {
+            return;
+        }
+
+        m_frameMesh.MaterialOverride = FrameDiagnosticMode switch
+        {
+            CockpitFrameDiagnosticMode.Lit => null,
+            CockpitFrameDiagnosticMode.Albedo => CreateTextureDiagnosticMaterial(FrameAlbedoTexturePath),
+            CockpitFrameDiagnosticMode.NormalMap => CreateTextureDiagnosticMaterial(FrameNormalTexturePath),
+            CockpitFrameDiagnosticMode.Roughness => CreateTextureDiagnosticMaterial(FrameRoughnessTexturePath),
+            CockpitFrameDiagnosticMode.Metallic => CreateTextureDiagnosticMaterial(FrameMetalnessTexturePath),
+            CockpitFrameDiagnosticMode.GeometricNormal => CreateGeometricNormalDiagnosticMaterial(),
+            CockpitFrameDiagnosticMode.DirectSun => CreateDirectSunDiagnosticMaterial(),
+            _ => null
+        };
+    }
+
+    private StandardMaterial3D CreateTextureDiagnosticMaterial(string texturePath) => new()
+    {
+        ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+        AlbedoTexture = GD.Load<Texture2D>(texturePath),
+        TextureFilter = BaseMaterial3D.TextureFilterEnum.LinearWithMipmapsAnisotropic,
+        Uv1Triplanar = true,
+        Uv1TriplanarSharpness = 12.0f,
+        Uv1WorldTriplanar = false,
+        Uv1Scale = Vector3.One * FrameTextureScale
+    };
+
+    private static ShaderMaterial CreateGeometricNormalDiagnosticMaterial() =>
+        CreateUnshadedDiagnosticMaterial(
+            """
+            varying vec3 world_geometric_normal;
+
+            void vertex() {
+                world_geometric_normal = normalize(MODEL_NORMAL_MATRIX * NORMAL);
+            }
+
+            void fragment() {
+                ALBEDO = world_geometric_normal * 0.5 + 0.5;
+            }
+            """);
+
+    private static ShaderMaterial CreateDirectSunDiagnosticMaterial() => new()
+    {
+        Shader = new Shader
+        {
+            Code =
+                """
+                shader_type spatial;
+                render_mode ambient_light_disabled, shadows_disabled, specular_disabled;
+
+                void fragment() {
+                    ALBEDO = vec3(1.0);
+                    METALLIC = 0.0;
+                    ROUGHNESS = 1.0;
+                }
+
+                void light() {
+                    // LIGHT and NORMAL are both supplied by Godot in the same space. This
+                    // intentionally tests the actual SunLight direction, not a C# duplicate.
+                    float direct = max(dot(normalize(NORMAL), normalize(LIGHT)), 0.0);
+                    DIFFUSE_LIGHT = vec3(direct);
+                }
+                """
+        }
+    };
+
+    private static ShaderMaterial CreateUnshadedDiagnosticMaterial(string body) => new()
+    {
+        Shader = new Shader
+        {
+            Code =
+                """
+                shader_type spatial;
+                render_mode unshaded, cull_back;
+                """ + body
+        }
+    };
+
+    private static string ToDiagnosticName(CockpitFrameDiagnosticMode mode) => mode switch
+    {
+        CockpitFrameDiagnosticMode.GeometricNormal => "geometric normal",
+        CockpitFrameDiagnosticMode.NormalMap => "normal map",
+        CockpitFrameDiagnosticMode.DirectSun => "direct sun",
+        _ => mode.ToString().ToLowerInvariant()
+    };
 }

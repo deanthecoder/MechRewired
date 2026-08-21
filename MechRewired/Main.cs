@@ -188,12 +188,79 @@ public partial class Main : Node3D
             "add_cvar",
             "cockpit.metallic",
             cockpit.FrameMetallic,
-            "Controls cockpit-frame metalness from 0 to 1 (default 0.65).");
+            "Controls cockpit-frame metalness from 0 to 1 (default 0.75).");
         m_debugConsole.Call(
             "add_cvar",
             "cockpit.roughness",
             cockpit.FrameRoughness,
-            "Controls cockpit-frame reflection blur from 0 to 1 (default 0.72).");
+            "Controls cockpit-frame reflection blur from 0 to 1 (default 0.60).");
+        m_debugConsole.Call(
+            "add_command",
+            "cockpit.inspect",
+            Callable.From<string>(SetCockpitInspection),
+            new[] { "view" },
+            1,
+            "Shows cockpit-frame lit, albedo, normal, normalmap, roughness, metallic or directsun diagnostics. Use all to capture every view.");
+        m_debugConsole.Call(
+            "add_command",
+            "cockpit.inspect_all",
+            Callable.From(CaptureCockpitInspection),
+            0,
+            0,
+            "Writes the complete cockpit material diagnostic capture set.");
+        m_debugConsole.Call(
+            "add_command",
+            "cockpit.material_sweep",
+            Callable.From(CaptureCockpitMaterialSweep),
+            0,
+            0,
+            "Writes 12 labelled cockpit metallic/roughness comparisons from the current view.");
+    }
+
+    private void SetCockpitInspection(string view)
+    {
+        if (m_debugCockpit == null)
+        {
+            return;
+        }
+
+        if (string.Equals(view, "all", StringComparison.OrdinalIgnoreCase))
+        {
+            CaptureCockpitInspection();
+            return;
+        }
+
+        if (!m_debugCockpit.TrySetFrameDiagnosticMode(view))
+        {
+            m_debugConsole?.Call(
+                "print_warning",
+                "Unknown cockpit view. Use lit, albedo, normal, normalmap, roughness, metallic, directsun or all.");
+            return;
+        }
+
+        m_debugConsole?.Call(
+            "print_line",
+            $"MechRewired: cockpit inspection set to {m_debugCockpit.FrameDiagnosticModeName}.");
+    }
+
+    private void CaptureCockpitInspection()
+    {
+        if (m_debugCockpit == null || m_debugVisualCapture == null)
+        {
+            return;
+        }
+
+        m_debugVisualCapture.CaptureCockpitDiagnostics(m_debugCockpit);
+    }
+
+    private void CaptureCockpitMaterialSweep()
+    {
+        if (m_debugCockpit == null || m_debugVisualCapture == null)
+        {
+            return;
+        }
+
+        m_debugVisualCapture.CaptureCockpitMaterialSweep(m_debugCockpit);
     }
 
     private void RegisterDebugConsoleSky(
