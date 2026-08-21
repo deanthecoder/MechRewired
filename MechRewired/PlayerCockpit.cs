@@ -116,37 +116,53 @@ public partial class PlayerCockpit : Node3D
             child.QueueFree();
         }
 
-        // Keep the cockpit as a shared PBR material. The separate beams are BoxMeshes, so
-        // triplanar projection prevents a narrow face from stretching its source UV island.
+        // Keep the cockpit as one PBR mesh.  This is not merely an optimisation: the old
+        // construction used individual, deliberately over-long meshes for every brace.  At
+        // each joint their end caps occupied the same space, which made reflected highlights
+        // flicker as the depth buffer chose a different cap from frame to frame.
         m_frameMaterial = CreateFrameMaterial();
         var vertices = GetCrossSectionVertices();
         var rearwardOffset = FrameOffsetZ + Length * RearwardOffsetFactor;
         var crossSectionCentreZ = RearZ - Length * 0.5f + rearwardOffset;
+        var frameBuilder = new SurfaceTool();
+        frameBuilder.Begin(Mesh.PrimitiveType.Triangles);
 
         for (var index = 0; index < vertices.Length; index++)
         {
             var vertex = vertices[index];
             var halfRailWidth = GetHalfRailWidth(index);
-            AddRailAlongX(
-                $"LongitudinalPost{index + 1}",
-                new Vector3(halfRailWidth * 2.0f, PostThickness, PostThickness),
-                new Vector3(0.0f, vertex.Y, crossSectionCentreZ + vertex.X),
-                m_frameMaterial);
+            AppendRailAlongX(
+                frameBuilder,
+                halfRailWidth * 2.0f,
+                new Vector3(0.0f, vertex.Y, crossSectionCentreZ + vertex.X));
 
             var nextIndex = (index + 1) % vertices.Length;
             var next = vertices[nextIndex];
-            AddBeamBetween(
-                $"LeftBrace{index + 1}",
+            AppendBeamBetween(
+                frameBuilder,
                 ToBracePosition(vertex, index, -1.0f, crossSectionCentreZ),
-                ToBracePosition(next, nextIndex, -1.0f, crossSectionCentreZ),
-                m_frameMaterial);
-            AddBeamBetween(
-                $"RightBrace{index + 1}",
+                ToBracePosition(next, nextIndex, -1.0f, crossSectionCentreZ));
+            AppendBeamBetween(
+                frameBuilder,
                 ToBracePosition(vertex, index, 1.0f, crossSectionCentreZ),
-                ToBracePosition(next, nextIndex, 1.0f, crossSectionCentreZ),
-                m_frameMaterial);
+                ToBracePosition(next, nextIndex, 1.0f, crossSectionCentreZ));
+
+            // A compact shared joint cap covers the deliberately open rail ends.  It reads as
+            // a manufactured connector rather than a gap, without restoring overlapping caps.
+            AppendJoint(frameBuilder, ToBracePosition(vertex, index, -1.0f, crossSectionCentreZ));
+            AppendJoint(frameBuilder, ToBracePosition(vertex, index, 1.0f, crossSectionCentreZ));
         }
 
+        frameBuilder.GenerateNormals();
+        frameBuilder.GenerateTangents();
+        var frameMesh = frameBuilder.Commit();
+        frameMesh.SurfaceSetMaterial(0, m_frameMaterial);
+        AddChild(new MeshInstance3D
+        {
+            Name = "CockpitFrame",
+            Mesh = frameMesh,
+            Layers = RenderLayer
+        });
     }
 
     private Vector2[] GetCrossSectionVertices()
@@ -171,11 +187,10 @@ public partial class PlayerCockpit : Node3D
     private Vector3 ToBracePosition(Vector2 vertex, int vertexIndex, float side, float centreZ) =>
         new(side * GetHalfRailWidth(vertexIndex), vertex.Y, centreZ + vertex.X);
 
-    private void AddBeamBetween(
-        string name,
+    private void AppendBeamBetween(
+        SurfaceTool frameBuilder,
         Vector3 start,
-        Vector3 end,
-        Godot.Material material)
+        Vector3 end)
     {
         var difference = end - start;
         var midpoint = (start + end) * 0.5f;
@@ -183,30 +198,21 @@ public partial class PlayerCockpit : Node3D
         var reference = Mathf.Abs(zAxis.Dot(Vector3.Up)) > 0.95f ? Vector3.Right : Vector3.Up;
         var xAxis = reference.Cross(zAxis).Normalized();
         var yAxis = zAxis.Cross(xAxis).Normalized();
-        AddChild(new MeshInstance3D
-        {
-            Name = name,
-            Mesh = CreateChamferedRailMesh(PostThickness, difference.Length() + PostThickness, material),
-            Position = midpoint,
-            Basis = new Basis(xAxis, yAxis, zAxis),
-            Layers = RenderLayer
-        });
+        AppendChamferedRail(
+            frameBuilder,
+            difference.Length(),
+            new Transform3D(new Basis(xAxis, yAxis, zAxis), midpoint));
     }
 
-    private void AddRailAlongX(
-        string name,
-        Vector3 size,
-        Vector3 position,
-        Godot.Material material)
+    private void AppendRailAlongX(
+        SurfaceTool frameBuilder,
+        float length,
+        Vector3 position)
     {
-        AddChild(new MeshInstance3D
-        {
-            Name = name,
-            Mesh = CreateChamferedRailMesh(PostThickness, size.X, material),
-            Position = position,
-            RotationDegrees = new Vector3(0.0f, 90.0f, 0.0f),
-            Layers = RenderLayer
-        });
+        AppendChamferedRail(
+            frameBuilder,
+            length,
+            new Transform3D(new Basis(Vector3.Up, Mathf.Pi * 0.5f), position));
     }
 
     /// <summary>
@@ -214,10 +220,16 @@ public partial class PlayerCockpit : Node3D
     /// engineered chamfered square rather than a regular cylinder, so it still reads as a
     /// sturdy cockpit spar while catching a useful highlight along its edges.
     /// </summary>
-    private static ArrayMesh CreateChamferedRailMesh(float thickness, float length, Godot.Material material)
+    private void AppendChamferedRail(
+        SurfaceTool surfaceTool,
+        float length,
+        Transform3D transform)
     {
-        var halfThickness = thickness * 0.5f;
-        var chamfer = thickness * RailChamferRatio;
+        // Rail faces are deliberately planar. Do not average their normals with adjacent
+        // chamfers or with another member that happens to meet at the same position.
+        surfaceTool.SetSmoothGroup(uint.MaxValue);
+        var halfThickness = PostThickness * 0.5f;
+        var chamfer = PostThickness * RailChamferRatio;
         var halfLength = length * 0.5f;
         var profile = new[]
         {
@@ -230,9 +242,6 @@ public partial class PlayerCockpit : Node3D
             new Vector2(-halfThickness, halfThickness - chamfer),
             new Vector2(-halfThickness, -halfThickness + chamfer)
         };
-        var surfaceTool = new SurfaceTool();
-        surfaceTool.Begin(Mesh.PrimitiveType.Triangles);
-
         for (var index = 0; index < profile.Length; index++)
         {
             var nextIndex = (index + 1) % profile.Length;
@@ -240,8 +249,9 @@ public partial class PlayerCockpit : Node3D
             var b = profile[nextIndex];
             var u0 = index / (float)profile.Length;
             var u1 = (index + 1) / (float)profile.Length;
-            AddTriangle(
+            AddTransformedTriangle(
                 surfaceTool,
+                transform,
                 a,
                 -halfLength,
                 b,
@@ -251,8 +261,9 @@ public partial class PlayerCockpit : Node3D
                 new Vector2(u0, 0.0f),
                 new Vector2(u1, 0.0f),
                 new Vector2(u1, 1.0f));
-            AddTriangle(
+            AddTransformedTriangle(
                 surfaceTool,
+                transform,
                 a,
                 -halfLength,
                 b,
@@ -264,45 +275,50 @@ public partial class PlayerCockpit : Node3D
                 new Vector2(u0, 1.0f));
         }
 
-        var centre = Vector2.Zero;
-        for (var index = 0; index < profile.Length; index++)
-        {
-            var nextIndex = (index + 1) % profile.Length;
-            var a = profile[index];
-            var b = profile[nextIndex];
-            AddTriangle(
-                surfaceTool,
-                centre,
-                halfLength,
-                a,
-                halfLength,
-                b,
-                halfLength,
-                Vector2.One * 0.5f,
-                ToUv(a, thickness),
-                ToUv(b, thickness));
-            AddTriangle(
-                surfaceTool,
-                centre,
-                -halfLength,
-                b,
-                -halfLength,
-                a,
-                -halfLength,
-                Vector2.One * 0.5f,
-                ToUv(b, thickness),
-                ToUv(a, thickness));
-        }
-
-        surfaceTool.GenerateNormals();
-        surfaceTool.GenerateTangents();
-        var mesh = surfaceTool.Commit();
-        mesh.SurfaceSetMaterial(0, material);
-        return mesh;
+        // Rails meet at every end. Leaving the ends open removes coplanar caps at those
+        // intersections; the adjoining faces form a continuous-looking welded frame.
     }
 
-    private static void AddTriangle(
+    private void AppendJoint(SurfaceTool surfaceTool, Vector3 centre)
+    {
+        const int LongitudeSegments = 10;
+        const int LatitudeSegments = 6;
+        // Unlike the engineered rails, the connector is rounded and should shade smoothly.
+        // Its distinct group also prevents Godot blending its normals into the rail faces.
+        surfaceTool.SetSmoothGroup(0);
+        var radius = PostThickness * 0.78f;
+
+        for (var latitude = 0; latitude < LatitudeSegments; latitude++)
+        {
+            var theta0 = Mathf.Pi * latitude / LatitudeSegments;
+            var theta1 = Mathf.Pi * (latitude + 1) / LatitudeSegments;
+            for (var longitude = 0; longitude < LongitudeSegments; longitude++)
+            {
+                var phi0 = Mathf.Tau * longitude / LongitudeSegments;
+                var phi1 = Mathf.Tau * (longitude + 1) / LongitudeSegments;
+                var a = centre + ToSpherePoint(radius, theta0, phi0);
+                var b = centre + ToSpherePoint(radius, theta0, phi1);
+                var c = centre + ToSpherePoint(radius, theta1, phi1);
+                var d = centre + ToSpherePoint(radius, theta1, phi0);
+                var u0 = longitude / (float)LongitudeSegments;
+                var u1 = (longitude + 1) / (float)LongitudeSegments;
+                var v0 = latitude / (float)LatitudeSegments;
+                var v1 = (latitude + 1) / (float)LatitudeSegments;
+                AddTriangle(surfaceTool, a, b, c, new Vector2(u0, v0), new Vector2(u1, v0), new Vector2(u1, v1));
+                AddTriangle(surfaceTool, a, c, d, new Vector2(u0, v0), new Vector2(u1, v1), new Vector2(u0, v1));
+            }
+        }
+    }
+
+    private static Vector3 ToSpherePoint(float radius, float theta, float phi) =>
+        new(
+            radius * Mathf.Sin(theta) * Mathf.Cos(phi),
+            radius * Mathf.Cos(theta),
+            radius * Mathf.Sin(theta) * Mathf.Sin(phi));
+
+    private static void AddTransformedTriangle(
         SurfaceTool surfaceTool,
+        Transform3D transform,
         Vector2 a,
         float az,
         Vector2 b,
@@ -314,11 +330,28 @@ public partial class PlayerCockpit : Node3D
         Vector2 uvC)
     {
         surfaceTool.SetUV(uvA);
-        surfaceTool.AddVertex(new Vector3(a.X, a.Y, az));
+        surfaceTool.AddVertex(transform * new Vector3(a.X, a.Y, az));
         surfaceTool.SetUV(uvB);
-        surfaceTool.AddVertex(new Vector3(b.X, b.Y, bz));
+        surfaceTool.AddVertex(transform * new Vector3(b.X, b.Y, bz));
         surfaceTool.SetUV(uvC);
-        surfaceTool.AddVertex(new Vector3(c.X, c.Y, cz));
+        surfaceTool.AddVertex(transform * new Vector3(c.X, c.Y, cz));
+    }
+
+    private static void AddTriangle(
+        SurfaceTool surfaceTool,
+        Vector3 a,
+        Vector3 b,
+        Vector3 c,
+        Vector2 uvA,
+        Vector2 uvB,
+        Vector2 uvC)
+    {
+        surfaceTool.SetUV(uvA);
+        surfaceTool.AddVertex(a);
+        surfaceTool.SetUV(uvB);
+        surfaceTool.AddVertex(b);
+        surfaceTool.SetUV(uvC);
+        surfaceTool.AddVertex(c);
     }
 
     private static Vector2 ToUv(Vector2 point, float thickness) => point / thickness + Vector2.One * 0.5f;
