@@ -253,7 +253,7 @@ public partial class PlayerHud : Control
             HudGreen,
             LineWidth(3.0f));
 
-        DrawTorsoViewWedge(playerPosition);
+        DrawTorsoViewWedge(playerPosition, radius);
         for (var index = 0; index < m_navigation.NavigationPoints.Count; index++)
         {
             DrawNavigationPoint(center, playerPosition, index);
@@ -298,7 +298,7 @@ public partial class PlayerHud : Control
         }
     }
 
-    private void DrawTorsoViewWedge(Vector2 playerPosition)
+    private void DrawTorsoViewWedge(Vector2 playerPosition, float radarRadius)
     {
         const float halfViewAngle = 38.0f;
         var torsoDegrees = Mathf.RadToDeg(m_playerMech.TorsoYawRadians);
@@ -306,14 +306,9 @@ public partial class PlayerHud : Control
         {
             var angle = Mathf.DegToRad(torsoDegrees + side);
             var direction = new Vector2(-Mathf.Sin(angle), -Mathf.Cos(angle));
-            var center = Point(155.0f, 117.0f);
-            var fromCenter = playerPosition - center;
-            var radius = RadarRadius * m_scale;
-            var distance = -fromCenter.Dot(direction) + Mathf.Sqrt(
-                Mathf.Pow(fromCenter.Dot(direction), 2.0f) - fromCenter.LengthSquared() + radius * radius);
             DrawLine(
                 playerPosition,
-                playerPosition + direction * distance,
+                playerPosition + direction * radarRadius,
                 RadarAmber,
                 LineWidth(2.0f));
         }
