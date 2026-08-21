@@ -27,6 +27,7 @@ public sealed class MissionSkyController
     private const float DefaultCloudCoverage = 0.40f;
     private const float DefaultCloudDensity = 1.00f;
     private const float DefaultCloudHeight = 1.8f;
+    private const float DefaultFogStartFraction = 0.35f;
 
     private readonly Node m_sky3D;
     private readonly Node m_skyDome;
@@ -34,6 +35,7 @@ public sealed class MissionSkyController
     private readonly MissionSkyProfile m_profile;
     private float m_time;
     private float m_fogMultiplier = 1.0f;
+    private float m_fogStartFraction = DefaultFogStartFraction;
     private float m_sunAzimuthOffset;
 
     private MissionSkyController(
@@ -97,6 +99,19 @@ public sealed class MissionSkyController
         set
         {
             m_fogMultiplier = Mathf.Clamp(value, 0.05f, 4.0f);
+            ApplyFog();
+        }
+    }
+
+    /// <summary>
+    /// Controls how far through the authored depth-cue range fog starts affecting the scene.
+    /// </summary>
+    public float FogStartFraction
+    {
+        get => m_fogStartFraction;
+        set
+        {
+            m_fogStartFraction = Mathf.Clamp(value, 0.0f, 0.95f);
             ApplyFog();
         }
     }
@@ -241,11 +256,11 @@ public sealed class MissionSkyController
     private void ApplyFog()
     {
         // The MW2 shade distance is where the palette depth cue has converged.  Sky3D performs
-        // that cue in screen space, so leave a short clear foreground and drive its end from the
-        // same authored distance.  The 75% default preserves the user's established remaster
-        // preference over the much denser DOS-style depth cue.
+        // that cue in screen space, so preserve a clear foreground before driving its end from
+        // the same authored distance. The later onset keeps terrain texture readable without
+        // changing the mission's final visibility range.
         var fogEnd = Math.Max(100.0f, m_profile.DepthCueDistance / m_fogMultiplier);
-        m_environment.FogDepthBegin = fogEnd * 0.18f;
+        m_environment.FogDepthBegin = fogEnd * m_fogStartFraction;
         m_environment.FogDepthEnd = fogEnd;
     }
 

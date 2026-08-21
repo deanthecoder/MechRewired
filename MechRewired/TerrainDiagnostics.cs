@@ -18,6 +18,7 @@ public enum TerrainDiagnosticMode
     LumaAlbedo,
     RawPaletteAlbedo,
     GeometricNormal,
+    RockBlend,
     DirectSun,
     Roughness
 }
@@ -30,8 +31,10 @@ public sealed partial class TerrainDiagnostics : Node
 {
     private const float CurrentTerrainRoughness = 0.9f;
     private readonly List<TerrainMesh> m_meshes = new();
+    private readonly HashSet<ShaderMaterial> m_litMaterials = new();
     private readonly ShaderMaterial m_vertexColorMaterial = CreateVertexColorMaterial();
     private readonly ShaderMaterial m_geometricNormalMaterial = CreateGeometricNormalMaterial();
+    private readonly ShaderMaterial m_rockBlendMaterial = CreateRockBlendMaterial();
     private readonly ShaderMaterial m_directSunMaterial = CreateDirectSunMaterial();
     private readonly ShaderMaterial m_roughnessMaterial = CreateConstantMaterial(CurrentTerrainRoughness);
     private TerrainDiagnosticMode m_mode;
@@ -50,6 +53,16 @@ public sealed partial class TerrainDiagnostics : Node
 
     public int RegisteredMeshCount => m_meshes.Count;
 
+    public float TextureScale { get; set; } = TerrainSurfaceMaterial.TextureScale;
+
+    public float DetailStrength { get; set; } = TerrainSurfaceMaterial.DetailStrength;
+
+    public float NormalStrength { get; set; } = TerrainSurfaceMaterial.NormalStrength;
+
+    public float RockSlopeStartDegrees { get; set; } = TerrainSurfaceMaterial.RockSlopeStartDegrees;
+
+    public float RockSlopeEndDegrees { get; set; } = TerrainSurfaceMaterial.RockSlopeEndDegrees;
+
     public void Register(
         MeshInstance3D instance,
         Mesh rawPaletteMesh,
@@ -63,7 +76,57 @@ public sealed partial class TerrainDiagnostics : Node
             instance.MaterialOverride,
             lumaAlbedoMesh ?? instance.Mesh,
             rawPaletteMesh));
+        RegisterLitMaterial(instance.MaterialOverride);
+        for (var surfaceIndex = 0; surfaceIndex < instance.Mesh.GetSurfaceCount(); surfaceIndex++)
+        {
+            RegisterLitMaterial(instance.Mesh.SurfaceGetMaterial(surfaceIndex));
+        }
         ApplyMode(m_meshes[^1]);
+    }
+
+    /// <summary>
+    /// Applies live debug-console values to every terrain material, including the implicit ground.
+    /// </summary>
+    public void ApplySurfaceTuning()
+    {
+        TextureScale = Mathf.Clamp(TextureScale, 0.02f, 2.0f);
+        DetailStrength = Mathf.Clamp(DetailStrength, 0.0f, 1.0f);
+        NormalStrength = Mathf.Clamp(NormalStrength, 0.0f, 2.0f);
+        RockSlopeStartDegrees = Mathf.Clamp(RockSlopeStartDegrees, 0.0f, 80.0f);
+        RockSlopeEndDegrees = Mathf.Clamp(
+            RockSlopeEndDegrees,
+            RockSlopeStartDegrees + 1.0f,
+            89.0f);
+        var slopeBlendStart = TerrainSurfaceMaterial.ToSteepness(RockSlopeStartDegrees);
+        var slopeBlendEnd = TerrainSurfaceMaterial.ToSteepness(RockSlopeEndDegrees);
+        foreach (var material in m_litMaterials)
+        {
+            material.SetShaderParameter("texture_scale", TextureScale);
+            material.SetShaderParameter("detail_strength", DetailStrength);
+            material.SetShaderParameter("normal_strength", NormalStrength);
+            material.SetShaderParameter("slope_blend_start", slopeBlendStart);
+            material.SetShaderParameter("slope_blend_end", slopeBlendEnd);
+        }
+        m_rockBlendMaterial.SetShaderParameter("slope_blend_start", slopeBlendStart);
+        m_rockBlendMaterial.SetShaderParameter("slope_blend_end", slopeBlendEnd);
+    }
+
+    private void RegisterLitMaterial(Godot.Material material)
+    {
+        if (material is not ShaderMaterial shaderMaterial || !m_litMaterials.Add(shaderMaterial))
+        {
+            return;
+        }
+
+        shaderMaterial.SetShaderParameter("texture_scale", TextureScale);
+        shaderMaterial.SetShaderParameter("detail_strength", DetailStrength);
+        shaderMaterial.SetShaderParameter("normal_strength", NormalStrength);
+        shaderMaterial.SetShaderParameter(
+            "slope_blend_start",
+            TerrainSurfaceMaterial.ToSteepness(RockSlopeStartDegrees));
+        shaderMaterial.SetShaderParameter(
+            "slope_blend_end",
+            TerrainSurfaceMaterial.ToSteepness(RockSlopeEndDegrees));
     }
 
     public bool TrySetMode(string name)
@@ -87,6 +150,11 @@ public sealed partial class TerrainDiagnostics : Node
             case "normal":
             case "normals":
                 Mode = TerrainDiagnosticMode.GeometricNormal;
+                return true;
+            case "rock":
+            case "sandstone":
+            case "blend":
+                Mode = TerrainDiagnosticMode.RockBlend;
                 return true;
             case "directsun":
             case "sun":
@@ -122,6 +190,7 @@ public sealed partial class TerrainDiagnostics : Node
             TerrainDiagnosticMode.LumaAlbedo or TerrainDiagnosticMode.RawPaletteAlbedo =>
                 m_vertexColorMaterial,
             TerrainDiagnosticMode.GeometricNormal => m_geometricNormalMaterial,
+            TerrainDiagnosticMode.RockBlend => m_rockBlendMaterial,
             TerrainDiagnosticMode.DirectSun => m_directSunMaterial,
             TerrainDiagnosticMode.Roughness => m_roughnessMaterial,
             _ => null
@@ -150,6 +219,25 @@ public sealed partial class TerrainDiagnostics : Node
 
         void fragment() {
             ALBEDO = world_geometric_normal * 0.5 + 0.5;
+        }
+        """);
+
+    private static ShaderMaterial CreateRockBlendMaterial() => CreateShaderMaterial(
+        """
+        shader_type spatial;
+        render_mode unshaded, cull_back, fog_disabled;
+        uniform float slope_blend_start = 0.021852;
+        uniform float slope_blend_end = 0.211989;
+        varying vec3 world_geometric_normal;
+
+        void vertex() {
+            world_geometric_normal = normalize(MODEL_NORMAL_MATRIX * NORMAL);
+        }
+
+        void fragment() {
+            float steepness = 1.0 - abs(normalize(world_geometric_normal).y);
+            float rock = smoothstep(slope_blend_start, slope_blend_end, steepness);
+            ALBEDO = mix(vec3(0.76, 0.66, 0.34), vec3(0.76, 0.18, 0.04), rock);
         }
         """);
 
@@ -192,6 +280,7 @@ public sealed partial class TerrainDiagnostics : Node
         TerrainDiagnosticMode.LumaAlbedo => "luma albedo",
         TerrainDiagnosticMode.RawPaletteAlbedo => "raw palette albedo",
         TerrainDiagnosticMode.GeometricNormal => "geometric normal",
+        TerrainDiagnosticMode.RockBlend => "rock blend",
         TerrainDiagnosticMode.DirectSun => "direct sun",
         _ => mode.ToString().ToLowerInvariant()
     };

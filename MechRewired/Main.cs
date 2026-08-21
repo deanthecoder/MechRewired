@@ -278,7 +278,7 @@ public partial class Main : Node3D
             Callable.From<string>(SetTerrainInspection),
             new[] { "view" },
             1,
-            "Shows terrain lit, albedo, raw, normal, directsun or roughness diagnostics. Use terrain.inspect_all to capture every view.");
+            "Shows terrain lit, albedo, raw, normal, rock, directsun or roughness diagnostics. Use terrain.inspect_all to capture every view.");
         m_debugConsole.Call(
             "add_command",
             "terrain.inspect_all",
@@ -286,6 +286,49 @@ public partial class Main : Node3D
             0,
             0,
             "Writes the complete terrain diagnostic capture set from the current camera.");
+        RegisterTerrainInspectionCommand("terrain.inspect_lit", "lit");
+        RegisterTerrainInspectionCommand("terrain.inspect_albedo", "albedo");
+        RegisterTerrainInspectionCommand("terrain.inspect_raw", "raw");
+        RegisterTerrainInspectionCommand("terrain.inspect_normal", "normal");
+        RegisterTerrainInspectionCommand("terrain.inspect_rock", "rock");
+        RegisterTerrainInspectionCommand("terrain.inspect_directsun", "directsun");
+        RegisterTerrainInspectionCommand("terrain.inspect_roughness", "roughness");
+        m_debugConsole.Call(
+            "add_cvar",
+            "terrain.texture_scale",
+            terrain.TextureScale,
+            "Controls terrain texture repetitions per rendered metre (default 0.06).");
+        m_debugConsole.Call(
+            "add_cvar",
+            "terrain.detail",
+            terrain.DetailStrength,
+            "Controls terrain colour-detail strength from 0 to 1 (default 0.24).");
+        m_debugConsole.Call(
+            "add_cvar",
+            "terrain.normal",
+            terrain.NormalStrength,
+            "Controls terrain normal-map strength from 0 to 2 (default 0.42).");
+        m_debugConsole.Call(
+            "add_cvar",
+            "terrain.rock_start",
+            terrain.RockSlopeStartDegrees,
+            "Sets the slope in degrees where sandstone begins blending in (default 12).");
+        m_debugConsole.Call(
+            "add_cvar",
+            "terrain.rock_end",
+            terrain.RockSlopeEndDegrees,
+            "Sets the slope in degrees which becomes fully sandstone (default 38).");
+    }
+
+    private void RegisterTerrainInspectionCommand(string command, string view)
+    {
+        m_debugConsole?.Call(
+            "add_command",
+            command,
+            Callable.From(() => SetTerrainInspection(view)),
+            0,
+            0,
+            $"Shows the terrain {view} diagnostic view.");
     }
 
     private void SetTerrainInspection(string view)
@@ -299,7 +342,7 @@ public partial class Main : Node3D
         {
             m_debugConsole?.Call(
                 "print_warning",
-                "Unknown terrain view. Use lit, albedo, raw, normal, directsun or roughness; " +
+                "Unknown terrain view. Use lit, albedo, raw, normal, rock, directsun or roughness; " +
                 "terrain.inspect_all captures the complete set.");
             return;
         }
@@ -362,6 +405,11 @@ public partial class Main : Node3D
             "Scales level-authored atmospheric depth cue (1 is the 75%-density remaster default).");
         m_debugConsole.Call(
             "add_cvar",
+            "sky.fog.start",
+            sky.FogStartFraction,
+            "Sets where fog begins as a fraction of its full authored distance (default 0.35).");
+        m_debugConsole.Call(
+            "add_cvar",
             "sky.sun.azimuth_offset",
             sky.SunAzimuthOffsetDegrees,
             "Offsets the MW2 LITE sun direction in degrees for visual tuning.");
@@ -422,6 +470,36 @@ public partial class Main : Node3D
         {
             m_debugCockpit.FrameRoughness = numericValue;
         }
+        else if (string.Equals(name, "terrain.texture_scale", StringComparison.OrdinalIgnoreCase) &&
+                 m_debugTerrain != null)
+        {
+            m_debugTerrain.TextureScale = numericValue;
+            m_debugTerrain.ApplySurfaceTuning();
+        }
+        else if (string.Equals(name, "terrain.detail", StringComparison.OrdinalIgnoreCase) &&
+                 m_debugTerrain != null)
+        {
+            m_debugTerrain.DetailStrength = numericValue;
+            m_debugTerrain.ApplySurfaceTuning();
+        }
+        else if (string.Equals(name, "terrain.normal", StringComparison.OrdinalIgnoreCase) &&
+                 m_debugTerrain != null)
+        {
+            m_debugTerrain.NormalStrength = numericValue;
+            m_debugTerrain.ApplySurfaceTuning();
+        }
+        else if (string.Equals(name, "terrain.rock_start", StringComparison.OrdinalIgnoreCase) &&
+                 m_debugTerrain != null)
+        {
+            m_debugTerrain.RockSlopeStartDegrees = numericValue;
+            m_debugTerrain.ApplySurfaceTuning();
+        }
+        else if (string.Equals(name, "terrain.rock_end", StringComparison.OrdinalIgnoreCase) &&
+                 m_debugTerrain != null)
+        {
+            m_debugTerrain.RockSlopeEndDegrees = numericValue;
+            m_debugTerrain.ApplySurfaceTuning();
+        }
         else if (string.Equals(name, "sky.time", StringComparison.OrdinalIgnoreCase) &&
                  m_debugSky != null)
         {
@@ -446,6 +524,11 @@ public partial class Main : Node3D
                  m_debugSky != null)
         {
             m_debugSky.FogMultiplier = numericValue;
+        }
+        else if (string.Equals(name, "sky.fog.start", StringComparison.OrdinalIgnoreCase) &&
+                 m_debugSky != null)
+        {
+            m_debugSky.FogStartFraction = numericValue;
         }
         else if (string.Equals(name, "sky.sun.azimuth_offset", StringComparison.OrdinalIgnoreCase) &&
                  m_debugSky != null)
@@ -1128,9 +1211,9 @@ public partial class Main : Node3D
             debugTriangles,
             terrainDiagnostics);
         GD.Print(
-            $"MechRewired: applied the shared palette-driven shader to " +
-            $"{level.TerrainObjects.Count} authored terrain objects; implicit ground retains " +
-            $"its matching palette-tint material (roughness {TerrainSurfaceMaterial.Roughness:F2}).");
+            $"MechRewired: applied palette-preserving triplanar sand/rock detail to " +
+            $"{level.TerrainObjects.Count} authored terrain objects and the implicit ground " +
+            $"(roughness {TerrainSurfaceMaterial.Roughness:F2}).");
 #if DEBUG
         GD.Print(
             $"MechRewired: terrain diagnostics registered {terrainDiagnostics.RegisteredMeshCount} " +
@@ -2494,13 +2577,9 @@ public partial class Main : Node3D
         return new PlaneMesh
         {
             Size = size,
-            Material = new StandardMaterial3D
-            {
-                AlbedoColor = color.LinearToSrgb(),
-                Metallic = 0.0f,
-                Roughness = TerrainSurfaceMaterial.Roughness,
-                CullMode = BaseMaterial3D.CullModeEnum.Disabled
-            }
+            // Godot's material tint path expects the same sRGB conversion used by the previously
+            // matched StandardMaterial ground. The terrain shader then adds only normalized detail.
+            Material = TerrainSurfaceMaterial.Create(color.LinearToSrgb())
         };
     }
 
