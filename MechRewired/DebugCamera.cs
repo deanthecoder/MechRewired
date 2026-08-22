@@ -261,7 +261,7 @@ public partial class DebugCamera : Camera3D
             $"rotation ({rotationDegrees.X:F2}, {rotationDegrees.Y:F2}, {rotationDegrees.Z:F2}) degrees.");
         LogSceneRay(activeCamera.GlobalPosition, forward);
         PlayerMech?.LogMovementState();
-        PlayerTargeting?.LogSelectedEnemyState();
+        PlayerTargeting?.LogTargetingState();
     }
 
     public void LogSceneRay(Vector3 origin, Vector3 direction)
@@ -282,7 +282,14 @@ public partial class DebugCamera : Camera3D
         GD.Print(
             $"MechRewired: debug camera ray hit {nearestTriangle.ResourcePath} object {nearestTriangle.ObjectId}, " +
             $"model {nearestTriangle.ModelIndex}, polygon {nearestTriangle.PolygonIndex} at " +
-            $"({sourceHitPosition.X:F2}, {sourceHitPosition.Y:F2}, {sourceHitPosition.Z:F2}), distance {nearestDistance:F2}.");
+            $"({sourceHitPosition.X:F2}, {sourceHitPosition.Y:F2}, {sourceHitPosition.Z:F2}), distance {nearestDistance:F2}." +
+            DescribeActorState(nearestTriangle));
+    }
+
+    private string DescribeActorState(DebugTriangle triangle)
+    {
+        var description = PlayerTargeting?.DescribeSceneTriangle(triangle);
+        return string.IsNullOrWhiteSpace(description) ? string.Empty : $" ({description}).";
     }
 
     private void SetMenuItemChecked(int id, bool isChecked)

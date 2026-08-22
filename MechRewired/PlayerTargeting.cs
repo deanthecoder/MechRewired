@@ -360,6 +360,71 @@ public partial class PlayerTargeting : Node
 
     public void LogSelectedEnemyState() => SelectedEnemy?.LogCombatState();
 
+    public void LogTargetingState()
+    {
+        LogSelectedEnemyState();
+        if (SelectedActor != null)
+        {
+            GD.Print(
+                $"MechRewired: selected {DescribeActor(SelectedActor)} " +
+                $"({SelectedActor.Health}/{SelectedActor.MaximumHealth} health).");
+        }
+
+        var objectiveActors = m_actors
+            .Select(actor => new
+            {
+                Actor = actor,
+                Kind = m_playerMission.GetActiveObjectiveKind(actor)
+            })
+            .Where(candidate => candidate.Kind.HasValue)
+            .GroupBy(candidate => (candidate.Kind.Value, candidate.Actor.SourceResourceName));
+        foreach (var objective in objectiveActors)
+        {
+            var candidates = objective
+                .Select(candidate => candidate.Actor)
+                .Where(actor => objective.Key.Value != MissionObjectiveKind.Destroy || actor.IsDamageable)
+                .ToArray();
+            var remaining = candidates
+                .Where(actor => objective.Key.Value switch
+                {
+                    MissionObjectiveKind.Destroy => !actor.IsDestroyed,
+                    MissionObjectiveKind.Inspect => !actor.IsDestroyed,
+                    _ => false
+                })
+                .ToArray();
+            var remainingDescription = remaining.Length == 0
+                ? "none"
+                : string.Join("; ", remaining.Select(actor =>
+                    $"{DescribeActor(actor)} {actor.Health}/{actor.MaximumHealth}, " +
+                    $"{actor.TargetPosition.DistanceTo(m_playerMech.GlobalPosition):F1}m"));
+            var completedIds = candidates
+                .Where(actor => actor.IsDestroyed)
+                .Select(actor => actor.Definition.ObjectId)
+                .Order()
+                .ToArray();
+            GD.Print(
+                $"MechRewired: active {objective.Key.Value} objective " +
+                $"BWD/{objective.Key.SourceResourceName}.BWD has {remaining.Length}/{candidates.Length} " +
+                $"targets remaining [{remainingDescription}]; destroyed objects " +
+                $"[{string.Join(", ", completedIds)}].");
+        }
+    }
+
+    public string DescribeSceneTriangle(DebugTriangle triangle)
+    {
+        ArgumentNullException.ThrowIfNull(triangle);
+        if (!m_actorsByObject.TryGetValue(
+                (triangle.SourceResourcePath, triangle.ObjectId),
+                out var actor))
+        {
+            return string.Empty;
+        }
+
+        return actor.IsDestroyed
+            ? $"hidden original geometry for destroyed {DescribeActor(actor)}; authored wreckage may remain visible"
+            : $"live {DescribeActor(actor)} at {actor.Health}/{actor.MaximumHealth} health";
+    }
+
     private void EvaluateHeatState()
     {
         if (m_heat.CurrentHeat < m_heat.MaximumHeat * HeatWarningFraction)
@@ -1214,6 +1279,13 @@ public partial class PlayerTargeting : Node
         !enemyMech.IsPoweredDown &&
         enemyMech.TargetPosition.DistanceSquaredTo(m_playerMech.GlobalPosition) <=
         TargetingRange * TargetingRange;
+
+    private static string DescribeActor(BattlefieldActor actor)
+    {
+        var models = string.Join(", ", actor.Definition.Components
+            .Select(component => component.ModelEntry.Name));
+        return $"{actor.Description} object {actor.Definition.ObjectId} ({models})";
+    }
 
     private void UpdateObjectiveActor()
     {

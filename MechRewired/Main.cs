@@ -172,6 +172,22 @@ public partial class Main : Node3D
             Callable.From<string, Variant>(OnDebugConsoleCvarChanged));
     }
 
+    private void RegisterDebugConsoleTargeting(PlayerTargeting targeting)
+    {
+        if (m_debugConsole == null)
+        {
+            return;
+        }
+
+        m_debugConsole.Call(
+            "add_command",
+            "targeting.status",
+            Callable.From(targeting.LogTargetingState),
+            0,
+            0,
+            "Lists remaining targets for each active mission objective.");
+    }
+
     private void RegisterDebugConsoleCockpit(PlayerCockpit cockpit)
     {
         m_debugCockpit = cockpit;
@@ -1342,7 +1358,7 @@ public partial class Main : Node3D
         }
         foreach (var (actor, rootRepresentation, models) in pendingActorSettlements)
         {
-            SettleActorOnTerrain(actor, rootRepresentation, models, terrainSurface);
+            SettleActorOnTerrain(actor, rootRepresentation, models, terrainSurface, debugTriangles);
         }
         GD.Print(
             $"MechRewired: applied desert-biome triplanar sand, scattered-rock and " +
@@ -1597,6 +1613,9 @@ public partial class Main : Node3D
             playerMechSounds,
             battlefieldEffects);
         AddChild(playerTargeting);
+#if DEBUG
+        RegisterDebugConsoleTargeting(playerTargeting);
+#endif
 
         var hudLayer = new CanvasLayer
         {
@@ -2450,7 +2469,8 @@ public partial class Main : Node3D
         BattlefieldActor actor,
         Node3D rootRepresentation,
         IReadOnlyList<MechWarriorModel> models,
-        TerrainSurfaceIndex terrainSurface)
+        TerrainSurfaceIndex terrainSurface,
+        IList<DebugTriangle> sceneTriangles)
     {
         var lowestY = models
             .SelectMany(model => model.Vertices)
@@ -2463,12 +2483,43 @@ public partial class Main : Node3D
             : ImplicitGroundHeight;
         var adjustment = surfaceHeight - lowestY;
         actor.Position += Vector3.Up * adjustment;
+        TranslateActorTriangles(actor, sceneTriangles, Vector3.Up * adjustment);
         if (Mathf.Abs(adjustment) >= 0.01f)
         {
             GD.Print(
                 $"MechRewired: settled {actor.Description} object {actor.Definition.ObjectId} in " +
                 $"BWD/{actor.SourceResourceName}.BWD " +
-                $"onto rendered terrain by {adjustment:F2}m.");
+                $"onto rendered terrain by {adjustment:F2}m; translated its targeting geometry equally.");
+        }
+    }
+
+    private static void TranslateActorTriangles(
+        BattlefieldActor actor,
+        IList<DebugTriangle> sceneTriangles,
+        Vector3 translation)
+    {
+        if (translation.IsZeroApprox())
+        {
+            return;
+        }
+
+        var componentKeys = actor.Definition.Components
+            .Select(component => (component.SourceEntry.Path, component.Id))
+            .ToHashSet();
+        for (var index = 0; index < sceneTriangles.Count; index++)
+        {
+            var triangle = sceneTriangles[index];
+            if (!componentKeys.Contains((triangle.SourceResourcePath, triangle.ObjectId)))
+            {
+                continue;
+            }
+
+            sceneTriangles[index] = triangle with
+            {
+                A = triangle.A + translation,
+                B = triangle.B + translation,
+                C = triangle.C + translation
+            };
         }
     }
 
