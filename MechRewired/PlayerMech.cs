@@ -54,7 +54,7 @@ public partial class PlayerMech : Node3D
         [0.0f, 15.0f, -15.0f, 30.0f, -30.0f, 45.0f, -45.0f, 60.0f, -60.0f, 75.0f, -75.0f, 90.0f, -90.0f];
     private static readonly float[] AutopilotProbeFractions = [0.25f, 0.5f, 0.75f, 1.0f];
 
-    private IReadOnlyList<DebugTriangle> m_terrainTriangles = Array.Empty<DebugTriangle>();
+    private TerrainSurfaceIndex m_terrainSurface;
     private Func<IReadOnlyList<SceneryObstacle>> m_sceneryObstacleProvider = () => Array.Empty<SceneryObstacle>();
     private float m_modelBottomY;
     private float m_footprintRadius;
@@ -534,19 +534,16 @@ public partial class PlayerMech : Node3D
         Aabb modelBounds,
         Vector3 torsoPivot,
         IReadOnlyList<MechWeaponMountDefinition> weaponMounts,
-        IReadOnlyList<DebugTriangle> sceneTriangles,
+        TerrainSurfaceIndex terrainSurface,
         Func<IReadOnlyList<SceneryObstacle>> sceneryObstacleProvider)
     {
         ArgumentNullException.ThrowIfNull(weaponMounts);
+        ArgumentNullException.ThrowIfNull(terrainSurface);
         ArgumentNullException.ThrowIfNull(sceneryObstacleProvider);
         m_localBounds = modelBounds;
         m_modelBottomY = modelBounds.Position.Y;
         m_footprintRadius = Mathf.Max(modelBounds.Size.X, modelBounds.Size.Z) * 0.35f;
-        m_terrainTriangles = sceneTriangles
-            .Where(triangle =>
-                triangle.ResourcePath == "IMPLICIT/GROUND" ||
-                triangle.ResourcePath.StartsWith("POLY/T_", StringComparison.Ordinal))
-            .ToArray();
+        m_terrainSurface = terrainSurface;
         m_sceneryObstacleProvider = sceneryObstacleProvider;
         foreach (var definition in weaponMounts)
         {
@@ -1457,21 +1454,14 @@ public partial class PlayerMech : Node3D
 
     private bool TryGetSurface(Vector3 position, out float height, out float slopeDegrees)
     {
-        const float rayHeight = 10000.0f;
-        var origin = new Vector3(position.X, rayHeight, position.Z);
-        if (!DebugTriangleRaycaster.TryFindNearest(
-                m_terrainTriangles,
-                origin,
-                Vector3.Down,
-                out var triangle,
-                out var distance))
+        if (m_terrainSurface == null ||
+            !m_terrainSurface.TryGetSurface(position, out height, out var triangle))
         {
             height = 0.0f;
             slopeDegrees = 0.0f;
             return false;
         }
 
-        height = origin.Y - distance;
         var normal = (triangle.B - triangle.A).Cross(triangle.C - triangle.A).Normalized();
         var verticalAlignment = Mathf.Clamp(Mathf.Abs(normal.Dot(Vector3.Up)), 0.0f, 1.0f);
         slopeDegrees = Mathf.RadToDeg(Mathf.Acos(verticalAlignment));

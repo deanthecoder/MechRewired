@@ -29,7 +29,7 @@ public partial class BattlefieldActor : Node3D
     private readonly List<Node3D> m_destroyedRepresentations = new();
     private readonly IReadOnlyList<ArrayMesh> m_explosionDebrisMeshes;
     private readonly List<DebrisState> m_debris = new();
-    private IReadOnlyList<DebugTriangle> m_terrainTriangles = Array.Empty<DebugTriangle>();
+    private TerrainSurfaceIndex m_terrainSurface;
     private Node3D m_effectObserver;
     private SceneryObstacle m_activeObstacle;
     private SceneryObstacle m_destroyedObstacle;
@@ -203,10 +203,15 @@ public partial class BattlefieldActor : Node3D
         m_effectObserver = observer;
     }
 
+    public void ConfigureTerrain(TerrainSurfaceIndex terrainSurface)
+    {
+        ArgumentNullException.ThrowIfNull(terrainSurface);
+        m_terrainSurface = terrainSurface;
+    }
+
     public void ApplyDamage(
         int damage,
-        Vector3 hitPosition,
-        IReadOnlyList<DebugTriangle> sceneTriangles)
+        Vector3 hitPosition)
     {
         if (!IsDamageable || IsDestroyed || damage <= 0)
         {
@@ -237,7 +242,7 @@ public partial class BattlefieldActor : Node3D
 
         if (IsWithinEffectPersistenceRange(explosionBounds.GetCenter()))
         {
-            LaunchExplosionDebris(hitPosition, explosionBounds, sceneTriangles);
+            LaunchExplosionDebris(hitPosition, explosionBounds);
         }
         else
         {
@@ -251,13 +256,8 @@ public partial class BattlefieldActor : Node3D
 
     private void LaunchExplosionDebris(
         Vector3 hitPosition,
-        Aabb explosionBounds,
-        IReadOnlyList<DebugTriangle> sceneTriangles)
+        Aabb explosionBounds)
     {
-        m_terrainTriangles = sceneTriangles.Where(triangle =>
-                triangle.ResourcePath == "IMPLICIT/GROUND" ||
-                triangle.ResourcePath.StartsWith("POLY/T_", StringComparison.Ordinal))
-            .ToArray();
         var random = new RandomNumberGenerator
         {
             Seed = unchecked((ulong)(Definition.ObjectId * 7919 + 104729))
@@ -306,7 +306,7 @@ public partial class BattlefieldActor : Node3D
 
         GD.Print(
             $"MechRewired: launched {m_debris.Count} original MW2 explosion chunks from " +
-            $"{Description} with low-gravity debris physics.");
+            $"{Description} with low-gravity debris physics and spatial terrain queries.");
     }
 
     private bool IsWithinEffectPersistenceRange() =>
@@ -330,20 +330,12 @@ public partial class BattlefieldActor : Node3D
 
     private bool TryGetTerrainHeight(Vector3 position, out float height)
     {
-        const float rayHeight = 10000.0f;
-        var origin = new Vector3(position.X, rayHeight, position.Z);
-        if (!DebugTriangleRaycaster.TryFindNearest(
-                m_terrainTriangles,
-                origin,
-                Vector3.Down,
-                out _,
-                out var distance))
+        if (m_terrainSurface == null || !m_terrainSurface.TryGetHeight(position, out height))
         {
             height = 0.0f;
             return false;
         }
 
-        height = origin.Y - distance;
         return true;
     }
 

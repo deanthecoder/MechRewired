@@ -25,10 +25,11 @@ public sealed record DerivedTerrainSurface(
 
 public static class DerivedTerrainSurfaceBuilder
 {
-    // Curved interpolation needs far fewer samples than the earlier linear subdivision pass:
-    // eight segments per source edge is already 64 render triangles per curved source triangle.
-    public const int RenderSubdivisions = 8;
-    public const int CollisionSubdivisions = 3;
+    // Six segments retain the rounded silhouette while cutting curved-region geometry by roughly
+    // 44% versus the former eight-segment mesh. Physics needs only a coarse approximation because
+    // gameplay height queries use the spatially indexed surface rather than scanning this mesh.
+    public const int RenderSubdivisions = 6;
+    public const int CollisionSubdivisions = 2;
     public const float SmoothingAngleDegrees = 30.0f;
     public const float SmoothingStrength = 0.70f;
 

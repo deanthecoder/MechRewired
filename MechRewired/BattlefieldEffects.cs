@@ -48,7 +48,7 @@ public partial class BattlefieldEffects : Node3D
     private GradientTexture1D m_ambientSmokeInitialColorRamp;
     private GradientTexture1D m_smokeColorRamp;
     private GradientTexture1D m_smokeInitialColorRamp;
-    private IReadOnlyList<DebugTriangle> m_terrainTriangles = Array.Empty<DebugTriangle>();
+    private TerrainSurfaceIndex m_terrainSurface;
     private Node3D m_observer;
     private DebugVfxParameter m_selectedDebugParameter;
     private float m_fireDensity = 2.5f;
@@ -75,13 +75,10 @@ public partial class BattlefieldEffects : Node3D
             $"{DustPoolSize} dust effects).");
     }
 
-    public void ConfigureTerrain(IReadOnlyList<DebugTriangle> sceneTriangles)
+    public void ConfigureTerrain(TerrainSurfaceIndex terrainSurface)
     {
-        ArgumentNullException.ThrowIfNull(sceneTriangles);
-        m_terrainTriangles = sceneTriangles.Where(triangle =>
-                triangle.ResourcePath == "IMPLICIT/GROUND" ||
-                triangle.ResourcePath.StartsWith("POLY/T_", StringComparison.Ordinal))
-            .ToArray();
+        ArgumentNullException.ThrowIfNull(terrainSurface);
+        m_terrainSurface = terrainSurface;
     }
 
     /// <summary>
@@ -652,15 +649,8 @@ public partial class BattlefieldEffects : Node3D
 
     private float FindTerrainHeight(Vector3 position, float fallback)
     {
-        const float rayHeight = 10000.0f;
-        var origin = new Vector3(position.X, rayHeight, position.Z);
-        return DebugTriangleRaycaster.TryFindNearest(
-            m_terrainTriangles,
-            origin,
-            Vector3.Down,
-            out _,
-            out var distance)
-            ? origin.Y - distance + 0.05f
+        return m_terrainSurface != null && m_terrainSurface.TryGetHeight(position, out var height)
+            ? height + 0.05f
             : fallback;
     }
 

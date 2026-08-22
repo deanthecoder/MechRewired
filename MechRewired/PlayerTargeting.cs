@@ -679,7 +679,7 @@ public partial class PlayerTargeting : Node
         else if (actor?.IsDamageable == true)
         {
             m_battlefieldEffects.SpawnWeaponImpact(hitPosition);
-            actor.ApplyDamage(damage, hitPosition, m_sceneTriangles);
+            actor.ApplyDamage(damage, hitPosition);
             SelectedActor = actor.IsDestroyed || !IsSelectable(actor) ? null : actor;
             SelectedEnemy = null;
         }
@@ -1062,7 +1062,7 @@ public partial class PlayerTargeting : Node
 
         if (actor?.IsDamageable == true)
         {
-            actor.ApplyDamage(damage, impact, m_sceneTriangles);
+            actor.ApplyDamage(damage, impact);
             if (actor.IsDestroyed && ReferenceEquals(SelectedActor, actor))
             {
                 SelectedActor = null;

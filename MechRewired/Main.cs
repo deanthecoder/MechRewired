@@ -1330,13 +1330,19 @@ public partial class Main : Node3D
             terrainMaterial,
             terrainWireframeMaterial,
             terrainDiagnostics);
+        var terrainSurface = new TerrainSurfaceIndex(debugTriangles);
+        GD.Print(
+            $"MechRewired: spatially indexed {terrainSurface.TriangleCount:N0} terrain triangles " +
+            $"into {terrainSurface.CellCount:N0} height-query cells " +
+            $"({terrainSurface.AverageCellOccupancy:F1} average, " +
+            $"{terrainSurface.MaximumCellOccupancy:N0} maximum candidates per cell).");
         foreach (var sourceTerrainRoot in sourceTerrainRoots)
         {
             sourceTerrainRoot.QueueFree();
         }
         foreach (var (actor, rootRepresentation, models) in pendingActorSettlements)
         {
-            SettleActorOnTerrain(actor, rootRepresentation, models, debugTriangles);
+            SettleActorOnTerrain(actor, rootRepresentation, models, terrainSurface);
         }
         GD.Print(
             $"MechRewired: applied desert-biome triplanar sand, scattered-rock and " +
@@ -1350,7 +1356,11 @@ public partial class Main : Node3D
             "terrain mesh instances (derived hills and implicit ground).");
 #endif
         BattlefieldPhysics.AddTerrainCollision(levelRoot, debugTriangles);
-        battlefieldEffects.ConfigureTerrain(debugTriangles.AsReadOnly());
+        battlefieldEffects.ConfigureTerrain(terrainSurface);
+        foreach (var battlefieldActor in battlefieldActors)
+        {
+            battlefieldActor.ConfigureTerrain(terrainSurface);
+        }
         LoadAmbientEffects(
             archive,
             missionResources.Level.Entry.Path,
@@ -1365,7 +1375,7 @@ public partial class Main : Node3D
         var deploymentAnchor = playerDeploymentPosition +
                                deploymentDirection * 55.0f +
                                deploymentLeft * 40.0f;
-        deploymentAnchor.Y = FindDeploymentSurfaceHeight(debugTriangles, deploymentAnchor);
+        deploymentAnchor.Y = FindDeploymentSurfaceHeight(terrainSurface, deploymentAnchor);
         var dropShipDepartureDirection = playerDeploymentPosition - deploymentAnchor;
         dropShipDepartureDirection.Y = 0.0f;
         dropShipDepartureDirection = dropShipDepartureDirection.Normalized();
@@ -1388,7 +1398,7 @@ public partial class Main : Node3D
         extractionApproach = extractionApproach.Normalized();
         var extractionLeft = -extractionApproach.Cross(Vector3.Up).Normalized();
         var extractionAnchor = extractionPosition + extractionApproach * 55.0f + extractionLeft * 40.0f;
-        extractionAnchor.Y = FindDeploymentSurfaceHeight(debugTriangles, extractionAnchor);
+        extractionAnchor.Y = FindDeploymentSurfaceHeight(terrainSurface, extractionAnchor);
         var missionDropShips = LoadMissionDropShips(
             archive,
             missionResources.Level.Entry.Path,
@@ -1507,7 +1517,7 @@ public partial class Main : Node3D
         }
 
         var deploymentPosition = MechWarriorCoordinateSystem.ToGodotPosition(playerStart.Position);
-        var surfaceHeight = FindDeploymentSurfaceHeight(debugTriangles, deploymentPosition);
+        var surfaceHeight = FindDeploymentSurfaceHeight(terrainSurface, deploymentPosition);
         playerMech.Position = new Vector3(
             deploymentPosition.X,
             surfaceHeight - bounds.Position.Y,
@@ -1518,7 +1528,7 @@ public partial class Main : Node3D
             bounds,
             playerTorsoPivot,
             BuildWeaponMounts(playerChassis, playerObjectsById, playerTorsoObjectId),
-            debugTriangles.AsReadOnly(),
+            terrainSurface,
             () => GetSceneryObstacles(staticSceneryObstacles, battlefieldActors));
 #if DEBUG
         RegisterDebugConsoleCockpit(playerMech.Cockpit);
@@ -1556,6 +1566,7 @@ public partial class Main : Node3D
             battlefieldEffects,
             atmosphericVisibilityRange,
             () => GetSceneryObstacles(staticSceneryObstacles, battlefieldActors),
+            terrainSurface,
             debugTriangles.AsReadOnly());
         GD.Print(
             $"MechRewired: configured {staticSceneryObstacles.Count} static and " +
@@ -1697,6 +1708,7 @@ public partial class Main : Node3D
         BattlefieldEffects battlefieldEffects,
         float atmosphericVisibilityRange,
         Func<IReadOnlyList<SceneryObstacle>> sceneryObstacleProvider,
+        TerrainSurfaceIndex terrainSurface,
         IReadOnlyList<DebugTriangle> debugTriangles)
     {
         var enemyRoot = new Node3D { Name = "EnemyMechs" };
@@ -1725,7 +1737,7 @@ public partial class Main : Node3D
                 weaponSounds,
                 damageSilhouette,
                 atmosphericVisibilityRange,
-                position => FindDeploymentSurfaceHeight(debugTriangles, position),
+                position => FindDeploymentSurfaceHeight(terrainSurface, position),
                 sceneryObstacleProvider,
                 debugTriangles);
             enemyRoot.AddChild(enemy);
@@ -1834,7 +1846,7 @@ public partial class Main : Node3D
             }
             enemy.ConfigureVisuals(bounds, torsoPivot, weaponMounts);
             var spawnPosition = MechWarriorCoordinateSystem.ToGodotPosition(gamePiece.SpawnPoint.Position);
-            spawnPosition.Y = FindDeploymentSurfaceHeight(debugTriangles, spawnPosition) - bounds.Position.Y;
+            spawnPosition.Y = FindDeploymentSurfaceHeight(terrainSurface, spawnPosition) - bounds.Position.Y;
             enemy.Position = spawnPosition;
             enemy.RotationDegrees = MechWarriorCoordinateSystem.ToGodotRotation(
                 new System.Numerics.Vector3(0.0f, gamePiece.SpawnPoint.StartingAngle, 0.0f));
@@ -2422,10 +2434,10 @@ public partial class Main : Node3D
     }
 
     private static float FindDeploymentSurfaceHeight(
-        IEnumerable<DebugTriangle> debugTriangles,
+        TerrainSurfaceIndex terrainSurface,
         Vector3 deploymentPosition)
     {
-        if (TryFindTerrainSurfaceHeight(debugTriangles, deploymentPosition, out var surfaceHeight))
+        if (terrainSurface.TryGetHeight(deploymentPosition, out var surfaceHeight))
         {
             return surfaceHeight;
         }
@@ -2434,36 +2446,11 @@ public partial class Main : Node3D
         return deploymentPosition.Y;
     }
 
-    private static bool TryFindTerrainSurfaceHeight(
-        IEnumerable<DebugTriangle> debugTriangles,
-        Vector3 position,
-        out float surfaceHeight)
-    {
-        const float rayHeight = 10000.0f;
-        var terrainTriangles = debugTriangles.Where(triangle =>
-            triangle.ResourcePath == "IMPLICIT/GROUND" ||
-            triangle.ResourcePath.StartsWith("POLY/T_", StringComparison.Ordinal));
-        var origin = new Vector3(position.X, rayHeight, position.Z);
-        if (!DebugTriangleRaycaster.TryFindNearest(
-                terrainTriangles,
-                origin,
-                Vector3.Down,
-                out _,
-                out var distance))
-        {
-            surfaceHeight = 0.0f;
-            return false;
-        }
-
-        surfaceHeight = origin.Y - distance;
-        return true;
-    }
-
     private static void SettleActorOnTerrain(
         BattlefieldActor actor,
         Node3D rootRepresentation,
         IReadOnlyList<MechWarriorModel> models,
-        IReadOnlyList<DebugTriangle> sceneTriangles)
+        TerrainSurfaceIndex terrainSurface)
     {
         var lowestY = models
             .SelectMany(model => model.Vertices)
@@ -2471,10 +2458,7 @@ public partial class Main : Node3D
                               (MechWarriorCoordinateSystem.ToGodotPosition(vertex.Position) *
                                MechWarriorModelMeshBuilder.SourceUnitScale))
             .Min(position => position.Y);
-        var surfaceHeight = TryFindTerrainSurfaceHeight(
-            sceneTriangles,
-            rootRepresentation.GlobalPosition,
-            out var terrainHeight)
+        var surfaceHeight = terrainSurface.TryGetHeight(rootRepresentation.GlobalPosition, out var terrainHeight)
             ? terrainHeight
             : ImplicitGroundHeight;
         var adjustment = surfaceHeight - lowestY;
