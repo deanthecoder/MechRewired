@@ -1460,6 +1460,7 @@ public partial class Main : Node3D
             var model = MechWarriorModel.LoadAll(archive.ReadEntry(modelEntry))
                 .MaxBy(candidate => candidate.Polygons.Count) ??
                 throw new InvalidDataException($"{modelEntry.Path} contains no mech model.");
+            var isDecalModel = modelEntry.Name.Contains("DEC", StringComparison.OrdinalIgnoreCase);
             LoadMechMaterialImages(
                 archive,
                 materialMapEntry,
@@ -1480,8 +1481,16 @@ public partial class Main : Node3D
                 palette,
                 luminosityTable,
                 GeneralIlluminationLevel,
-                materialImages);
-            MechWarriorModelMeshBuilder.ApplyMechSurfaceFinish(renderMesh);
+                materialImages,
+                preserveTexturePalette: isDecalModel);
+            if (isDecalModel)
+            {
+                MechWarriorModelMeshBuilder.ApplyMechDecalFinish(renderMesh);
+            }
+            else
+            {
+                MechWarriorModelMeshBuilder.ApplyMechSurfaceFinish(renderMesh);
+            }
             var modelInstance = new MeshInstance3D
             {
                 Name = modelEntry.Name,
@@ -1490,7 +1499,7 @@ public partial class Main : Node3D
                 RotationDegrees = partRotation,
                 Scale = partScale,
                 Layers = PlayerMech.ExteriorRenderLayer,
-                CastShadow = modelEntry.Name.Contains("DEC", StringComparison.OrdinalIgnoreCase)
+                CastShadow = isDecalModel
                     ? GeometryInstance3D.ShadowCastingSetting.Off
                     : GeometryInstance3D.ShadowCastingSetting.DoubleSided
             };
@@ -1784,6 +1793,7 @@ public partial class Main : Node3D
                 var models = MechWarriorModel.LoadAll(archive.ReadEntry(modelEntry));
                 var model = models.MaxBy(candidate => candidate.Polygons.Count) ??
                             throw new InvalidDataException($"{modelEntry.Path} contains no mech model.");
+                var isDecalModel = modelEntry.Name.Contains("DEC", StringComparison.OrdinalIgnoreCase);
                 LoadMechMaterialImages(
                     archive,
                     materialMapEntry,
@@ -1795,8 +1805,16 @@ public partial class Main : Node3D
                     palette,
                     luminosityTable,
                     GeneralIlluminationLevel,
-                    materialImages);
-                MechWarriorModelMeshBuilder.ApplyMechSurfaceFinish(mesh);
+                    materialImages,
+                    preserveTexturePalette: isDecalModel);
+                if (isDecalModel)
+                {
+                    MechWarriorModelMeshBuilder.ApplyMechDecalFinish(mesh);
+                }
+                else
+                {
+                    MechWarriorModelMeshBuilder.ApplyMechSurfaceFinish(mesh);
+                }
                 var absolutePosition = MechWarriorCoordinateSystem.ToGodotPosition(
                     chassisObject.Transform.Translation);
                 var isTorsoPart = torsoObjectId != 0 &&
@@ -1809,7 +1827,7 @@ public partial class Main : Node3D
                     RotationDegrees = MechWarriorCoordinateSystem.ToGodotRotation(
                         chassisObject.Transform.RotationDegrees),
                     Scale = MechWarriorCoordinateSystem.ToGodotScale(chassisObject.Transform.Scale),
-                    CastShadow = modelEntry.Name.Contains("DEC", StringComparison.OrdinalIgnoreCase)
+                    CastShadow = isDecalModel
                         ? GeometryInstance3D.ShadowCastingSetting.Off
                         : GeometryInstance3D.ShadowCastingSetting.DoubleSided
                 };

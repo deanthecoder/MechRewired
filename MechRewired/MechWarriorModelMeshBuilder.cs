@@ -26,6 +26,7 @@ public static class MechWarriorModelMeshBuilder
     public const float SourceUnitScale = 0.01f;
     private const float MechSurfaceMetallic = 0.55f;
     private const float MechSurfaceRoughness = 0.58f;
+    private const float MechDecalRoughness = 0.72f;
 
     /// <summary>
     /// Builds a flat-shaded render mesh from one decoded WTB model.
@@ -51,7 +52,8 @@ public static class MechWarriorModelMeshBuilder
         MechWarriorLuminosityTable luminosityTable,
         int illuminationLevel,
         IReadOnlyDictionary<byte, MechWarriorIndexedImage> materialImages,
-        int triangleSubdivisions = 1)
+        int triangleSubdivisions = 1,
+        bool preserveTexturePalette = false)
     {
         ArgumentNullException.ThrowIfNull(model);
         ArgumentNullException.ThrowIfNull(palette);
@@ -143,7 +145,12 @@ public static class MechWarriorModelMeshBuilder
                 mesh,
                 new StandardMaterial3D
                 {
-                    AlbedoTexture = BuildTexture(indexedImage, palette, luminosityTable, illuminationLevel),
+                    AlbedoTexture = BuildTexture(
+                        indexedImage,
+                        palette,
+                        luminosityTable,
+                        illuminationLevel,
+                        preserveTexturePalette),
                     Metallic = 0.0f,
                     Roughness = 0.9f,
                     Transparency = BaseMaterial3D.TransparencyEnum.AlphaScissor,
@@ -243,6 +250,25 @@ public static class MechWarriorModelMeshBuilder
 
             material.Metallic = MechSurfaceMetallic;
             material.Roughness = MechSurfaceRoughness;
+        }
+    }
+
+    /// <summary>
+    /// Keeps painted insignia non-metallic so its source colours remain readable over the hull.
+    /// </summary>
+    public static void ApplyMechDecalFinish(ArrayMesh mesh)
+    {
+        ArgumentNullException.ThrowIfNull(mesh);
+
+        for (var surfaceIndex = 0; surfaceIndex < mesh.GetSurfaceCount(); surfaceIndex++)
+        {
+            if (mesh.SurfaceGetMaterial(surfaceIndex) is not StandardMaterial3D material)
+            {
+                continue;
+            }
+
+            material.Metallic = 0.0f;
+            material.Roughness = MechDecalRoughness;
         }
     }
 
@@ -421,7 +447,8 @@ public static class MechWarriorModelMeshBuilder
         MechWarriorIndexedImage indexedImage,
         MechWarriorPalette palette,
         MechWarriorLuminosityTable luminosityTable,
-        int illuminationLevel)
+        int illuminationLevel,
+        bool preservePalette)
     {
         using var image = Image.CreateEmpty(
             indexedImage.Width,
@@ -441,7 +468,9 @@ public static class MechWarriorModelMeshBuilder
                     continue;
                 }
 
-                var color = palette[luminosityTable.GetPaletteIndex(paletteIndex, illuminationLevel)];
+                var color = palette[preservePalette
+                    ? paletteIndex
+                    : luminosityTable.GetPaletteIndex(paletteIndex, illuminationLevel)];
                 image.SetPixel(x, y, new Color(
                     color.R / 255.0f,
                     color.G / 255.0f,
