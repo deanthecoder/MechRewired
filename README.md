@@ -33,7 +33,7 @@ The longer-term visual direction is captured in [the visual target](docs/VISUAL_
 
 Battlefield fire and smoke use an adapted GPU flipbook shader and smoke atlas from [GodotExplosionVFX](https://github.com/memo1918/GodotExplosionVFX); the required MIT attribution is in [THIRD_PARTY_LICENSES.md](docs/THIRD_PARTY_LICENSES.md).
 
-Mission skies are rendered with the [Sky3D](https://github.com/TokisanGames/Sky3D) atmosphere under its MIT licence. MW2's mission palette, `INIT`, `LITE` and `VIEW` data provide the colour language, starting time of day, sun direction and visibility range; the palette is converted into a brightness-safe atmospheric tint before Sky3D's physically based scattering. Sky3D supplies the modern atmosphere, sparse drifting desert cirrus, fog, sunlight and moon/stars, and progresses time through a two-hour day/night cycle.
+Mission skies are rendered with the [Sky3D](https://github.com/TokisanGames/Sky3D) atmosphere under its MIT licence. MW2's mission palette, `INIT`, `LITE` and `VIEW` data provide the colour language, starting time of day, lighting balance and visibility range; `INIT` supplies the fixed sun time, and the palette is converted into a brightness-safe atmospheric tint before Sky3D's physically based scattering. Sky3D supplies the modern atmosphere, sparse drifting desert cirrus, fog, sunlight and moon/stars; the sun stays at the mission-authored time while clouds continue drifting independently.
 
 See the [development roadmap](docs/ROADMAP.md) for the planned sequence of playable milestones.
 

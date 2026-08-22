@@ -503,7 +503,7 @@ public partial class Main : Node3D
             "add_cvar",
             "sky.sun.azimuth_offset",
             sky.SunAzimuthOffsetDegrees,
-            "Offsets the MW2 LITE sun direction in degrees for visual tuning.");
+            "Offsets the INIT-derived sun direction in degrees for visual tuning.");
         m_debugConsole.Call(
             "add_cvar",
             "sky.shadow.distance",
@@ -997,7 +997,7 @@ public partial class Main : Node3D
             $"MechRewired: rendered Sky3D mission atmosphere ({missionSky.Describe()}; " +
             $"palette sky {SkyTopPaletteIndex}-{SkyHorizonPaletteIndex}; LITE ambient " +
             $"{skyProfile.AuthoredAmbientLevel:F2}; authored depth cue {atmosphericVisibilityRange:F0}m; " +
-            $"LITE sun direction {skyProfile.AuthoredSunDirection}; sky tint {skyProfile.SkyTopColor}; " +
+            $"INIT sun time {skyProfile.TimeOfDay:F2}h; sky tint {skyProfile.SkyTopColor}; " +
             $"horizon tint {skyProfile.HorizonColor}).");
 
         var levelRoot = new Node3D

@@ -95,7 +95,7 @@ public sealed class MissionSkyController
         {
             m_time = Mathf.PosMod(value, 24.0f);
             m_sky3D.Set("current_time", m_time);
-            ApplyAuthoredSunDirection();
+            ApplyTimeBasedSunDirection();
         }
     }
 
@@ -167,8 +167,11 @@ public sealed class MissionSkyController
         get => m_sunAzimuthOffset;
         set
         {
+            var azimuthDelta = value - m_sunAzimuthOffset;
             m_sunAzimuthOffset = value;
-            ApplyAuthoredSunDirection();
+            m_skyDome.Set(
+                "sun_azimuth",
+                m_skyDome.Get("sun_azimuth").AsSingle() + Mathf.DegToRad(azimuthDelta));
         }
     }
 
@@ -226,11 +229,9 @@ public sealed class MissionSkyController
 
     private void ApplyProfile()
     {
-        // MW2's INIT tag provides the starting time, rather than a permanently frozen sky.
-        // Keep a calm four-hour full-day cycle so clouds, sunlight and celestial bodies
-        // visibly progress during a normal test session.
-        m_sky3D.Set("game_time_enabled", true);
-        m_sky3D.Set("minutes_per_day", 240.0f);
+        // MW2's INIT tag provides a fixed mission sun position. SkyDome updates cloud drift
+        // independently, so pause only TimeOfDay and leave the cloud process running below.
+        m_sky3D.Set("game_time_enabled", false);
         // Sky3D's defaults are stored without invoking their setters when it is created at
         // runtime from C#. Trigger them once after its child nodes exist.
         m_sky3D.Set("sky_enabled", true);
@@ -334,38 +335,17 @@ public sealed class MissionSkyController
         m_environment.FogDepthEnd = fogEnd;
     }
 
-    private void ApplyAuthoredSunDirection()
+    private void ApplyTimeBasedSunDirection()
     {
-        // INIT supplies the level's broad time-of-day state.  LITE supplies the authored light
-        // position; use it when present, after applying the same handedness conversion as world
-        // geometry.  If a malformed/zero light vector is encountered, retain Sky3D's time-based
-        // solar elevation and only use the level-independent default azimuth.
-        var lightDirection = m_profile.AuthoredSunDirection;
-        var azimuth = lightDirection.LengthSquared() > 0.0001f
-            ? Mathf.Atan2(lightDirection.X, lightDirection.Z)
-            : Mathf.DegToRad(25.0f);
-        azimuth += Mathf.DegToRad(m_sunAzimuthOffset);
-        m_skyDome.Set("sun_azimuth", azimuth);
-        var zenithAngle = lightDirection.LengthSquared() > 0.0001f
-            ? Mathf.Acos(Mathf.Clamp(lightDirection.Normalized().Y, -1.0f, 1.0f))
-            : Mathf.DegToRad(GetTimeOfDayZenithAngleDegrees(m_time));
-        m_skyDome.Set("sun_altitude", zenithAngle);
-    }
-
-    private static float GetTimeOfDayZenithAngleDegrees(float timeOfDay)
-    {
-        // MW2 has no real-world latitude/date.  Treat INIT as an authored local solar time:
-        // horizon at 06:00/18:00, a 65-degree high sun at midday, and a safely below-horizon
-        // source at night.  This makes its level data meaningful without pretending it carries
-        // terrestrial orbital information.
-        var daylightProgress = (Mathf.PosMod(timeOfDay, 24.0f) - 6.0f) / 12.0f;
-        if (daylightProgress is < 0.0f or > 1.0f)
+        // Sky3D recalculates both sun coordinates from current_time. INIT therefore remains the
+        // sole source of the frozen sun position; apply only the optional debug azimuth offset
+        // after that time-based update.
+        if (!Mathf.IsZeroApprox(m_sunAzimuthOffset))
         {
-            return 105.0f;
+            m_skyDome.Set(
+                "sun_azimuth",
+                m_skyDome.Get("sun_azimuth").AsSingle() + Mathf.DegToRad(m_sunAzimuthOffset));
         }
-
-        var solarElevation = Mathf.Sin(daylightProgress * Mathf.Pi) * 65.0f;
-        return 90.0f - solarElevation;
     }
 }
 
@@ -374,7 +354,6 @@ public sealed class MissionSkyController
 /// </summary>
 public sealed record MissionSkyProfile(
     float TimeOfDay,
-    Vector3 AuthoredSunDirection,
     float AuthoredAmbientLevel,
     float DepthCueDistance,
     Color SkyTopColor,
@@ -389,15 +368,11 @@ public sealed record MissionSkyProfile(
         int skyHorizonPaletteIndex,
         int sunPaletteIndex)
     {
-        var authoredSunDirection = world.Lighting == null
-            ? Vector3.Zero
-            : MechWarriorCoordinateSystem.ToGodotPosition(world.Lighting.Position).Normalized();
         var militaryTime = world.TimeOfDay ?? 1200;
         var hours = Mathf.PosMod(militaryTime / 100, 24);
         var minutes = Mathf.Clamp(militaryTime % 100, 0, 59);
         return new MissionSkyProfile(
             hours + minutes / 60.0f,
-            authoredSunDirection,
             Mathf.Clamp((world.Lighting?.AmbientLevel ?? 50) / 100.0f, 0.0f, 1.0f),
             depthCueDistance,
             ToGodotColor(palette[skyTopPaletteIndex]),
