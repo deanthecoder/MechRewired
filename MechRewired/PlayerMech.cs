@@ -43,7 +43,7 @@ public partial class PlayerMech : Node3D
     private const float DamageShudderDuration = 0.55f;
     private const float DamageShudderFrequency = 14.0f;
     private const float ExternalCameraDistance = 11.76f;
-    private const float ExternalCameraHeight = 9.1f;
+    private const float ExternalCameraHeight = 7.28f;
     private const float ExternalCameraPullBackResponse = 2.2f;
     private const float ExternalCameraOrbitResponse = 1.35f;
     private const float AutopilotProbeMinimumDistance = 30.0f;

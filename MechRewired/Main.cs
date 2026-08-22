@@ -3036,11 +3036,14 @@ public partial class Main : Node3D
     /// </remarks>
     private sealed partial class MissionDropShipSetPiece : Node3D
     {
-        private const float FlightHeight = 65.0f;
-        private const float LiftSeconds = 4.0f;
-        private const float DepartureAcceleration = 30.0f;
-        private const float DepartureInitialSpeed = 18.0f;
-        private const float DepartureCullDistance = 1400.0f;
+        private const float FlightHeight = 80.0f;
+        private const float DepartureHoverSeconds = 2.5f;
+        private const float LiftSeconds = 9.0f;
+        private const float DepartureForwardStartLiftFraction = 0.30f;
+        private const float DepartureAcceleration = 25.0f;
+        private const float DepartureInitialSpeed = 12.0f;
+        private const float DepartureTopSpeed = 550.0f;
+        private const float DepartureCullDistance = 6000.0f;
         private const float DepartureBankDegrees = -7.0f;
         private const float DepartureBankSeconds = 1.5f;
         private const float ExtractionApproachDistance = 1600.0f;
@@ -3050,6 +3053,8 @@ public partial class Main : Node3D
         private const float ExtractionDescentSpeed = 10.0f;
         private const float ExtractionBankDegrees = 4.0f;
         private const float ColorFrameSeconds = 0.09f;
+        private const float DownwashStartHeight = 105.0f;
+        private const float DownwashEmissionInterval = 0.16f;
 
         private readonly string m_sourceName;
         private readonly Vector3 m_deploymentAnchor;
@@ -3174,7 +3179,9 @@ public partial class Main : Node3D
         {
             m_extracting = extracting;
             m_elapsed = 0.0f;
-            m_downwashElapsed = 0.0f;
+            // Prime the emitter so the first lift frame kicks up dust immediately;
+            // thrust precedes the visible climb rather than trailing it.
+            m_downwashElapsed = DownwashEmissionInterval;
             m_active = true;
             Visible = true;
             SetEngineFlamesVisible(true);
@@ -3240,24 +3247,40 @@ public partial class Main : Node3D
         private void UpdateDeparture()
         {
             var landingPosition = GetLandingPosition(m_deploymentAnchor);
-            if (m_elapsed <= LiftSeconds)
+            if (m_elapsed <= DepartureHoverSeconds)
             {
-                var liftProgress = Mathf.SmoothStep(0.0f, 1.0f, m_elapsed / LiftSeconds);
-                Position = landingPosition + Vector3.Up * (FlightHeight * liftProgress);
+                // Let the engines build a visible, ground-hugging downwash before
+                // a heavy DropShip begins its vertical departure.
+                Position = landingPosition;
                 RotationDegrees = m_flightRotation;
                 EmitDownwash(landingPosition);
                 return;
             }
 
-            var flightSeconds = m_elapsed - LiftSeconds;
+            var liftElapsed = m_elapsed - DepartureHoverSeconds;
+            if (liftElapsed <= LiftSeconds)
+            {
+                var liftProgress = Mathf.SmoothStep(0.0f, 1.0f, liftElapsed / LiftSeconds);
+                var forwardElapsed = Math.Max(
+                    0.0f,
+                    liftElapsed - LiftSeconds * DepartureForwardStartLiftFraction);
+                Position = landingPosition + Vector3.Up * (FlightHeight * liftProgress) +
+                           m_deploymentDirection * GetDepartureDistance(forwardElapsed);
+                RotationDegrees = m_flightRotation;
+                EmitDownwash(landingPosition);
+                return;
+            }
+
+            var flightSeconds = liftElapsed - LiftSeconds;
+            var forwardFlightSeconds = flightSeconds +
+                                      LiftSeconds * (1.0f - DepartureForwardStartLiftFraction);
             var bankProgress = Mathf.SmoothStep(
                 0.0f,
                 1.0f,
                 Math.Clamp(flightSeconds / DepartureBankSeconds, 0.0f, 1.0f));
             RotationDegrees = m_flightRotation +
                               new Vector3(0.0f, 0.0f, DepartureBankDegrees * bankProgress);
-            var departureDistance = DepartureInitialSpeed * flightSeconds +
-                                    0.5f * DepartureAcceleration * flightSeconds * flightSeconds;
+            var departureDistance = GetDepartureDistance(forwardFlightSeconds);
             Position = landingPosition + Vector3.Up * FlightHeight +
                        m_deploymentDirection * departureDistance;
             if (departureDistance < DepartureCullDistance)
@@ -3271,26 +3294,37 @@ public partial class Main : Node3D
             GD.Print($"MechRewired: deployment dropship {m_sourceName} departed beyond view range.");
         }
 
+        private static float GetDepartureDistance(float elapsed)
+        {
+            var accelerationSeconds =
+                (DepartureTopSpeed - DepartureInitialSpeed) / DepartureAcceleration;
+            var acceleratedSeconds = Math.Min(elapsed, accelerationSeconds);
+            var acceleratedDistance = DepartureInitialSpeed * acceleratedSeconds +
+                                      0.5f * DepartureAcceleration * acceleratedSeconds * acceleratedSeconds;
+            return acceleratedDistance + DepartureTopSpeed * Math.Max(0.0f, elapsed - accelerationSeconds);
+        }
+
         private Vector3 GetLandingPosition(Vector3 groundAnchor) =>
             groundAnchor + Vector3.Up * m_landingOffset;
 
         private void EmitDownwash(Vector3 landingPosition)
         {
             var altitude = Math.Max(0.0f, Position.Y - landingPosition.Y);
-            if (altitude > 55.0f)
+            if (altitude > DownwashStartHeight)
             {
                 return;
             }
 
             m_downwashElapsed += (float)GetProcessDeltaTime();
-            if (m_downwashElapsed < 0.16f)
+            if (m_downwashElapsed < DownwashEmissionInterval)
             {
                 return;
             }
 
             m_downwashElapsed = 0.0f;
-            var intensity = 1.0f - altitude / 55.0f;
-            m_battlefieldEffects.SpawnDropShipDownwash(landingPosition, intensity);
+            var intensity = 1.0f - altitude / DownwashStartHeight;
+            var downwashPosition = new Vector3(Position.X, landingPosition.Y, Position.Z);
+            m_battlefieldEffects.SpawnDropShipDownwash(downwashPosition, intensity);
         }
 
         private void SetEngineFlamesVisible(bool visible)

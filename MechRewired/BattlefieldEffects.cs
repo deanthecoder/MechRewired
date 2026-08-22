@@ -25,7 +25,8 @@ public partial class BattlefieldEffects : Node3D
     private const float MinimumAmbientAmountRatio = 0.12f;
     private const int WeaponImpactPoolSize = 24;
     private const int DestructionPoolSize = 12;
-    private const int DustPoolSize = 32;
+    private const int DustPoolSize = 64;
+    private static readonly Vector3 DustWindDirection = new(0.82f, 0.0f, 0.57f);
 
     private static bool s_vfxTexturesLogged;
 
@@ -59,6 +60,10 @@ public partial class BattlefieldEffects : Node3D
     private float m_smokeSize = 5.0f;
     private float m_smokeRise = 5.0f;
     private float m_smokeLifetime = 1.5f;
+    private float m_dustBrightness = 1.0f;
+    private float m_dustWind = 1.0f;
+    private float m_dustLifetime = 1.0f;
+    private float m_dustSpread = 68.0f;
 
     public BattlefieldEffects(IReadOnlyList<AudioStreamWav> explosionSounds)
     {
@@ -517,13 +522,40 @@ public partial class BattlefieldEffects : Node3D
 
     /// <summary>Spawns a brief, terrain-hugging dust puff at a planted mech foot.</summary>
     public void SpawnFootfallDust(Vector3 position, float intensity) =>
-        SpawnDust(position, 0.55f + intensity * 0.35f, 0.7f + intensity * 0.35f, 0.85f);
+        SpawnDust(
+            position,
+            1.35f + intensity * 0.55f,
+            0.18f + intensity * 0.10f,
+            2.3f,
+            amountRatio: 0.36f,
+            spread: 88.0f,
+            emissionBoxExtents: new Vector3(1.15f + intensity * 0.35f, 0.14f, 1.15f + intensity * 0.35f));
 
     /// <summary>Spawns short-lived downwash dust beneath a low-flying DropShip.</summary>
-    public void SpawnDropShipDownwash(Vector3 position, float intensity) =>
-        SpawnDust(position, 2.5f + intensity * 2.5f, 1.45f + intensity * 0.75f, 1.45f);
+    public void SpawnDropShipDownwash(Vector3 position, float intensity)
+    {
+        var size = 3.6f + intensity * 3.4f;
+        // A DropShip's engines disturb a broad footprint, not a mech-sized point puff.
+        // Keep the cloud close to the ground and distribute it across roughly 10-24m.
+        SpawnDust(
+            position,
+            size,
+            0.72f + intensity * 0.38f,
+            4.5f,
+            amountRatio: 0.34f,
+            spread: 88.0f,
+            emissionBoxExtents: new Vector3(5.0f + intensity * 7.0f, 0.18f, 5.0f + intensity * 7.0f));
+    }
 
-    private void SpawnDust(Vector3 position, float size, float rise, float lifetime)
+    private void SpawnDust(
+        Vector3 position,
+        float size,
+        float rise,
+        float lifetime,
+        float? emissionRadius = null,
+        float? amountRatio = null,
+        float? spread = null,
+        Vector3? emissionBoxExtents = null)
     {
         if (!IsWithinEffectPersistenceRange(position))
         {
@@ -531,7 +563,7 @@ public partial class BattlefieldEffects : Node3D
         }
 
         var effect = AcquireDustEffect();
-        ConfigureDust(effect.Particles, size, rise, lifetime);
+        ConfigureDust(effect.Particles, size, rise, lifetime, emissionRadius, amountRatio, spread, emissionBoxExtents);
         effect.Activate(new Vector3(position.X, FindTerrainHeight(position, position.Y), position.Z));
         m_distanceBoundEffects.Add(effect);
     }
@@ -620,16 +652,43 @@ public partial class BattlefieldEffects : Node3D
         process.EmissionSphereRadius = 0.7f;
     }
 
-    private static void ConfigureDust(GpuParticles3D particles, float size, float rise, float lifetime)
+    private void ConfigureDust(
+        GpuParticles3D particles,
+        float size,
+        float rise,
+        float lifetime,
+        float? emissionRadius,
+        float? amountRatio,
+        float? spread,
+        Vector3? emissionBoxExtents)
     {
-        particles.AmountRatio = Mathf.Clamp(0.25f + size * 0.16f, 0.25f, 1.0f);
-        particles.Lifetime = lifetime;
+        particles.AmountRatio = amountRatio ?? Mathf.Clamp(0.25f + size * 0.16f, 0.25f, 1.0f);
+        particles.Lifetime = lifetime * m_dustLifetime;
         var process = (ParticleProcessMaterial)particles.ProcessMaterial;
-        process.InitialVelocityMin = 0.7f * rise;
-        process.InitialVelocityMax = 2.0f * rise;
+        process.Direction = (Vector3.Up + DustWindDirection * (0.10f * m_dustWind)).Normalized();
+        // A wide cone gives planted feet and the DropShip's downwash an outward poof;
+        // the small horizontal acceleration subsequently biases that cloud with the wind.
+        process.Spread = spread ?? m_dustSpread;
+        process.InitialVelocityMin = 0.30f * rise;
+        process.InitialVelocityMax = 0.75f * rise;
+        process.Gravity = new Vector3(
+            DustWindDirection.X * (0.08f * m_dustWind),
+            -0.14f,
+            DustWindDirection.Z * (0.08f * m_dustWind));
+        process.DampingMin = 0.42f;
+        process.DampingMax = 0.82f;
         process.ScaleMin = size * 0.42f;
         process.ScaleMax = size * 1.15f;
-        process.EmissionSphereRadius = Math.Max(0.35f, size * 0.55f);
+        if (emissionBoxExtents is { } boxExtents)
+        {
+            process.EmissionShape = ParticleProcessMaterial.EmissionShapeEnum.Box;
+            process.EmissionBoxExtents = boxExtents;
+        }
+        else
+        {
+            process.EmissionShape = ParticleProcessMaterial.EmissionShapeEnum.Sphere;
+            process.EmissionSphereRadius = emissionRadius ?? Math.Max(0.35f, size * 0.55f);
+        }
     }
 
     private Vector3 GetDestructionSmokeOrigin(BattlefieldActor actor, Aabb originalBounds)
@@ -803,26 +862,29 @@ public partial class BattlefieldEffects : Node3D
     {
         var material = new ParticleProcessMaterial
         {
-            Direction = Vector3.Up,
-            Spread = 78.0f,
-            InitialVelocityMin = 0.7f * rise,
-            InitialVelocityMax = 2.0f * rise,
-            Gravity = new Vector3(0.12f, -0.45f, 0.08f),
-            DampingMin = 0.5f,
-            DampingMax = 1.2f,
+            Direction = (Vector3.Up + DustWindDirection * 0.10f).Normalized(),
+            Spread = 68.0f,
+            InitialVelocityMin = 0.30f * rise,
+            InitialVelocityMax = 0.75f * rise,
+            Gravity = new Vector3(
+                DustWindDirection.X * 0.08f,
+                -0.14f,
+                DustWindDirection.Z * 0.08f),
+            DampingMin = 0.42f,
+            DampingMax = 0.82f,
             ScaleMin = size * 0.42f,
             ScaleMax = size * 1.15f,
             ColorRamp = CreateColorRamp(
-                (0.0f, new Color(0.46f, 0.39f, 0.25f, 0.0f)),
-                (0.15f, new Color(0.52f, 0.44f, 0.28f, 0.48f)),
-                (0.65f, new Color(0.42f, 0.35f, 0.24f, 0.28f)),
-                (1.0f, new Color(0.32f, 0.26f, 0.18f, 0.0f))),
+                (0.0f, new Color(0.68f, 0.61f, 0.48f, 0.0f)),
+                (0.15f, new Color(0.78f, 0.70f, 0.55f, 0.48f)),
+                (0.65f, new Color(0.70f, 0.63f, 0.50f, 0.28f)),
+                (1.0f, new Color(0.58f, 0.52f, 0.41f, 0.0f))),
             TurbulenceEnabled = true,
-            TurbulenceNoiseStrength = 1.4f,
+            TurbulenceNoiseStrength = 0.55f,
             TurbulenceNoiseScale = 2.8f,
             TurbulenceNoiseSpeed = new Vector3(0.25f, 0.12f, 0.2f),
-            TurbulenceInfluenceMin = 0.22f,
-            TurbulenceInfluenceMax = 0.48f,
+            TurbulenceInfluenceMin = 0.08f,
+            TurbulenceInfluenceMax = 0.22f,
             EmissionShape = ParticleProcessMaterial.EmissionShapeEnum.Sphere,
             EmissionSphereRadius = Math.Max(0.35f, size * 0.55f)
         };
@@ -921,7 +983,15 @@ public partial class BattlefieldEffects : Node3D
     private void AdjustDebugParameter(float adjustment)
     {
         ref var selected = ref GetSelectedDebugParameter();
-        selected = Math.Clamp(selected + adjustment, 0.1f, 5.0f);
+        if (m_selectedDebugParameter == DebugVfxParameter.DustSpread)
+        {
+            selected = Math.Clamp(selected + adjustment, 20.0f, 85.0f);
+        }
+        else
+        {
+            selected = Math.Clamp(selected + adjustment, 0.1f, 5.0f);
+        }
+
         ApplyDebugTuning();
         LogDebugTuning();
     }
@@ -946,6 +1016,14 @@ public partial class BattlefieldEffects : Node3D
                 return ref m_smokeRise;
             case DebugVfxParameter.SmokeLifetime:
                 return ref m_smokeLifetime;
+            case DebugVfxParameter.DustBrightness:
+                return ref m_dustBrightness;
+            case DebugVfxParameter.DustWind:
+                return ref m_dustWind;
+            case DebugVfxParameter.DustLifetime:
+                return ref m_dustLifetime;
+            case DebugVfxParameter.DustSpread:
+                return ref m_dustSpread;
             default:
                 throw new ArgumentOutOfRangeException();
         }
@@ -961,12 +1039,17 @@ public partial class BattlefieldEffects : Node3D
         m_smokeSize = 5.0f;
         m_smokeRise = 5.0f;
         m_smokeLifetime = 1.5f;
+        m_dustBrightness = 1.0f;
+        m_dustWind = 1.0f;
+        m_dustLifetime = 1.0f;
+        m_dustSpread = 68.0f;
         ApplyDebugTuning();
         LogDebugTuning();
     }
 
     private void ApplyDebugTuning()
     {
+        ApplyDustMaterialTuning();
         for (var index = m_tunableEmitters.Count - 1; index >= 0; index--)
         {
             var emitter = m_tunableEmitters[index];
@@ -1015,8 +1098,20 @@ public partial class BattlefieldEffects : Node3D
     private void LogDebugTuning() => GD.Print(
         $"MechRewired: VFX tuner [{GetDebugParameterName(m_selectedDebugParameter)}]; " +
         $"fire density {m_fireDensity:F2}, size {m_fireSize:F2}, rise {m_fireRise:F2}, brightness {m_fireBrightness:F2}; " +
-        $"smoke density {m_smokeDensity:F2}, size {m_smokeSize:F2}, rise {m_smokeRise:F2}, lifetime {m_smokeLifetime:F2}. " +
+        $"smoke density {m_smokeDensity:F2}, size {m_smokeSize:F2}, rise {m_smokeRise:F2}, lifetime {m_smokeLifetime:F2}; " +
+        $"dust brightness {m_dustBrightness:F2}, wind {m_dustWind:F2}, lifetime {m_dustLifetime:F2}, spread {m_dustSpread:F1}. " +
         "F5 select; F6/F7 adjust (Shift x5); F10 reset; F11 log.");
+
+    private void ApplyDustMaterialTuning()
+    {
+        if (m_dustVisualMaterial == null)
+        {
+            return;
+        }
+
+        m_dustVisualMaterial.SetShaderParameter("dust_albedo_multiplier", m_dustBrightness);
+        m_dustVisualMaterial.SetShaderParameter("dust_fill", 0.085f * m_dustBrightness);
+    }
 
     private static string GetDebugParameterName(DebugVfxParameter parameter) => parameter switch
     {
@@ -1028,6 +1123,10 @@ public partial class BattlefieldEffects : Node3D
         DebugVfxParameter.SmokeSize => "smoke size",
         DebugVfxParameter.SmokeRise => "smoke rise",
         DebugVfxParameter.SmokeLifetime => "smoke lifetime",
+        DebugVfxParameter.DustBrightness => "dust brightness",
+        DebugVfxParameter.DustWind => "dust wind",
+        DebugVfxParameter.DustLifetime => "dust lifetime",
+        DebugVfxParameter.DustSpread => "dust spread",
         _ => throw new ArgumentOutOfRangeException(nameof(parameter))
     };
 
@@ -1122,6 +1221,9 @@ public partial class BattlefieldEffects : Node3D
                 uniform sampler2D normal_plus : hint_normal;
                 uniform sampler2D normal_minus : hint_normal;
                 uniform float emission_strength = 1.0;
+                uniform float dust_albedo_multiplier = 1.0;
+                uniform float dust_fill = 0.0;
+                uniform float dust_opacity = 1.0;
 
                 void vertex() {
                     // Camera-facing particle quad, matching the source
@@ -1159,10 +1261,10 @@ public partial class BattlefieldEffects : Node3D
                         discard;
                     }
 
-                    ALBEDO = colour;
-                    EMISSION = emission * emission_strength;
+                    ALBEDO = colour * dust_albedo_multiplier;
+                    EMISSION = emission * emission_strength + colour * dust_fill;
                     NORMAL = normalize(texture(normal_plus, UV).xyz - texture(normal_minus, UV).xyz);
-                    ALPHA = alpha;
+                    ALPHA = alpha * dust_opacity;
                 }
                 """
         };
@@ -1189,13 +1291,14 @@ public partial class BattlefieldEffects : Node3D
             }
         }
 
+        var dustBaseColor = TerrainSurfaceMaterial.DesertBaseColor;
         material.SetShaderParameter(
             "base_ramp",
             dust
                 ? CreateColorRamp(
-                    (0.0f, new Color(0.18f, 0.15f, 0.10f, 1.0f)),
-                    (0.5f, new Color(0.38f, 0.31f, 0.20f, 1.0f)),
-                    (1.0f, new Color(0.56f, 0.48f, 0.32f, 1.0f)))
+                    (0.0f, dustBaseColor.Lerp(Colors.Black, 0.22f)),
+                    (0.5f, dustBaseColor),
+                    (1.0f, dustBaseColor.Lerp(Colors.White, 0.12f)))
                 : smoke
                 ? CreateColorRamp(
                     (0.0f, new Color(0.03f, 0.025f, 0.02f, 1.0f)),
@@ -1231,6 +1334,9 @@ public partial class BattlefieldEffects : Node3D
                     (0.55f, new Color(1.0f, 0.0f, 0.0f, 1.0f)),
                     (0.602f, new Color(0.0f, 0.0f, 0.0f, 1.0f))));
         material.SetShaderParameter("emission_strength", dust ? 0.0f : smoke ? 0.04f : 0.55f);
+        material.SetShaderParameter("dust_albedo_multiplier", 1.0f);
+        material.SetShaderParameter("dust_fill", dust ? 0.085f : 0.0f);
+        material.SetShaderParameter("dust_opacity", dust ? 0.38f : 1.0f);
         return material;
     }
 
@@ -1327,7 +1433,11 @@ public partial class BattlefieldEffects : Node3D
         SmokeDensity,
         SmokeSize,
         SmokeRise,
-        SmokeLifetime
+        SmokeLifetime,
+        DustBrightness,
+        DustWind,
+        DustLifetime,
+        DustSpread
     }
 
     private sealed record TunableEmitter(
