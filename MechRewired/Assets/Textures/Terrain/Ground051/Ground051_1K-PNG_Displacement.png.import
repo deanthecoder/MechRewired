@@ -2,8 +2,8 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://cbdirkcmp1rtl"
-path.bptc="res://.godot/imported/Rocks019_1K-PNG_NormalGL.png-d726642c4a61cf7a1484e37bbfc98411.bptc.ctex"
+uid="uid://d0cfnviam03de"
+path.bptc="res://.godot/imported/Ground051_1K-PNG_Displacement.png-991bfbf5bde84ffc7490e916062425f1.bptc.ctex"
 metadata={
 "imported_formats": ["s3tc_bptc"],
 "vram_texture": true
@@ -11,8 +11,8 @@ metadata={
 
 [deps]
 
-source_file="res://Assets/Textures/Terrain/Rocks019/Rocks019_1K-PNG_NormalGL.png"
-dest_files=["res://.godot/imported/Rocks019_1K-PNG_NormalGL.png-d726642c4a61cf7a1484e37bbfc98411.bptc.ctex"]
+source_file="res://Assets/Textures/Terrain/Ground051/Ground051_1K-PNG_Displacement.png"
+dest_files=["res://.godot/imported/Ground051_1K-PNG_Displacement.png-991bfbf5bde84ffc7490e916062425f1.bptc.ctex"]
 
 [params]
 
@@ -22,7 +22,7 @@ compress/lossy_quality=0.7
 compress/uastc_level=0
 compress/rdo_quality_loss=0.0
 compress/hdr_compression=1
-compress/normal_map=1
+compress/normal_map=0
 compress/channel_pack=0
 mipmaps/generate=true
 mipmaps/limit=-1

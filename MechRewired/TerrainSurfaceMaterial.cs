@@ -16,19 +16,22 @@ namespace MechRewired;
 /// Builds the shared desert-biome PBR material used by derived MW2 terrain and its implicit fill.
 /// </summary>
 /// <remarks>
-/// World-space triplanar projection avoids inventing UVs for the original terrain. Sand is used on
-/// level ground, scattered stones break up open areas and sandstone is introduced by slope, while
-/// MW2's authored palette remains the dominant source of color.
+/// World-space triplanar projection avoids inventing UVs for the original terrain. Pocketed sand
+/// is the base, wavy sand settles in low flats, hardpan gathers around exposed ground and
+/// sandstone is introduced by slope, while MW2's authored palette remains the dominant source of
+/// color.
 /// </remarks>
 public static class TerrainSurfaceMaterial
 {
     public const float Roughness = 0.9f;
-    public const float TextureScale = 0.06f;
-    public const float DetailStrength = 0.24f;
-    public const float NormalStrength = 0.70f;
+    public const float TextureScale = 0.12f;
+    public const float DetailStrength = 0.072f;
+    public const float NormalStrength = 0.21f;
+    public const float DunePatchCoverage = 0.25f;
+    public const float HardpanPatchCoverage = 0.08f;
     public const float StonePatchCoverage = 0.10f;
     public const float StoneTextureScale = 0.50f;
-    public const float ParallaxDepthMetres = 0.50f;
+    public const float ParallaxDepthMetres = 0.15f;
     public const float GeometryDisplacementStrength = 1.0f;
     public const float MountainMacroReliefMetres = 1.15f;
     public const float RockSlopeStartDegrees = 12.0f;
@@ -43,6 +46,22 @@ public static class TerrainSurfaceMaterial
         "res://Assets/Textures/Terrain/Ground054/Ground054_1K-PNG_Roughness.png";
     private const string SandHeightPath =
         "res://Assets/Textures/Terrain/Ground054/Ground054_1K-PNG_Displacement.png";
+    private const string DuneColorPath =
+        "res://Assets/Textures/Terrain/Ground097/Ground097_1K-PNG_Color.png";
+    private const string DuneNormalPath =
+        "res://Assets/Textures/Terrain/Ground097/Ground097_1K-PNG_NormalGL.png";
+    private const string DuneRoughnessPath =
+        "res://Assets/Textures/Terrain/Ground097/Ground097_1K-PNG_Roughness.png";
+    private const string DuneHeightPath =
+        "res://Assets/Textures/Terrain/Ground097/Ground097_1K-PNG_Displacement.png";
+    private const string HardpanColorPath =
+        "res://Assets/Textures/Terrain/Ground051/Ground051_1K-PNG_Color.png";
+    private const string HardpanNormalPath =
+        "res://Assets/Textures/Terrain/Ground051/Ground051_1K-PNG_NormalGL.png";
+    private const string HardpanRoughnessPath =
+        "res://Assets/Textures/Terrain/Ground051/Ground051_1K-PNG_Roughness.png";
+    private const string HardpanHeightPath =
+        "res://Assets/Textures/Terrain/Ground051/Ground051_1K-PNG_Displacement.png";
     private const string RockColorPath =
         "res://Assets/Textures/Terrain/Ground088/Ground088_1K-PNG_Color.png";
     private const string RockNormalPath =
@@ -74,6 +93,14 @@ public static class TerrainSurfaceMaterial
         material.SetShaderParameter("sand_normal", GD.Load<Texture2D>(SandNormalPath));
         material.SetShaderParameter("sand_roughness", GD.Load<Texture2D>(SandRoughnessPath));
         material.SetShaderParameter("sand_height", GD.Load<Texture2D>(SandHeightPath));
+        material.SetShaderParameter("dune_color", GD.Load<Texture2D>(DuneColorPath));
+        material.SetShaderParameter("dune_normal", GD.Load<Texture2D>(DuneNormalPath));
+        material.SetShaderParameter("dune_roughness", GD.Load<Texture2D>(DuneRoughnessPath));
+        material.SetShaderParameter("dune_height", GD.Load<Texture2D>(DuneHeightPath));
+        material.SetShaderParameter("hardpan_color", GD.Load<Texture2D>(HardpanColorPath));
+        material.SetShaderParameter("hardpan_normal", GD.Load<Texture2D>(HardpanNormalPath));
+        material.SetShaderParameter("hardpan_roughness", GD.Load<Texture2D>(HardpanRoughnessPath));
+        material.SetShaderParameter("hardpan_height", GD.Load<Texture2D>(HardpanHeightPath));
         material.SetShaderParameter("rock_color", GD.Load<Texture2D>(RockColorPath));
         material.SetShaderParameter("rock_normal", GD.Load<Texture2D>(RockNormalPath));
         material.SetShaderParameter("rock_roughness", GD.Load<Texture2D>(RockRoughnessPath));
@@ -85,6 +112,8 @@ public static class TerrainSurfaceMaterial
         material.SetShaderParameter("texture_scale", TextureScale);
         material.SetShaderParameter("detail_strength", DetailStrength);
         material.SetShaderParameter("normal_strength", NormalStrength);
+        material.SetShaderParameter("dune_patch_coverage", DunePatchCoverage);
+        material.SetShaderParameter("hardpan_patch_coverage", HardpanPatchCoverage);
         material.SetShaderParameter("stone_patch_coverage", StonePatchCoverage);
         material.SetShaderParameter("stone_texture_scale", StoneTextureScale);
         material.SetShaderParameter("parallax_depth_metres", ParallaxDepthMetres);
@@ -121,6 +150,14 @@ public static class TerrainSurfaceMaterial
         uniform sampler2D sand_normal : hint_normal, repeat_enable, filter_linear_mipmap_anisotropic;
         uniform sampler2D sand_roughness : repeat_enable, filter_linear_mipmap_anisotropic;
         uniform sampler2D sand_height : repeat_enable, filter_linear_mipmap_anisotropic;
+        uniform sampler2D dune_color : source_color, repeat_enable, filter_linear_mipmap_anisotropic;
+        uniform sampler2D dune_normal : hint_normal, repeat_enable, filter_linear_mipmap_anisotropic;
+        uniform sampler2D dune_roughness : repeat_enable, filter_linear_mipmap_anisotropic;
+        uniform sampler2D dune_height : repeat_enable, filter_linear_mipmap_anisotropic;
+        uniform sampler2D hardpan_color : source_color, repeat_enable, filter_linear_mipmap_anisotropic;
+        uniform sampler2D hardpan_normal : hint_normal, repeat_enable, filter_linear_mipmap_anisotropic;
+        uniform sampler2D hardpan_roughness : repeat_enable, filter_linear_mipmap_anisotropic;
+        uniform sampler2D hardpan_height : repeat_enable, filter_linear_mipmap_anisotropic;
         uniform sampler2D rock_color : source_color, repeat_enable, filter_linear_mipmap_anisotropic;
         uniform sampler2D rock_normal : hint_normal, repeat_enable, filter_linear_mipmap_anisotropic;
         uniform sampler2D rock_roughness : repeat_enable, filter_linear_mipmap_anisotropic;
@@ -135,8 +172,10 @@ public static class TerrainSurfaceMaterial
         // with a broader visual footprint. This remains live-tunable in debug builds.
         uniform float texture_scale = 0.06;
         uniform float detail_strength = 0.24;
-        uniform float texture_color_strength = 0.08;
+        uniform float texture_color_strength = 0.024;
         uniform float normal_strength = 0.42;
+        uniform float dune_patch_coverage = 0.25;
+        uniform float hardpan_patch_coverage = 0.08;
         uniform float stone_patch_coverage = 0.10;
         uniform float stone_texture_scale = 0.50;
         uniform float parallax_depth_metres = 0.18;
@@ -174,6 +213,22 @@ public static class TerrainSurfaceMaterial
                 value_noise((world_xz + vec2(31.7, -19.2)) * 0.027) * 0.35;
             float stone_threshold = 0.72 - stone_patch_coverage * 0.70;
             return smoothstep(stone_threshold, stone_threshold + 0.14, stone_noise);
+        }
+
+        // Ground097 forms large, wind-aligned dune fields only in lower, flat parts of the map.
+        // Ground051 is a rarer, broken hardpan at hill feet and wind-scoured flat transitions.
+        float dune_patch_at(vec2 world_xz) {
+            float dune_noise = layered_noise(world_xz * 0.003 + vec2(8.3, -14.6));
+            float dune_threshold = 0.80 - dune_patch_coverage * 0.80;
+            return smoothstep(dune_threshold, dune_threshold + 0.12, dune_noise);
+        }
+
+        float hardpan_patch_at(vec2 world_xz) {
+            float hardpan_noise =
+                value_noise(world_xz * 0.010 + vec2(-11.4, 6.8)) * 0.70 +
+                value_noise(world_xz * 0.024 + vec2(21.7, -15.2)) * 0.30;
+            float hardpan_threshold = 0.84 - hardpan_patch_coverage * 1.00;
+            return smoothstep(hardpan_threshold, hardpan_threshold + 0.10, hardpan_noise);
         }
 
         void vertex() {
@@ -321,6 +376,18 @@ public static class TerrainSurfaceMaterial
                 geometric_normal,
                 world_view,
                 visible_parallax_depth * texture_scale * 0.22);
+            vec3 dune_sample_position = parallax_position(
+                dune_height,
+                sample_position * 0.68,
+                geometric_normal,
+                world_view,
+                visible_parallax_depth * texture_scale * 0.18);
+            vec3 hardpan_sample_position = parallax_position(
+                hardpan_height,
+                sample_position * 0.72,
+                geometric_normal,
+                world_view,
+                visible_parallax_depth * texture_scale * 0.30);
             vec3 rock_sample_position = parallax_position(
                 rock_height,
                 sample_position,
@@ -336,11 +403,27 @@ public static class TerrainSurfaceMaterial
             float steepness = 1.0 - abs(geometric_normal.y);
             float rock_blend = smoothstep(slope_blend_start, slope_blend_end, steepness);
 
+            float flatness = 1.0 - smoothstep(0.018, 0.060, steepness);
+            float lowland = 1.0 - smoothstep(4.0, 18.0, max(world_position.y, 0.0));
+            float dune_patch = dune_patch_at(world_position.xz) * flatness * lowland;
+            float foothill = smoothstep(0.004, slope_blend_start * 1.8, steepness) *
+                (1.0 - smoothstep(slope_blend_end * 0.55, slope_blend_end * 0.95, steepness));
+            float exposed_flat = flatness * (1.0 - dune_patch);
+            float hardpan_patch = hardpan_patch_at(world_position.xz) *
+                max(foothill, exposed_flat * 0.55) * (1.0 - rock_blend * 0.65);
+
             // Two differently scaled noise fields keep the scattered-rock material in broad,
             // irregular patches instead of exposing another repeated square tile.
-            float stone_patch = stone_patch_at(world_position.xz) * (1.0 - rock_blend);
+            float stone_patch = stone_patch_at(world_position.xz) *
+                (1.0 - rock_blend) * (1.0 - dune_patch * 0.85);
 
             vec3 sand = sample_triplanar(sand_color, sand_sample_position, weights, 0.0).rgb;
+            vec3 dunes = sample_triplanar(dune_color, dune_sample_position, weights, 0.0).rgb;
+            vec3 hardpan = sample_triplanar(
+                hardpan_color,
+                hardpan_sample_position,
+                weights,
+                0.0).rgb;
             vec3 rock = sample_triplanar(rock_color, rock_sample_position, weights, 0.0).rgb;
             vec3 stones = sample_triplanar(
                 stone_color,
@@ -348,14 +431,28 @@ public static class TerrainSurfaceMaterial
                 weights,
                 0.0).rgb;
             vec3 broad_sand = sample_triplanar(sand_color, sand_sample_position, weights, 6.0).rgb;
+            vec3 broad_dunes = sample_triplanar(
+                dune_color,
+                dune_sample_position,
+                weights,
+                6.0).rgb;
+            vec3 broad_hardpan = sample_triplanar(
+                hardpan_color,
+                hardpan_sample_position,
+                weights,
+                6.0).rgb;
             vec3 broad_rock = sample_triplanar(rock_color, rock_sample_position, weights, 6.0).rgb;
             vec3 broad_stones = sample_triplanar(
                 stone_color,
                 stone_sample_position,
                 weights,
                 6.0).rgb;
-            vec3 flat_surface_color = mix(sand, stones, stone_patch);
-            vec3 flat_broad_color = mix(broad_sand, broad_stones, stone_patch);
+            vec3 flat_surface_color = mix(sand, dunes, dune_patch);
+            flat_surface_color = mix(flat_surface_color, hardpan, hardpan_patch);
+            flat_surface_color = mix(flat_surface_color, stones, stone_patch);
+            vec3 flat_broad_color = mix(broad_sand, broad_dunes, dune_patch);
+            flat_broad_color = mix(flat_broad_color, broad_hardpan, hardpan_patch);
+            flat_broad_color = mix(flat_broad_color, broad_stones, stone_patch);
             vec3 surface_color = mix(flat_surface_color, rock, rock_blend);
             vec3 broad_color = mix(flat_broad_color, broad_rock, rock_blend);
 
@@ -377,7 +474,7 @@ public static class TerrainSurfaceMaterial
                 detail_strength,
                 min(detail_strength * 1.55, 1.0),
                 rock_blend);
-            surface_detail_strength = max(surface_detail_strength, stone_patch * 0.75);
+            surface_detail_strength = max(surface_detail_strength, stone_patch * 0.225);
             vec3 detail_color = mix(vec3(1.0), texture_chroma, surface_color_strength);
             detail_color *= mix(1.0, local_contrast, surface_detail_strength);
 
@@ -389,13 +486,24 @@ public static class TerrainSurfaceMaterial
             vec3 palette_albedo = albedo_tint.rgb * detail_color * macro_multiplier;
 
             // Rocks021 already contains sand that agrees with the mission surface and authored
-            // charcoal stones. Preserve that complete colour relationship inside stone patches;
-            // palette tinting the source made its granite appear sandy.
-            ALBEDO = mix(palette_albedo, stones, stone_patch);
+            // charcoal stones. Ground051 likewise needs a restrained direct colour contribution
+            // so its compacted brown soil stays distinct from the pale surrounding sand.
+            vec3 hardpan_albedo = mix(palette_albedo, hardpan, hardpan_patch * 0.114);
+            ALBEDO = mix(hardpan_albedo, stones, stone_patch * 0.30);
 
             vec3 sand_world_normal = sample_triplanar_normal(
                 sand_normal,
                 sand_sample_position,
+                geometric_normal,
+                weights);
+            vec3 dune_world_normal = sample_triplanar_normal(
+                dune_normal,
+                dune_sample_position,
+                geometric_normal,
+                weights);
+            vec3 hardpan_world_normal = sample_triplanar_normal(
+                hardpan_normal,
+                hardpan_sample_position,
                 geometric_normal,
                 weights);
             vec3 rock_world_normal = sample_triplanar_normal(
@@ -408,10 +516,9 @@ public static class TerrainSurfaceMaterial
                 stone_sample_position,
                 geometric_normal,
                 weights);
-            vec3 flat_world_normal = normalize(mix(
-                sand_world_normal,
-                stone_world_normal,
-                stone_patch));
+            vec3 flat_world_normal = normalize(mix(sand_world_normal, dune_world_normal, dune_patch));
+            flat_world_normal = normalize(mix(flat_world_normal, hardpan_world_normal, hardpan_patch));
+            flat_world_normal = normalize(mix(flat_world_normal, stone_world_normal, stone_patch));
             vec3 detail_world_normal = normalize(mix(
                 flat_world_normal,
                 rock_world_normal,
@@ -421,6 +528,16 @@ public static class TerrainSurfaceMaterial
             float sand_surface_roughness = sample_triplanar(
                 sand_roughness,
                 sand_sample_position,
+                weights,
+                0.0).r;
+            float dune_surface_roughness = sample_triplanar(
+                dune_roughness,
+                dune_sample_position,
+                weights,
+                0.0).r;
+            float hardpan_surface_roughness = sample_triplanar(
+                hardpan_roughness,
+                hardpan_sample_position,
                 weights,
                 0.0).r;
             float rock_surface_roughness = sample_triplanar(
@@ -435,12 +552,20 @@ public static class TerrainSurfaceMaterial
                 0.0).r;
             float flat_surface_roughness = mix(
                 sand_surface_roughness,
+                dune_surface_roughness,
+                dune_patch);
+            flat_surface_roughness = mix(
+                flat_surface_roughness,
+                hardpan_surface_roughness,
+                hardpan_patch);
+            flat_surface_roughness = mix(
+                flat_surface_roughness,
                 stone_surface_roughness,
                 stone_patch);
             ROUGHNESS = mix(
                 0.90,
                 mix(flat_surface_roughness, rock_surface_roughness, rock_blend),
-                0.45);
+                0.135);
             METALLIC = 0.0;
             if (debug_wireframe > 0.5) {
                 ALBEDO = vec3(0.20, 1.0, 1.0);

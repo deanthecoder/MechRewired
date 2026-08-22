@@ -59,6 +59,10 @@ public sealed partial class TerrainDiagnostics : Node
 
     public float NormalStrength { get; set; } = TerrainSurfaceMaterial.NormalStrength;
 
+    public float DunePatchCoverage { get; set; } = TerrainSurfaceMaterial.DunePatchCoverage;
+
+    public float HardpanPatchCoverage { get; set; } = TerrainSurfaceMaterial.HardpanPatchCoverage;
+
     public float StonePatchCoverage { get; set; } = TerrainSurfaceMaterial.StonePatchCoverage;
 
     public float StoneTextureScale { get; set; } = TerrainSurfaceMaterial.StoneTextureScale;
@@ -98,6 +102,8 @@ public sealed partial class TerrainDiagnostics : Node
         TextureScale = Mathf.Clamp(TextureScale, 0.02f, 2.0f);
         DetailStrength = Mathf.Clamp(DetailStrength, 0.0f, 1.0f);
         NormalStrength = Mathf.Clamp(NormalStrength, 0.0f, 2.0f);
+        DunePatchCoverage = Mathf.Clamp(DunePatchCoverage, 0.0f, 1.0f);
+        HardpanPatchCoverage = Mathf.Clamp(HardpanPatchCoverage, 0.0f, 1.0f);
         StonePatchCoverage = Mathf.Clamp(StonePatchCoverage, 0.0f, 1.0f);
         StoneTextureScale = Mathf.Clamp(StoneTextureScale, 0.25f, 4.0f);
         ParallaxDepthMetres = Mathf.Clamp(ParallaxDepthMetres, 0.0f, 1.0f);
@@ -113,6 +119,8 @@ public sealed partial class TerrainDiagnostics : Node
             material.SetShaderParameter("texture_scale", TextureScale);
             material.SetShaderParameter("detail_strength", DetailStrength);
             material.SetShaderParameter("normal_strength", NormalStrength);
+            material.SetShaderParameter("dune_patch_coverage", DunePatchCoverage);
+            material.SetShaderParameter("hardpan_patch_coverage", HardpanPatchCoverage);
             material.SetShaderParameter("stone_patch_coverage", StonePatchCoverage);
             material.SetShaderParameter("stone_texture_scale", StoneTextureScale);
             material.SetShaderParameter("parallax_depth_metres", ParallaxDepthMetres);
@@ -133,6 +141,8 @@ public sealed partial class TerrainDiagnostics : Node
         shaderMaterial.SetShaderParameter("texture_scale", TextureScale);
         shaderMaterial.SetShaderParameter("detail_strength", DetailStrength);
         shaderMaterial.SetShaderParameter("normal_strength", NormalStrength);
+        shaderMaterial.SetShaderParameter("dune_patch_coverage", DunePatchCoverage);
+        shaderMaterial.SetShaderParameter("hardpan_patch_coverage", HardpanPatchCoverage);
         shaderMaterial.SetShaderParameter("stone_patch_coverage", StonePatchCoverage);
         shaderMaterial.SetShaderParameter("stone_texture_scale", StoneTextureScale);
         shaderMaterial.SetShaderParameter("parallax_depth_metres", ParallaxDepthMetres);

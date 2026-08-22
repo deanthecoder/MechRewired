@@ -334,17 +334,27 @@ public partial class Main : Node3D
             "add_cvar",
             "terrain.texture_scale",
             terrain.TextureScale,
-            "Controls terrain texture repetitions per rendered metre (default 0.06).");
+            "Controls terrain texture repetitions per rendered metre (default 0.12).");
         m_debugConsole.Call(
             "add_cvar",
             "terrain.detail",
             terrain.DetailStrength,
-            "Controls terrain colour-detail strength from 0 to 1 (default 0.24).");
+            "Controls terrain colour-detail strength from 0 to 1 (default 0.072).");
         m_debugConsole.Call(
             "add_cvar",
             "terrain.normal",
             terrain.NormalStrength,
-            "Controls terrain normal-map strength from 0 to 2 (default 0.70).");
+            "Controls terrain normal-map strength from 0 to 2 (default 0.21).");
+        m_debugConsole.Call(
+            "add_cvar",
+            "terrain.dunes",
+            terrain.DunePatchCoverage,
+            "Controls lowland dune-field coverage from 0 to 1 (default 0.25).");
+        m_debugConsole.Call(
+            "add_cvar",
+            "terrain.hardpan",
+            terrain.HardpanPatchCoverage,
+            "Controls compacted brown-soil coverage from 0 to 1 (default 0.08).");
         m_debugConsole.Call(
             "add_cvar",
             "terrain.stones",
@@ -359,7 +369,7 @@ public partial class Main : Node3D
             "add_cvar",
             "terrain.parallax",
             terrain.ParallaxDepthMetres,
-            "Sets terrain parallax depth in metres from 0 to 1 (default 0.50).");
+            "Sets terrain parallax depth in metres from 0 to 1 (default 0.15).");
         m_debugConsole.Call(
             "add_cvar",
             "terrain.rock_start",
@@ -584,6 +594,18 @@ public partial class Main : Node3D
                  m_debugTerrain != null)
         {
             m_debugTerrain.NormalStrength = numericValue;
+            m_debugTerrain.ApplySurfaceTuning();
+        }
+        else if (string.Equals(name, "terrain.dunes", StringComparison.OrdinalIgnoreCase) &&
+                 m_debugTerrain != null)
+        {
+            m_debugTerrain.DunePatchCoverage = numericValue;
+            m_debugTerrain.ApplySurfaceTuning();
+        }
+        else if (string.Equals(name, "terrain.hardpan", StringComparison.OrdinalIgnoreCase) &&
+                 m_debugTerrain != null)
+        {
+            m_debugTerrain.HardpanPatchCoverage = numericValue;
             m_debugTerrain.ApplySurfaceTuning();
         }
         else if (string.Equals(name, "terrain.stones", StringComparison.OrdinalIgnoreCase) &&
@@ -1374,9 +1396,11 @@ public partial class Main : Node3D
             SettleActorOnTerrain(actor, rootRepresentation, models, terrainSurface, debugTriangles);
         }
         GD.Print(
-            $"MechRewired: applied desert-biome triplanar sand, scattered-rock and " +
-            $"sandstone detail to the derived surface from {level.TerrainObjects.Count} terrain objects and " +
-            $"the implicit ground (stone coverage {TerrainSurfaceMaterial.StonePatchCoverage:F2}; " +
+            $"MechRewired: applied desert-biome triplanar pocketed sand, lowland dunes, hardpan, " +
+            $"scattered rock and sandstone detail to the derived surface from {level.TerrainObjects.Count} " +
+            $"terrain objects and the implicit ground (dune coverage {TerrainSurfaceMaterial.DunePatchCoverage:F2}; " +
+            $"hardpan coverage {TerrainSurfaceMaterial.HardpanPatchCoverage:F2}; " +
+            $"stone coverage {TerrainSurfaceMaterial.StonePatchCoverage:F2}; " +
             $"parallax {TerrainSurfaceMaterial.ParallaxDepthMetres:F2}m; " +
             $"roughness {TerrainSurfaceMaterial.Roughness:F2}).");
 #if DEBUG
