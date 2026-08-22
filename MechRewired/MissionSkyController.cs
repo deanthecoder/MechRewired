@@ -25,6 +25,7 @@ public sealed class MissionSkyController
     private const float DefaultSunLightEnergy = 0.65f;
     private const float DefaultSkyFillLightEnergy = 0.25f;
     private const float DefaultSunShadowOpacity = 0.72f;
+    private const float SolarAngularDiameterDegrees = 0.53f;
     private const float DefaultCloudCoverage = 0.40f;
     private const float DefaultCloudDensity = 1.00f;
     private const float DefaultCloudHeight = 1.8f;
@@ -285,6 +286,10 @@ public sealed class MissionSkyController
         m_sunLight.DirectionalShadowBlendSplits = true;
         m_sunLight.DirectionalShadowFadeStart = 0.90f;
         SunShadowDistance = Mathf.Clamp(m_profile.DepthCueDistance * 2.0f, 1800.0f, 4000.0f);
+        // A directional light with zero angular size produces razor-edged shadows. The real sun
+        // spans roughly half a degree, giving nearby terrain a restrained physical penumbra.
+        m_sunLight.LightAngularDistance = SolarAngularDiameterDegrees;
+        m_sunLight.ShadowBlur = 1.0f;
 
         // A bright desert sky scatters substantial light into nominally shadowed surfaces. This
         // inexpensive approximation retains readable terrain without changing direct sunlight.

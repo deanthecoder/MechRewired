@@ -222,7 +222,7 @@ public sealed partial class DebugVisualCapture : Node
                      {
                          (Name: "off", Depth: 0.0f),
                          (Name: "default", Depth: TerrainSurfaceMaterial.ParallaxDepthMetres),
-                         (Name: "strong", Depth: 0.36f)
+                         (Name: "strong", Depth: 0.75f)
                      })
             {
                 terrain.ParallaxDepthMetres = comparison.Depth;

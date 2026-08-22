@@ -321,7 +321,7 @@ public partial class Main : Node3D
             "add_cvar",
             "terrain.normal",
             terrain.NormalStrength,
-            "Controls terrain normal-map strength from 0 to 2 (default 0.42).");
+            "Controls terrain normal-map strength from 0 to 2 (default 0.70).");
         m_debugConsole.Call(
             "add_cvar",
             "terrain.stones",
@@ -336,7 +336,7 @@ public partial class Main : Node3D
             "add_cvar",
             "terrain.parallax",
             terrain.ParallaxDepthMetres,
-            "Sets terrain parallax depth in metres from 0 to 1 (default 0.18).");
+            "Sets terrain parallax depth in metres from 0 to 1 (default 0.50).");
         m_debugConsole.Call(
             "add_cvar",
             "terrain.rock_start",
@@ -935,6 +935,7 @@ public partial class Main : Node3D
         };
         AddChild(levelRoot);
         var terrainMaterial = TerrainSurfaceMaterial.Create();
+        var terrainWireframeMaterial = TerrainSurfaceMaterial.CreateWireframe();
         TerrainDiagnostics terrainDiagnostics = null;
 #if DEBUG
         terrainDiagnostics = new TerrainDiagnostics
@@ -1000,9 +1001,6 @@ public partial class Main : Node3D
         var meshCache = new Dictionary<string, IReadOnlyList<ArrayMesh>>(StringComparer.OrdinalIgnoreCase);
         var wireframeCache = new Dictionary<string, IReadOnlyList<ArrayMesh>>(StringComparer.OrdinalIgnoreCase);
         var modelCache = new Dictionary<string, IReadOnlyList<MechWarriorModel>>(StringComparer.OrdinalIgnoreCase);
-#if DEBUG
-        var rawTerrainMeshCache = new Dictionary<string, IReadOnlyList<ArrayMesh>>(StringComparer.OrdinalIgnoreCase);
-#endif
         var groundPaletteWeights = new Dictionary<byte, double>();
         var debugTriangles = new List<DebugTriangle>();
         var worldBounds = new Aabb();
@@ -1011,6 +1009,11 @@ public partial class Main : Node3D
         var renderedActorComponentCount = 0;
         var renderedDebrisCount = 0;
         var settledActors = new HashSet<BattlefieldActor>();
+        var sourceTerrainRoots = new List<Node3D>();
+        var pendingActorSettlements = new List<(
+            BattlefieldActor Actor,
+            Node3D RootRepresentation,
+            IReadOnlyList<MechWarriorModel> Models)>();
         var staticSceneryObstacles = new List<SceneryObstacle>();
         var collisionWallsByObject = new Dictionary<
             (string SourcePath, int ObjectId),
@@ -1154,6 +1157,7 @@ public partial class Main : Node3D
 
             if (levelObject.Kind == MechWarriorLevelObjectKind.Terrain)
             {
+                sourceTerrainRoots.Add(objectRoot);
                 AccumulateGroundPaletteWeights(
                     groundPaletteWeights,
                     objectRoot.GlobalTransform,
@@ -1165,24 +1169,12 @@ public partial class Main : Node3D
                 !isDestroyedRepresentation &&
                 settledActors.Add(battlefieldActor))
             {
-                SettleActorOnTerrain(
+                pendingActorSettlements.Add((
                     battlefieldActor,
                     objectRoot,
-                    modelCache[levelObject.ModelEntry.Path],
-                    debugTriangles);
+                    modelCache[levelObject.ModelEntry.Path]));
             }
             var wireframes = wireframeCache[levelObject.ModelEntry.Path];
-#if DEBUG
-            IReadOnlyList<ArrayMesh> rawTerrainMeshes = null;
-            if (levelObject.Kind == MechWarriorLevelObjectKind.Terrain &&
-                !rawTerrainMeshCache.TryGetValue(levelObject.ModelEntry.Path, out rawTerrainMeshes))
-            {
-                rawTerrainMeshes = modelCache[levelObject.ModelEntry.Path]
-                    .Select(model => MechWarriorModelMeshBuilder.BuildRawPalette(model, palette))
-                    .ToArray();
-                rawTerrainMeshCache.Add(levelObject.ModelEntry.Path, rawTerrainMeshes);
-            }
-#endif
             for (var meshIndex = 0; meshIndex < meshes.Count; meshIndex++)
             {
                 var solidInstance = new MeshInstance3D
@@ -1195,26 +1187,28 @@ public partial class Main : Node3D
                     // Casting those two-sided shadows blacks out the fallback plane below them.
                     CastShadow = levelObject.Kind == MechWarriorLevelObjectKind.Terrain
                         ? GeometryInstance3D.ShadowCastingSetting.On
-                        : GeometryInstance3D.ShadowCastingSetting.DoubleSided
+                        : GeometryInstance3D.ShadowCastingSetting.DoubleSided,
+                    // Authored terrain meshes are control geometry only. A single welded and
+                    // smoothed derivative is created after all source objects have been decoded.
+                    Visible = levelObject.Kind != MechWarriorLevelObjectKind.Terrain
                 };
                 objectRoot.AddChild(solidInstance);
-                solidInstance.AddToGroup(DebugCamera.SolidMeshGroup);
-#if DEBUG
-                if (rawTerrainMeshes != null)
+                if (levelObject.Kind != MechWarriorLevelObjectKind.Terrain)
                 {
-                    terrainDiagnostics.Register(solidInstance, rawTerrainMeshes[meshIndex]);
+                    solidInstance.AddToGroup(DebugCamera.SolidMeshGroup);
                 }
-#endif
-
-                var wireframeInstance = new MeshInstance3D
+                if (levelObject.Kind != MechWarriorLevelObjectKind.Terrain)
                 {
-                    Mesh = wireframes[meshIndex],
-                    Visible = false
-                };
-                // Keep the diagnostic copy beneath the exact solid instance rather than as a sibling.
-                // This preserves its alignment if an actor representation is subsequently reparented or moved.
-                solidInstance.AddChild(wireframeInstance);
-                wireframeInstance.AddToGroup(DebugCamera.WireframeMeshGroup);
+                    var wireframeInstance = new MeshInstance3D
+                    {
+                        Mesh = wireframes[meshIndex],
+                        Visible = false
+                    };
+                    // The solid is hidden in wireframe mode, so its diagnostic copy must be a sibling.
+                    // objectRoot carries the shared authored transform for both instances.
+                    objectRoot.AddChild(wireframeInstance);
+                    wireframeInstance.AddToGroup(DebugCamera.WireframeMeshGroup);
+                }
             }
 
             var collisionWalls = BuildSceneryWalls(
@@ -1297,16 +1291,30 @@ public partial class Main : Node3D
             luminosityTable,
             debugTriangles,
             terrainDiagnostics);
+        AddDerivedTerrain(
+            levelRoot,
+            debugTriangles,
+            terrainMaterial,
+            terrainWireframeMaterial,
+            terrainDiagnostics);
+        foreach (var sourceTerrainRoot in sourceTerrainRoots)
+        {
+            sourceTerrainRoot.QueueFree();
+        }
+        foreach (var (actor, rootRepresentation, models) in pendingActorSettlements)
+        {
+            SettleActorOnTerrain(actor, rootRepresentation, models, debugTriangles);
+        }
         GD.Print(
-            $"MechRewired: applied palette-preserving triplanar sand, scattered-rock and " +
-            $"sandstone detail to {level.TerrainObjects.Count} authored terrain objects and " +
+            $"MechRewired: applied desert-biome triplanar sand, scattered-rock and " +
+            $"sandstone detail to the derived surface from {level.TerrainObjects.Count} terrain objects and " +
             $"the implicit ground (stone coverage {TerrainSurfaceMaterial.StonePatchCoverage:F2}; " +
             $"parallax {TerrainSurfaceMaterial.ParallaxDepthMetres:F2}m; " +
             $"roughness {TerrainSurfaceMaterial.Roughness:F2}).");
 #if DEBUG
         GD.Print(
             $"MechRewired: terrain diagnostics registered {terrainDiagnostics.RegisteredMeshCount} " +
-            "terrain mesh instances (including implicit ground; raw palette comparison available).");
+            "terrain mesh instances (derived hills and implicit ground).");
 #endif
         BattlefieldPhysics.AddTerrainCollision(levelRoot, debugTriangles);
         battlefieldEffects.ConfigureTerrain(debugTriangles.AsReadOnly());
@@ -2620,13 +2628,21 @@ public partial class Main : Node3D
         {
             Name = "ImplicitGround",
             Position = new Vector3(center.X, ImplicitGroundHeight, center.Z),
-            // Preserve the proven palette-tint path for the synthetic fill plane. Authored terrain
-            // carries the same color as vertex data, but Godot color-manages a material tint
-            // differently; converting here keeps the two paths visually matched.
             Mesh = BuildImplicitGroundMesh(size, groundColor)
         };
         levelRoot.AddChild(ground);
         ground.AddToGroup(DebugCamera.SolidMeshGroup);
+        var groundWireframe = new MeshInstance3D
+        {
+            Name = "ImplicitGroundWireframe",
+            Position = ground.Position,
+            Mesh = ground.Mesh,
+            MaterialOverride = TerrainSurfaceMaterial.CreateWireframe(
+                isImplicitGround: true),
+            Visible = false
+        };
+        levelRoot.AddChild(groundWireframe);
+        groundWireframe.AddToGroup(DebugCamera.WireframeMeshGroup);
 #if DEBUG
         var rawGroundColor = CalculateRepresentativeGroundColor(
             groundPaletteWeights,
@@ -2656,19 +2672,77 @@ public partial class Main : Node3D
         debugTriangles.Add(new DebugTriangle("IMPLICIT/GROUND", "IMPLICIT/GROUND", -1, 0, 1, cornerA, cornerC, cornerD));
         GD.Print(
             $"MechRewired: added implicit ground plane at Y={ImplicitGroundHeight:F2} " +
-            $"({size.X:F0} × {size.Y:F0}, " +
-            $"visible-terrain palette average -> vertex RGB " +
-            $"({groundColor.R8}, {groundColor.G8}, {groundColor.B8}); nearest palette index {representativePaletteIndex}).");
+            $"({size.X:F0} × {size.Y:F0}; desert base RGB " +
+            $"({TerrainSurfaceMaterial.DesertBaseColor.R8}, " +
+            $"{TerrainSurfaceMaterial.DesertBaseColor.G8}, " +
+            $"{TerrainSurfaceMaterial.DesertBaseColor.B8}); source palette diagnostic index " +
+            $"{representativePaletteIndex}, RGB ({groundColor.R8}, {groundColor.G8}, {groundColor.B8})).");
+    }
+
+    private static void AddDerivedTerrain(
+        Node3D levelRoot,
+        List<DebugTriangle> sceneTriangles,
+        ShaderMaterial terrainMaterial,
+        ShaderMaterial terrainWireframeMaterial,
+        TerrainDiagnostics terrainDiagnostics)
+    {
+        var derivationStartedAt = Time.GetTicksMsec();
+        var derived = DerivedTerrainSurfaceBuilder.Build(sceneTriangles);
+        if (derived.RenderMesh.GetSurfaceCount() == 0)
+        {
+            throw new InvalidDataException("The decoded level did not produce an upward-facing terrain surface.");
+        }
+
+        var instance = new MeshInstance3D
+        {
+            Name = "DerivedTerrain",
+            Mesh = derived.RenderMesh,
+            MaterialOverride = terrainMaterial,
+            CastShadow = GeometryInstance3D.ShadowCastingSetting.On
+        };
+        levelRoot.AddChild(instance);
+        instance.AddToGroup(DebugCamera.SolidMeshGroup);
+        var wireframe = new MeshInstance3D
+        {
+            Name = "DerivedTerrainWireframe",
+            Mesh = derived.RenderMesh,
+            MaterialOverride = terrainWireframeMaterial,
+            Visible = false
+        };
+        levelRoot.AddChild(wireframe);
+        wireframe.AddToGroup(DebugCamera.WireframeMeshGroup);
+#if DEBUG
+        terrainDiagnostics.Register(instance, derived.RenderMesh, derived.RenderMesh);
+#endif
+
+        var removedSourceTriangles = sceneTriangles.RemoveAll(DerivedTerrainSurfaceBuilder.IsAuthoredTerrain);
+        sceneTriangles.AddRange(derived.CollisionTriangles);
+        GD.Print(
+            $"MechRewired: derived one welded terrain surface from {derived.SourceTriangleCount:N0} " +
+            $"upward source triangles: {derived.RenderTriangleCount:N0} render triangles " +
+            $"({DerivedTerrainSurfaceBuilder.RenderSubdivisions}x per edge) and " +
+            $"{derived.CollisionTriangles.Count:N0} collision triangles " +
+            $"({DerivedTerrainSurfaceBuilder.CollisionSubdivisions}x per edge); replaced " +
+            $"{removedSourceTriangles:N0} decoded terrain triangles. Connected-edge curvature " +
+            $"ramps to full smoothing by {DerivedTerrainSurfaceBuilder.SmoothingAngleDegrees:F0} degrees " +
+            $"({Time.GetTicksMsec() - derivationStartedAt:N0}ms).");
     }
 
     private static Mesh BuildImplicitGroundMesh(Vector2 size, Color color)
     {
+        const float targetVertexSpacingMetres = 24.0f;
         return new PlaneMesh
         {
             Size = size,
-            // Godot's material tint path expects the same sRGB conversion used by the previously
-            // matched StandardMaterial ground. The terrain shader then adds only normalized detail.
-            Material = TerrainSurfaceMaterial.Create(color.LinearToSrgb())
+            SubdivideWidth = Mathf.Clamp(
+                Mathf.CeilToInt(size.X / targetVertexSpacingMetres),
+                32,
+                256),
+            SubdivideDepth = Mathf.Clamp(
+                Mathf.CeilToInt(size.Y / targetVertexSpacingMetres),
+                32,
+                256),
+            Material = TerrainSurfaceMaterial.Create(isImplicitGround: true)
         };
     }
 

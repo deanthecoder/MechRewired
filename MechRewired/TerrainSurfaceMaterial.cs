@@ -13,7 +13,7 @@ using Godot;
 namespace MechRewired;
 
 /// <summary>
-/// Builds the shared, palette-preserving PBR material used by MW2 terrain and its implicit fill.
+/// Builds the shared desert-biome PBR material used by derived MW2 terrain and its implicit fill.
 /// </summary>
 /// <remarks>
 /// World-space triplanar projection avoids inventing UVs for the original terrain. Sand is used on
@@ -29,8 +29,11 @@ public static class TerrainSurfaceMaterial
     public const float StonePatchCoverage = 0.10f;
     public const float StoneTextureScale = 0.50f;
     public const float ParallaxDepthMetres = 0.50f;
+    public const float GeometryDisplacementStrength = 1.0f;
+    public const float MountainMacroReliefMetres = 1.15f;
     public const float RockSlopeStartDegrees = 12.0f;
     public const float RockSlopeEndDegrees = 38.0f;
+    public static readonly Color DesertBaseColor = new("9c8b6e");
 
     private const string SandColorPath =
         "res://Assets/Textures/Terrain/Ground054/Ground054_1K-PNG_Color.png";
@@ -58,15 +61,15 @@ public static class TerrainSurfaceMaterial
         "res://Assets/Textures/Terrain/Rocks019/Rocks019_1K-PNG_Displacement.png";
 
     /// <summary>
-    /// Creates one terrain material, optionally tinting a synthetic mesh which has no vertex color.
+    /// Creates one terrain material using the remastered biome colour unless an explicit tint is supplied.
     /// </summary>
-    public static ShaderMaterial Create(Color? albedoTint = null)
+    public static ShaderMaterial Create(Color? albedoTint = null, bool isImplicitGround = false)
     {
         var material = new ShaderMaterial
         {
             Shader = new Shader { Code = ShaderCode }
         };
-        material.SetShaderParameter("albedo_tint", albedoTint ?? Colors.White);
+        material.SetShaderParameter("albedo_tint", albedoTint ?? DesertBaseColor);
         material.SetShaderParameter("sand_color", GD.Load<Texture2D>(SandColorPath));
         material.SetShaderParameter("sand_normal", GD.Load<Texture2D>(SandNormalPath));
         material.SetShaderParameter("sand_roughness", GD.Load<Texture2D>(SandRoughnessPath));
@@ -85,8 +88,24 @@ public static class TerrainSurfaceMaterial
         material.SetShaderParameter("stone_patch_coverage", StonePatchCoverage);
         material.SetShaderParameter("stone_texture_scale", StoneTextureScale);
         material.SetShaderParameter("parallax_depth_metres", ParallaxDepthMetres);
+        material.SetShaderParameter("debug_wireframe", 0.0f);
         material.SetShaderParameter("slope_blend_start", ToSteepness(RockSlopeStartDegrees));
         material.SetShaderParameter("slope_blend_end", ToSteepness(RockSlopeEndDegrees));
+        return material;
+    }
+
+    /// <summary>
+    /// Creates an unlit wireframe variant of the generated terrain geometry.
+    /// </summary>
+    public static ShaderMaterial CreateWireframe(
+        Color? albedoTint = null,
+        bool isImplicitGround = false)
+    {
+        var material = Create(albedoTint, isImplicitGround);
+        material.Shader.Code = ShaderCode.Replace(
+            "render_mode cull_back;",
+            "render_mode cull_back, wireframe, unshaded;");
+        material.SetShaderParameter("debug_wireframe", 1.0f);
         return material;
     }
 
@@ -121,12 +140,41 @@ public static class TerrainSurfaceMaterial
         uniform float stone_patch_coverage = 0.10;
         uniform float stone_texture_scale = 0.50;
         uniform float parallax_depth_metres = 0.18;
+        uniform float debug_wireframe = 0.0;
         uniform float macro_variation_strength = 0.07;
         uniform float slope_blend_start = 0.021852;
         uniform float slope_blend_end = 0.211989;
 
         varying vec3 world_position;
         varying vec3 world_geometric_normal;
+
+        float hash(vec2 point) {
+            return fract(sin(dot(point, vec2(127.1, 311.7))) * 43758.5453);
+        }
+
+        float value_noise(vec2 point) {
+            vec2 cell = floor(point);
+            vec2 local = fract(point);
+            local = local * local * (3.0 - 2.0 * local);
+            return mix(
+                mix(hash(cell), hash(cell + vec2(1.0, 0.0)), local.x),
+                mix(hash(cell + vec2(0.0, 1.0)), hash(cell + vec2(1.0)), local.x),
+                local.y);
+        }
+
+        float layered_noise(vec2 point) {
+            return value_noise(point) * 0.62 +
+                value_noise(point * 2.07 + vec2(17.3, -9.1)) * 0.27 +
+                value_noise(point * 4.19 + vec2(-6.7, 23.4)) * 0.11;
+        }
+
+        float stone_patch_at(vec2 world_xz) {
+            float stone_noise =
+                value_noise(world_xz * 0.012) * 0.65 +
+                value_noise((world_xz + vec2(31.7, -19.2)) * 0.027) * 0.35;
+            float stone_threshold = 0.72 - stone_patch_coverage * 0.70;
+            return smoothstep(stone_threshold, stone_threshold + 0.14, stone_noise);
+        }
 
         void vertex() {
             world_position = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
@@ -246,22 +294,18 @@ public static class TerrainSurfaceMaterial
             return dot(color, vec3(0.2126, 0.7152, 0.0722));
         }
 
-        float hash(vec2 point) {
-            return fract(sin(dot(point, vec2(127.1, 311.7))) * 43758.5453);
-        }
-
-        float value_noise(vec2 point) {
-            vec2 cell = floor(point);
-            vec2 local = fract(point);
-            local = local * local * (3.0 - 2.0 * local);
-            return mix(
-                mix(hash(cell), hash(cell + vec2(1.0, 0.0)), local.x),
-                mix(hash(cell + vec2(0.0, 1.0)), hash(cell + vec2(1.0)), local.x),
-                local.y);
-        }
-
         void fragment() {
-            vec3 geometric_normal = normalize(world_geometric_normal);
+            vec3 displaced_face_normal = normalize(cross(dFdx(world_position), dFdy(world_position)));
+            if (dot(displaced_face_normal, world_geometric_normal) < 0.0) {
+                displaced_face_normal = -displaced_face_normal;
+            }
+            // The source WTB faces are extremely coarse. Retain the displaced surface direction,
+            // but blend it with the shared-vertex terrain normal so lighting rolls across the new
+            // tessellation rather than revealing every original 1995 polygon boundary.
+            vec3 geometric_normal = normalize(mix(
+                world_geometric_normal,
+                displaced_face_normal,
+                0.58));
             vec3 weights = triplanar_weights(geometric_normal);
             vec3 sample_position = world_position * texture_scale;
             vec3 stone_sample_position = sample_position * stone_texture_scale;
@@ -294,14 +338,7 @@ public static class TerrainSurfaceMaterial
 
             // Two differently scaled noise fields keep the scattered-rock material in broad,
             // irregular patches instead of exposing another repeated square tile.
-            float stone_noise =
-                value_noise(world_position.xz * 0.012) * 0.65 +
-                value_noise((world_position.xz + vec2(31.7, -19.2)) * 0.027) * 0.35;
-            float stone_threshold = 0.72 - stone_patch_coverage * 0.70;
-            float stone_patch = smoothstep(
-                stone_threshold,
-                stone_threshold + 0.14,
-                stone_noise) * (1.0 - rock_blend);
+            float stone_patch = stone_patch_at(world_position.xz) * (1.0 - rock_blend);
 
             vec3 sand = sample_triplanar(sand_color, sand_sample_position, weights, 0.0).rgb;
             vec3 rock = sample_triplanar(rock_color, rock_sample_position, weights, 0.0).rgb;
@@ -346,7 +383,10 @@ public static class TerrainSurfaceMaterial
 
             float macro = value_noise(world_position.xz * 0.006);
             float macro_multiplier = 1.0 + (macro - 0.5) * 2.0 * macro_variation_strength;
-            vec3 palette_albedo = COLOR.rgb * albedo_tint.rgb * detail_color * macro_multiplier;
+            // MW2's terrain polygons carry baked face-to-face shading intended for its software
+            // renderer. A remastered terrain uses one biome colour and lets Godot's directional
+            // sun, sky fill, shadows and PBR detail perform all illumination consistently.
+            vec3 palette_albedo = albedo_tint.rgb * detail_color * macro_multiplier;
 
             // Rocks019 already contains sand that agrees with the mission surface and authored
             // charcoal stones. Preserve that complete colour relationship inside stone patches;
@@ -402,6 +442,11 @@ public static class TerrainSurfaceMaterial
                 mix(flat_surface_roughness, rock_surface_roughness, rock_blend),
                 0.45);
             METALLIC = 0.0;
+            if (debug_wireframe > 0.5) {
+                ALBEDO = vec3(0.20, 1.0, 1.0);
+                EMISSION = vec3(0.10, 0.65, 0.65);
+                ROUGHNESS = 1.0;
+            }
         }
         """;
 }

@@ -57,7 +57,7 @@ public static class BattlefieldPhysics
         parent.AddChild(body);
         GD.Print(
             $"MechRewired: created static terrain physics from {terrainTriangles.Length:N0} " +
-            "double-sided decoded triangles.");
+            "double-sided derived/implicit triangles.");
         return body;
     }
 }
