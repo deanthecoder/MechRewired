@@ -227,10 +227,10 @@ public sealed class MissionSkyController
     private void ApplyProfile()
     {
         // MW2's INIT tag provides the starting time, rather than a permanently frozen sky.
-        // Keep a calm two-hour full-day cycle so clouds, sunlight and celestial bodies
+        // Keep a calm four-hour full-day cycle so clouds, sunlight and celestial bodies
         // visibly progress during a normal test session.
         m_sky3D.Set("game_time_enabled", true);
-        m_sky3D.Set("minutes_per_day", 120.0f);
+        m_sky3D.Set("minutes_per_day", 240.0f);
         // Sky3D's defaults are stored without invoking their setters when it is created at
         // runtime from C#. Trigger them once after its child nodes exist.
         m_sky3D.Set("sky_enabled", true);
