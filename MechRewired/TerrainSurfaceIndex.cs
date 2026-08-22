@@ -63,6 +63,27 @@ public sealed class TerrainSurfaceIndex
     public bool TryGetHeight(Vector3 position, out float height) =>
         TryGetSurface(position, out height, out _);
 
+    /// <summary>
+    /// Gets the upward-facing normal of the terrain triangle under a world position.
+    /// This deliberately uses the same indexed surface as mech movement rather than the visual mesh.
+    /// </summary>
+    public bool TryGetSurfaceNormal(Vector3 position, out Vector3 normal)
+    {
+        if (!TryGetSurface(position, out _, out var triangle))
+        {
+            normal = Vector3.Up;
+            return false;
+        }
+
+        normal = (triangle.B - triangle.A).Cross(triangle.C - triangle.A).Normalized();
+        if (normal.Y < 0.0f)
+        {
+            normal = -normal;
+        }
+
+        return true;
+    }
+
     private static NumericsVector3 ToNumerics(Vector3 value) =>
         new(value.X, value.Y, value.Z);
 }

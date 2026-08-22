@@ -1387,6 +1387,10 @@ public partial class Main : Node3D
             $"into {terrainSurface.CellCount:N0} height-query cells " +
             $"({terrainSurface.AverageCellOccupancy:F1} average, " +
             $"{terrainSurface.MaximumCellOccupancy:N0} maximum candidates per cell).");
+        var terrainRocks = TerrainRockScatter.Create(
+            terrainSurface,
+            GetTerrainBounds(debugTriangles));
+        levelRoot.AddChild(terrainRocks);
         foreach (var sourceTerrainRoot in sourceTerrainRoots)
         {
             sourceTerrainRoot.QueueFree();
@@ -1589,6 +1593,7 @@ public partial class Main : Node3D
             BuildWeaponMounts(playerChassis, playerObjectsById, playerTorsoObjectId),
             terrainSurface,
             () => GetSceneryObstacles(staticSceneryObstacles, battlefieldActors));
+        terrainRocks.ConfigureObserver(playerMech);
 #if DEBUG
         RegisterDebugConsoleCockpit(playerMech.Cockpit);
         RegisterDebugConsoleSky(
@@ -2726,6 +2731,26 @@ public partial class Main : Node3D
                 }
             }
         }
+    }
+
+    private static Aabb GetTerrainBounds(IEnumerable<DebugTriangle> triangles)
+    {
+        ArgumentNullException.ThrowIfNull(triangles);
+        var terrainVertices = triangles
+            .Where(triangle => triangle.SourceResourcePath == "DERIVED/TERRAIN")
+            .SelectMany(triangle => new[] { triangle.A, triangle.B, triangle.C })
+            .ToArray();
+        if (terrainVertices.Length == 0)
+        {
+            throw new InvalidOperationException("MechRewired cannot scatter rocks without terrain bounds.");
+        }
+
+        var minimum = terrainVertices.Aggregate(Vector3.Inf, (current, next) => current.Min(next));
+        var maximum = terrainVertices.Aggregate(-Vector3.Inf, (current, next) => current.Max(next));
+        // Let deposits spill a short way onto the implicit desert floor, but never scan the
+        // fallback plane's much larger visibility margin for rocks.
+        var spill = new Vector3(96.0f, 0.0f, 96.0f);
+        return new Aabb(minimum - spill, maximum - minimum + spill * 2.0f);
     }
 
     private static void AddImplicitGround(

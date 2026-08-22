@@ -1,0 +1,4 @@
+newmtl DesertRock
+map_Kd rock_color.jpg
+map_Bump rock_normal.jpg
+map_Ns rock_roughness.jpg
