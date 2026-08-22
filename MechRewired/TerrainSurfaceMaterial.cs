@@ -52,13 +52,13 @@ public static class TerrainSurfaceMaterial
     private const string RockHeightPath =
         "res://Assets/Textures/Terrain/Ground088/Ground088_1K-PNG_Displacement.png";
     private const string StoneColorPath =
-        "res://Assets/Textures/Terrain/Rocks019/Rocks019_1K-PNG_Color.png";
+        "res://Assets/Textures/Terrain/Rocks021/Rocks021_1K-PNG_Color.png";
     private const string StoneNormalPath =
-        "res://Assets/Textures/Terrain/Rocks019/Rocks019_1K-PNG_NormalGL.png";
+        "res://Assets/Textures/Terrain/Rocks021/Rocks021_1K-PNG_NormalGL.png";
     private const string StoneRoughnessPath =
-        "res://Assets/Textures/Terrain/Rocks019/Rocks019_1K-PNG_Roughness.png";
+        "res://Assets/Textures/Terrain/Rocks021/Rocks021_1K-PNG_Roughness.png";
     private const string StoneHeightPath =
-        "res://Assets/Textures/Terrain/Rocks019/Rocks019_1K-PNG_Displacement.png";
+        "res://Assets/Textures/Terrain/Rocks021/Rocks021_1K-PNG_Displacement.png";
 
     /// <summary>
     /// Creates one terrain material using the remastered biome colour unless an explicit tint is supplied.
@@ -388,7 +388,7 @@ public static class TerrainSurfaceMaterial
             // sun, sky fill, shadows and PBR detail perform all illumination consistently.
             vec3 palette_albedo = albedo_tint.rgb * detail_color * macro_multiplier;
 
-            // Rocks019 already contains sand that agrees with the mission surface and authored
+            // Rocks021 already contains sand that agrees with the mission surface and authored
             // charcoal stones. Preserve that complete colour relationship inside stone patches;
             // palette tinting the source made its granite appear sandy.
             ALBEDO = mix(palette_albedo, stones, stone_patch);
