@@ -82,6 +82,33 @@ public sealed class TerrainMeshDeriverTests
     }
 
     [Test]
+    public void SubMetreAuthoredTerrainSeamAcrossQuantizationBoundaryIsWelded()
+    {
+        var source = new[]
+        {
+            new TerrainSourceTriangle(
+                new Vector3(-10.0f, 0.0f, -0.5001f),
+                new Vector3(10.0f, 0.0f, -0.5001f),
+                new Vector3(0.0f, 0.0f, -10.0f)),
+            new TerrainSourceTriangle(
+                new Vector3(10.0f, 0.0f, 0.0999f),
+                new Vector3(-10.0f, 0.0f, 0.0999f),
+                new Vector3(0.0f, 10.0f, 10.0f))
+        };
+
+        var derived = TerrainMeshDeriver.Build(
+            source,
+            subdivisions: 2,
+            smoothingAngleDegrees: 30.0f,
+            smoothingStrength: 1.0f);
+
+        Assert.That(
+            derived.TriangleCount,
+            Is.EqualTo(8),
+            "The nearly identical shared edge should be welded and curved as one connected surface.");
+    }
+
+    [Test]
     public void CoarseCollisionSamplingRetainsTheAuthoredControlVertices()
     {
         var first = new Vector3(-2.0f, 0.0f, 0.0f);

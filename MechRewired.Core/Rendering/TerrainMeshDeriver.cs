@@ -36,7 +36,9 @@ public sealed record DerivedTerrainMesh(
 /// </summary>
 public static class TerrainMeshDeriver
 {
-    private const float SourceWeldToleranceMetres = 0.02f;
+    // Adjacent MW2 terrain pieces occasionally disagree at a nominally shared vertex by well under
+    // a metre, despite their meaningful control points being tens of metres apart.
+    private const float SourceWeldToleranceMetres = 1.0f;
     private const float DerivedWeldToleranceMetres = 0.001f;
 
     public static DerivedTerrainMesh Build(
@@ -57,14 +59,17 @@ public static class TerrainMeshDeriver
         var source = BuildSourceTopology(sourceTriangles);
         if (source.Triangles.Count == 0)
         {
-            return new DerivedTerrainMesh(Array.Empty<Vector3>(), Array.Empty<Vector3>(), Array.Empty<int>());
+            return new DerivedTerrainMesh(
+                Array.Empty<Vector3>(),
+                Array.Empty<Vector3>(),
+                Array.Empty<int>());
         }
 
         var vertexNormals = CalculateSourceVertexNormals(source);
         var smoothingWeights = CalculateSmoothingWeights(source, smoothingAngleDegrees);
         var vertices = new List<Vector3>();
         var indices = new List<int>(source.Triangles.Count * subdivisions * subdivisions * 3);
-        var vertexLookup = new Dictionary<QuantizedPosition, int>();
+        var vertexLookup = new SpatialVertexLookup(DerivedWeldToleranceMetres);
         foreach (var triangle in source.Triangles)
         {
             // A triangle whose three control vertices have no detected curvature is already the
@@ -142,15 +147,14 @@ public static class TerrainMeshDeriver
                     position = displace(position);
                 }
 
-                var key = QuantizedPosition.From(position, DerivedWeldToleranceMetres);
-                if (vertexLookup.TryGetValue(key, out var existingIndex))
+                if (vertexLookup.TryFind(position, vertices, out var existingIndex))
                 {
                     return existingIndex;
                 }
 
                 var index = vertices.Count;
                 vertices.Add(position);
-                vertexLookup.Add(key, index);
+                vertexLookup.Add(position, index);
                 return index;
             }
         }
@@ -163,10 +167,12 @@ public static class TerrainMeshDeriver
     {
         var vertices = new List<Vector3>();
         var triangles = new List<IndexedTriangle>();
-        var vertexLookup = new Dictionary<QuantizedPosition, int>();
+        var vertexLookup = new SpatialVertexLookup(SourceWeldToleranceMetres);
         foreach (var sourceTriangle in sourceTriangles)
         {
-            var normal = Vector3.Cross(sourceTriangle.B - sourceTriangle.A, sourceTriangle.C - sourceTriangle.A);
+            var normal = Vector3.Cross(
+                sourceTriangle.B - sourceTriangle.A,
+                sourceTriangle.C - sourceTriangle.A);
             if (normal.LengthSquared() <= 0.000001f)
             {
                 continue;
@@ -193,15 +199,14 @@ public static class TerrainMeshDeriver
 
         int GetVertex(Vector3 position)
         {
-            var key = QuantizedPosition.From(position, SourceWeldToleranceMetres);
-            if (vertexLookup.TryGetValue(key, out var existingIndex))
+            if (vertexLookup.TryFind(position, vertices, out var existingIndex))
             {
                 return existingIndex;
             }
 
             var index = vertices.Count;
             vertices.Add(position);
-            vertexLookup.Add(key, index);
+            vertexLookup.Add(position, index);
             return index;
         }
     }
@@ -337,5 +342,66 @@ public static class TerrainMeshDeriver
             (long)MathF.Round(position.X / tolerance),
             (long)MathF.Round(position.Y / tolerance),
             (long)MathF.Round(position.Z / tolerance));
+    }
+
+    /// <summary>
+    /// Uses the quantized cells only as a fast spatial index, then checks the surrounding cells by
+    /// real distance. This avoids cracks when two effectively identical MW2 vertices happen to lie
+    /// on opposite sides of a rounding boundary.
+    /// </summary>
+    private sealed class SpatialVertexLookup(float tolerance)
+    {
+        private static readonly int[] SearchOffsets = [0, -1, 1];
+        private readonly Dictionary<QuantizedPosition, List<int>> m_cells = new();
+        private readonly float m_toleranceSquared = tolerance * tolerance;
+
+        public bool TryFind(
+            Vector3 position,
+            IReadOnlyList<Vector3> vertices,
+            out int existingIndex)
+        {
+            var center = QuantizedPosition.From(position, tolerance);
+            foreach (var xOffset in SearchOffsets)
+            {
+                foreach (var yOffset in SearchOffsets)
+                {
+                    foreach (var zOffset in SearchOffsets)
+                    {
+                        var cell = new QuantizedPosition(
+                            center.X + xOffset,
+                            center.Y + yOffset,
+                            center.Z + zOffset);
+                        if (!m_cells.TryGetValue(cell, out var candidates))
+                        {
+                            continue;
+                        }
+
+                        foreach (var candidate in candidates)
+                        {
+                            if (Vector3.DistanceSquared(vertices[candidate], position) <= m_toleranceSquared)
+                            {
+                                existingIndex = candidate;
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+
+            existingIndex = -1;
+            return false;
+        }
+
+        public void Add(Vector3 position, int index)
+        {
+            var cell = QuantizedPosition.From(position, tolerance);
+            if (!m_cells.TryGetValue(cell, out var indices))
+            {
+                indices = new List<int>(1);
+                m_cells.Add(cell, indices);
+            }
+
+            indices.Add(index);
+        }
     }
 }

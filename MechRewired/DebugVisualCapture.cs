@@ -25,6 +25,14 @@ public sealed partial class DebugVisualCapture : Node
         new(3665.61f, 8.52f, 3357.93f);
     private static readonly System.Numerics.Vector3 StoneFixtureSourceDirection =
         new(0.4836f, -0.3709f, -0.7928f);
+    private static readonly System.Numerics.Vector3 FirstTerrainSeamFixtureSourcePosition =
+        new(3524.15f, 12.53f, 2917.11f);
+    private static readonly System.Numerics.Vector3 FirstTerrainSeamFixtureSourceDirection =
+        new(-0.8892f, 0.0040f, 0.4575f);
+    private static readonly System.Numerics.Vector3 SecondTerrainSeamFixtureSourcePosition =
+        new(3641.05f, 10.56f, 3195.71f);
+    private static readonly System.Numerics.Vector3 SecondTerrainSeamFixtureSourceDirection =
+        new(-0.9736f, 0.1948f, 0.1187f);
 
     private readonly MissionSkyController m_sky;
     private readonly Camera3D m_camera;
@@ -194,6 +202,59 @@ public sealed partial class DebugVisualCapture : Node
         {
             m_camera.Current = true;
             fixtureCamera.QueueFree();
+            RestoreConsoleAfterCapture(restoreConsoleAfterCapture);
+            if (quitAfterCapture)
+            {
+                GetTree().Quit();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Recreates the tester-supplied view of an authored MW2 terrain seam so vertex-welding
+    /// regressions can be spotted without navigating the mission manually.
+    /// </summary>
+    public async void CaptureTerrainSeamFixture(
+        TerrainDiagnostics terrain = null,
+        bool quitAfterCapture = false)
+    {
+        var restoreConsoleAfterCapture = HideConsoleForCapture();
+        Camera3D fixtureCamera = null;
+
+        try
+        {
+            var fixtures = new[]
+            {
+                (Position: FirstTerrainSeamFixtureSourcePosition,
+                    Direction: FirstTerrainSeamFixtureSourceDirection),
+                (Position: SecondTerrainSeamFixtureSourcePosition,
+                    Direction: SecondTerrainSeamFixtureSourceDirection)
+            };
+            for (var index = 0; index < fixtures.Length; index++)
+            {
+                fixtureCamera = CreateFixtureCamera(
+                    $"TerrainSeamFixtureCamera{index + 1}",
+                    fixtures[index].Position,
+                    fixtures[index].Direction);
+                AddChild(fixtureCamera);
+                await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+                await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+                await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+                WriteCapture(
+                    $"terrain-seam-fixture-{index + 1}",
+                    terrainDiagnostic: $"lit authored-seam fixture {index + 1}",
+                    terrain: terrain,
+                    captureCamera: fixtureCamera);
+                m_camera.Current = true;
+                fixtureCamera.QueueFree();
+                fixtureCamera = null;
+                await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            }
+        }
+        finally
+        {
+            m_camera.Current = true;
+            fixtureCamera?.QueueFree();
             RestoreConsoleAfterCapture(restoreConsoleAfterCapture);
             if (quitAfterCapture)
             {
@@ -452,16 +513,25 @@ public sealed partial class DebugVisualCapture : Node
     }
 
     private Camera3D CreateTerrainStoneFixtureCamera()
+        => CreateFixtureCamera(
+            "TerrainStoneFixtureCamera",
+            StoneFixtureSourcePosition,
+            StoneFixtureSourceDirection);
+
+    private Camera3D CreateFixtureCamera(
+        string name,
+        System.Numerics.Vector3 sourcePosition,
+        System.Numerics.Vector3 sourceDirection)
     {
         var camera = new Camera3D
         {
-            Name = "TerrainStoneFixtureCamera",
+            Name = name,
             CullMask = m_camera.CullMask,
             Fov = m_camera.Fov,
             Current = true
         };
-        var position = MechWarriorCoordinateSystem.ToGodotPosition(StoneFixtureSourcePosition);
-        var direction = MechWarriorCoordinateSystem.ToGodotPosition(StoneFixtureSourceDirection).Normalized();
+        var position = MechWarriorCoordinateSystem.ToGodotPosition(sourcePosition);
+        var direction = MechWarriorCoordinateSystem.ToGodotPosition(sourceDirection).Normalized();
         camera.LookAtFromPosition(position, position + direction, Vector3.Up);
         return camera;
     }

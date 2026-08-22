@@ -295,6 +295,13 @@ public partial class Main : Node3D
             "Recreates and captures the scattered-rock terrain regression view.");
         m_debugConsole.Call(
             "add_command",
+            "terrain.capture_seam",
+            Callable.From(() => m_debugVisualCapture?.CaptureTerrainSeamFixture(m_debugTerrain)),
+            0,
+            0,
+            "Recreates and captures the authored terrain-seam regression views.");
+        m_debugConsole.Call(
+            "add_command",
             "terrain.parallax_sweep",
             Callable.From(() => m_debugVisualCapture?.CaptureTerrainParallaxSweep(m_debugTerrain)),
             0,
@@ -351,6 +358,12 @@ public partial class Main : Node3D
         if (OS.GetCmdlineUserArgs().Contains("--capture-terrain-stones"))
         {
             m_debugVisualCapture?.CaptureTerrainStoneFixture(
+                m_debugTerrain,
+                quitAfterCapture: true);
+        }
+        else if (OS.GetCmdlineUserArgs().Contains("--capture-terrain-seam"))
+        {
+            m_debugVisualCapture?.CaptureTerrainSeamFixture(
                 m_debugTerrain,
                 quitAfterCapture: true);
         }
@@ -2725,6 +2738,7 @@ public partial class Main : Node3D
             $"({DerivedTerrainSurfaceBuilder.CollisionSubdivisions}x per edge); replaced " +
             $"{removedSourceTriangles:N0} decoded terrain triangles. Connected-edge curvature " +
             $"ramps to full smoothing by {DerivedTerrainSurfaceBuilder.SmoothingAngleDegrees:F0} degrees " +
+            $"after tolerance-based source seam welding " +
             $"({Time.GetTicksMsec() - derivationStartedAt:N0}ms).");
     }
 
