@@ -465,6 +465,16 @@ public partial class Main : Node3D
             "Sets where fog begins as a fraction of its full authored distance (default 0.35).");
         m_debugConsole.Call(
             "add_cvar",
+            "sky.fog.aerial",
+            sky.FogAerialPerspective,
+            "Blends distant objects toward the sky colour behind them (0-1; default 1).");
+        m_debugConsole.Call(
+            "add_cvar",
+            "sky.fog.sun_scatter",
+            sky.FogSunScatter,
+            "Adds directional sunlight to atmospheric haze (0-1; default 0.15).");
+        m_debugConsole.Call(
+            "add_cvar",
             "sky.sun.azimuth_offset",
             sky.SunAzimuthOffsetDegrees,
             "Offsets the MW2 LITE sun direction in degrees for visual tuning.");
@@ -619,6 +629,16 @@ public partial class Main : Node3D
                  m_debugSky != null)
         {
             m_debugSky.FogStartFraction = numericValue;
+        }
+        else if (string.Equals(name, "sky.fog.aerial", StringComparison.OrdinalIgnoreCase) &&
+                 m_debugSky != null)
+        {
+            m_debugSky.FogAerialPerspective = numericValue;
+        }
+        else if (string.Equals(name, "sky.fog.sun_scatter", StringComparison.OrdinalIgnoreCase) &&
+                 m_debugSky != null)
+        {
+            m_debugSky.FogSunScatter = numericValue;
         }
         else if (string.Equals(name, "sky.sun.azimuth_offset", StringComparison.OrdinalIgnoreCase) &&
                  m_debugSky != null)

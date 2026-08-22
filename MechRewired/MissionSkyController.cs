@@ -30,6 +30,8 @@ public sealed class MissionSkyController
     private const float DefaultCloudDensity = 1.00f;
     private const float DefaultCloudHeight = 1.8f;
     private const float DefaultFogStartFraction = 0.35f;
+    private const float DefaultFogAerialPerspective = 1.0f;
+    private const float DefaultFogSunScatter = 0.15f;
 
     private readonly Node m_sky3D;
     private readonly Node m_skyDome;
@@ -123,6 +125,25 @@ public sealed class MissionSkyController
         }
     }
 
+    /// <summary>
+    /// Blends distant geometry toward the Sky3D colour behind it instead of one uniform horizon
+    /// tint. This is especially important for airborne objects viewed against the blue upper sky.
+    /// </summary>
+    public float FogAerialPerspective
+    {
+        get => m_environment.FogAerialPerspective;
+        set => m_environment.FogAerialPerspective = Mathf.Clamp(value, 0.0f, 1.0f);
+    }
+
+    /// <summary>
+    /// Adds restrained directional-sun scattering to the depth fog.
+    /// </summary>
+    public float FogSunScatter
+    {
+        get => m_environment.FogSunScatter;
+        set => m_environment.FogSunScatter = Mathf.Clamp(value, 0.0f, 1.0f);
+    }
+
     public float CloudCoverage
     {
         get => m_skyDome.Get("cirrus_coverage").AsSingle();
@@ -197,7 +218,8 @@ public sealed class MissionSkyController
     }
 
     public string Describe() =>
-        $"time {TimeOfDay:F2}h; authored {m_profile.TimeOfDay:F2}h; fog x{FogMultiplier:F2}; " +
+        $"time {TimeOfDay:F2}h; authored {m_profile.TimeOfDay:F2}h; fog x{FogMultiplier:F2}, " +
+        $"aerial {FogAerialPerspective:F2}, sun scatter {FogSunScatter:F2}; " +
         $"cirrus coverage {CloudCoverage:F2}, density {CloudDensity:F2}, scale {CloudHeight:F2}; " +
         $"sun azimuth offset {SunAzimuthOffsetDegrees:F1} degrees; shadow distance " +
         $"{SunShadowDistance:F0}m, opacity {SunShadowOpacity:F2}; exposure {Exposure:F2}.";
@@ -268,6 +290,8 @@ public sealed class MissionSkyController
         m_environment.FogDensity = 1.0f;
         m_environment.FogDepthCurve = 1.0f;
         m_environment.FogSkyAffect = 0.0f;
+        FogAerialPerspective = DefaultFogAerialPerspective;
+        FogSunScatter = DefaultFogSunScatter;
 
         TimeOfDay = m_profile.TimeOfDay;
         m_sky3D.Call("resume");
