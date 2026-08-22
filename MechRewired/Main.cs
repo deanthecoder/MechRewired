@@ -985,6 +985,12 @@ public partial class Main : Node3D
         AddChild(levelRoot);
         var terrainMaterial = TerrainSurfaceMaterial.Create();
         var terrainWireframeMaterial = TerrainSurfaceMaterial.CreateWireframe();
+        // MW2's material selectors are context-sensitive. The first playable mech set uses the
+        // low material-bank range; scenery selectors may instead be palette/visibility flags.
+        // Keep indexed albedo lookup scoped to the verified mech range below.
+        var materialMapEntry = archive.GetEntry("BWD/MW2_MAP1.BWD");
+        var materialMap = MechWarriorMaterialMap.Load(archive.ReadEntry(materialMapEntry), 1);
+        var materialImages = new Dictionary<byte, MechWarriorIndexedImage>();
         TerrainDiagnostics terrainDiagnostics = null;
 #if DEBUG
         terrainDiagnostics = new TerrainDiagnostics
@@ -1105,6 +1111,13 @@ public partial class Main : Node3D
                                 luminosityTable,
                                 illuminationLevel))
                             .ToArray();
+                        if (levelObject.Kind != MechWarriorLevelObjectKind.Terrain)
+                        {
+                            foreach (var mesh in meshes)
+                            {
+                                MechWarriorModelMeshBuilder.ApplyStructureSurfaceFinish(mesh);
+                            }
+                        }
                         wireframeCache.Add(
                             levelObject.ModelEntry.Path,
                             highestDetailModels.Select(MechWarriorModelMeshBuilder.BuildWireframe).ToArray());
@@ -1437,9 +1450,6 @@ public partial class Main : Node3D
         var triangleCount = 0;
         var vertexCount = 0;
         var renderedPartCount = 0;
-        var materialMapEntry = archive.GetEntry("BWD/MW2_MAP1.BWD");
-        var materialMap = MechWarriorMaterialMap.Load(archive.ReadEntry(materialMapEntry), 1);
-        var materialImages = new Dictionary<byte, MechWarriorIndexedImage>();
         var playerObjectsById = playerChassis.Objects.ToDictionary(chassisObject => chassisObject.Id);
         var playerTorsoObjectId = playerChassis.ThingObjectIds
             .FirstOrDefault(id => playerObjectsById.ContainsKey(id));
@@ -1461,7 +1471,7 @@ public partial class Main : Node3D
                 .MaxBy(candidate => candidate.Polygons.Count) ??
                 throw new InvalidDataException($"{modelEntry.Path} contains no mech model.");
             var isDecalModel = modelEntry.Name.Contains("DEC", StringComparison.OrdinalIgnoreCase);
-            LoadMechMaterialImages(
+            LoadMaterialImages(
                 archive,
                 materialMapEntry,
                 materialMap,
@@ -1794,7 +1804,7 @@ public partial class Main : Node3D
                 var model = models.MaxBy(candidate => candidate.Polygons.Count) ??
                             throw new InvalidDataException($"{modelEntry.Path} contains no mech model.");
                 var isDecalModel = modelEntry.Name.Contains("DEC", StringComparison.OrdinalIgnoreCase);
-                LoadMechMaterialImages(
+                LoadMaterialImages(
                     archive,
                     materialMapEntry,
                     materialMap,
@@ -1934,7 +1944,7 @@ public partial class Main : Node3D
         return silhouette;
     }
 
-    private static void LoadMechMaterialImages(
+    private static void LoadMaterialImages(
         MechWarriorProjectArchive archive,
         MechWarriorProjectEntry materialMapEntry,
         MechWarriorMaterialMap materialMap,
@@ -1954,7 +1964,7 @@ public partial class Main : Node3D
             var imageEntry = archive.GetEntry("CEL", materialImage.ImageResourceIndex);
             materialImages.Add(materialIndex, MechWarriorIndexedImage.Load(archive.ReadEntry(imageEntry)));
             GD.Print(
-                $"MechRewired: mapped enemy WTB material {materialIndex} through {materialMapEntry.Path} " +
+                $"MechRewired: mapped WTB material {materialIndex} through {materialMapEntry.Path} " +
                 $"to {imageEntry.Path} ('{materialImage.Name}').");
         }
     }
@@ -2090,6 +2100,7 @@ public partial class Main : Node3D
                         palette,
                         luminosityTable,
                         ObjectIlluminationLevel);
+                    MechWarriorModelMeshBuilder.ApplyStructureSurfaceFinish(renderMesh);
                     MakeMeshDoubleSided(renderMesh);
                     var meshInstance = new MeshInstance3D
                     {

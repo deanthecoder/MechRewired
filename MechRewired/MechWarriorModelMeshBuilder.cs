@@ -27,6 +27,11 @@ public static class MechWarriorModelMeshBuilder
     private const float MechSurfaceMetallic = 0.55f;
     private const float MechSurfaceRoughness = 0.58f;
     private const float MechDecalRoughness = 0.72f;
+    private const float StructureSurfaceMetallic = 0.28f;
+    private const float StructureSurfaceRoughness = 0.78f;
+    private static readonly Dictionary<IndexedTextureCacheKey, SurfaceTextureSet> s_indexedTextureCache = new();
+    private static SurfaceTextureSet s_paintedSurfaceMaps;
+    private static SurfaceTextureSet s_structureSurfaceMaps;
 
     /// <summary>
     /// Builds a flat-shaded render mesh from one decoded WTB model.
@@ -107,7 +112,8 @@ public static class MechWarriorModelMeshBuilder
                     Roughness = 0.9f,
                     VertexColorUseAsAlbedo = true
                 },
-                generateNormals: smoothNormals == null);
+                generateNormals: smoothNormals == null,
+                generateTangents: true);
         }
 
         foreach (var materialGroup in model.Polygons
@@ -140,23 +146,31 @@ public static class MechWarriorModelMeshBuilder
                 }
             }
 
+            var textures = BuildMaterialTextures(
+                indexedImage,
+                palette,
+                luminosityTable,
+                illuminationLevel,
+                preserveTexturePalette);
             CommitSurface(
                 surfaceTool,
                 mesh,
                 new StandardMaterial3D
                 {
-                    AlbedoTexture = BuildTexture(
-                        indexedImage,
-                        palette,
-                        luminosityTable,
-                        illuminationLevel,
-                        preserveTexturePalette),
+                    AlbedoTexture = textures.Albedo,
+                    NormalEnabled = true,
+                    NormalTexture = textures.Normal,
+                    NormalScale = 0.28f,
+                    RoughnessTexture = textures.Roughness,
+                    MetallicTexture = textures.Metallic,
                     Metallic = 0.0f,
                     Roughness = 0.9f,
                     Transparency = BaseMaterial3D.TransparencyEnum.AlphaScissor,
-                    TextureFilter = BaseMaterial3D.TextureFilterEnum.Nearest
+                    TextureFilter = BaseMaterial3D.TextureFilterEnum.Nearest,
+                    TextureRepeat = true
                 },
-                generateNormals: smoothNormals == null);
+                generateNormals: smoothNormals == null,
+                generateTangents: true);
         }
 
         if (mesh.GetSurfaceCount() == 0)
@@ -250,6 +264,7 @@ public static class MechWarriorModelMeshBuilder
 
             material.Metallic = MechSurfaceMetallic;
             material.Roughness = MechSurfaceRoughness;
+            ApplySurfaceMaps(material, GetPaintedSurfaceMaps(), 0.24f, false);
         }
     }
 
@@ -269,6 +284,35 @@ public static class MechWarriorModelMeshBuilder
 
             material.Metallic = 0.0f;
             material.Roughness = MechDecalRoughness;
+            // Preserve original insignia colours and avoid covering them with generic plating.
+            material.NormalScale = 0.12f;
+        }
+    }
+
+    /// <summary>
+    /// Applies a subtle tiled painted-metal response to palette-coloured scenery where MW2 did
+    /// not provide a matching indexed material. The vertex-colour palette remains the albedo.
+    /// </summary>
+    public static void ApplyStructureSurfaceFinish(ArrayMesh mesh)
+    {
+        ArgumentNullException.ThrowIfNull(mesh);
+
+        for (var surfaceIndex = 0; surfaceIndex < mesh.GetSurfaceCount(); surfaceIndex++)
+        {
+            if (mesh.SurfaceGetMaterial(surfaceIndex) is not StandardMaterial3D material)
+            {
+                continue;
+            }
+
+            material.Metallic = StructureSurfaceMetallic;
+            material.Roughness = StructureSurfaceRoughness;
+            // Textured surfaces keep their authored UV orientation. Palette-only WTB surfaces
+            // have no usable source texture projection, so use the restrained fallback triplanar map.
+            ApplySurfaceMaps(
+                material,
+                GetStructureSurfaceMaps(),
+                0.18f,
+                material.AlbedoTexture == null);
         }
     }
 
@@ -388,11 +432,16 @@ public static class MechWarriorModelMeshBuilder
         SurfaceTool surfaceTool,
         ArrayMesh mesh,
         Godot.Material material,
-        bool generateNormals = true)
+        bool generateNormals = true,
+        bool generateTangents = false)
     {
         if (generateNormals)
         {
             surfaceTool.GenerateNormals();
+        }
+        if (generateTangents)
+        {
+            surfaceTool.GenerateTangents();
         }
         if (surfaceTool.Commit(mesh) == null)
         {
@@ -443,18 +492,45 @@ public static class MechWarriorModelMeshBuilder
         return visibleNormals;
     }
 
-    private static ImageTexture BuildTexture(
+    private static SurfaceTextureSet BuildMaterialTextures(
         MechWarriorIndexedImage indexedImage,
         MechWarriorPalette palette,
         MechWarriorLuminosityTable luminosityTable,
         int illuminationLevel,
         bool preservePalette)
     {
-        using var image = Image.CreateEmpty(
+        var key = new IndexedTextureCacheKey(
+            indexedImage,
+            palette,
+            luminosityTable,
+            illuminationLevel,
+            preservePalette);
+        if (s_indexedTextureCache.TryGetValue(key, out var cachedTextures))
+        {
+            return cachedTextures;
+        }
+
+        using var albedo = Image.CreateEmpty(
             indexedImage.Width,
             indexedImage.Height,
             false,
             Image.Format.Rgba8);
+        using var normal = Image.CreateEmpty(
+            indexedImage.Width,
+            indexedImage.Height,
+            false,
+            Image.Format.Rgba8);
+        using var roughness = Image.CreateEmpty(
+            indexedImage.Width,
+            indexedImage.Height,
+            false,
+            Image.Format.Rgba8);
+        using var metallic = Image.CreateEmpty(
+            indexedImage.Width,
+            indexedImage.Height,
+            false,
+            Image.Format.Rgba8);
+        var luminance = new float[indexedImage.Width * indexedImage.Height];
         for (var y = 0; y < indexedImage.Height; y++)
         {
             for (var x = 0; x < indexedImage.Width; x++)
@@ -464,21 +540,147 @@ public static class MechWarriorModelMeshBuilder
                 var paletteIndex = indexedImage.GetPixel(x, indexedImage.Height - y - 1);
                 if (paletteIndex == byte.MaxValue)
                 {
-                    image.SetPixel(x, y, Colors.Transparent);
+                    albedo.SetPixel(x, y, Colors.Transparent);
+                    normal.SetPixel(x, y, new Color(0.5f, 0.5f, 1.0f));
+                    roughness.SetPixel(x, y, Colors.White);
+                    metallic.SetPixel(x, y, Colors.Black);
                     continue;
                 }
 
                 var color = palette[preservePalette
                     ? paletteIndex
                     : luminosityTable.GetPaletteIndex(paletteIndex, illuminationLevel)];
-                image.SetPixel(x, y, new Color(
+                var resolvedColor = new Color(
                     color.R / 255.0f,
                     color.G / 255.0f,
-                    color.B / 255.0f));
+                    color.B / 255.0f);
+                albedo.SetPixel(x, y, resolvedColor);
+                luminance[y * indexedImage.Width + x] =
+                    resolvedColor.R * 0.2126f + resolvedColor.G * 0.7152f + resolvedColor.B * 0.0722f;
             }
         }
 
-        return ImageTexture.CreateFromImage(image);
+        for (var y = 0; y < indexedImage.Height; y++)
+        {
+            for (var x = 0; x < indexedImage.Width; x++)
+            {
+                var pixel = y * indexedImage.Width + x;
+                if (indexedImage.GetPixel(x, indexedImage.Height - y - 1) == byte.MaxValue)
+                {
+                    continue;
+                }
+
+                var centre = luminance[pixel];
+                var left = SampleLuminance(luminance, indexedImage.Width, indexedImage.Height, x - 1, y, centre);
+                var right = SampleLuminance(luminance, indexedImage.Width, indexedImage.Height, x + 1, y, centre);
+                var above = SampleLuminance(luminance, indexedImage.Width, indexedImage.Height, x, y - 1, centre);
+                var below = SampleLuminance(luminance, indexedImage.Width, indexedImage.Height, x, y + 1, centre);
+                // Keep detail subordinate to the original low-resolution palette art.
+                normal.SetPixel(x, y, new Color(
+                    Mathf.Clamp(0.5f + (left - right) * 0.18f, 0.0f, 1.0f),
+                    Mathf.Clamp(0.5f + (above - below) * 0.18f, 0.0f, 1.0f),
+                    1.0f));
+                var edge = MathF.Abs(left - right) + MathF.Abs(above - below);
+                var roughnessValue = Mathf.Clamp(0.88f + (1.0f - centre) * 0.08f + edge * 0.05f, 0.0f, 1.0f);
+                var metallicValue = Mathf.Clamp(0.76f + centre * 0.10f - edge * 0.08f, 0.0f, 1.0f);
+                roughness.SetPixel(x, y, new Color(roughnessValue, roughnessValue, roughnessValue));
+                metallic.SetPixel(x, y, new Color(metallicValue, metallicValue, metallicValue));
+            }
+        }
+
+        var textures = new SurfaceTextureSet(
+            ImageTexture.CreateFromImage(albedo),
+            ImageTexture.CreateFromImage(normal),
+            ImageTexture.CreateFromImage(roughness),
+            ImageTexture.CreateFromImage(metallic));
+        s_indexedTextureCache.Add(key, textures);
+        return textures;
+    }
+
+    private static float SampleLuminance(
+        IReadOnlyList<float> luminance,
+        int width,
+        int height,
+        int x,
+        int y,
+        float fallback)
+    {
+        if (x < 0 || x >= width || y < 0 || y >= height)
+        {
+            return fallback;
+        }
+
+        var sample = luminance[y * width + x];
+        return sample == 0.0f ? fallback : sample;
+    }
+
+    private static void ApplySurfaceMaps(
+        StandardMaterial3D material,
+        SurfaceTextureSet maps,
+        float normalScale,
+        bool triplanar)
+    {
+        material.NormalEnabled = true;
+        material.NormalTexture ??= maps.Normal;
+        material.RoughnessTexture ??= maps.Roughness;
+        material.MetallicTexture ??= maps.Metallic;
+        material.NormalScale = normalScale;
+        material.TextureRepeat = true;
+        if (!triplanar)
+        {
+            return;
+        }
+
+        material.Uv1Triplanar = true;
+        material.Uv1WorldTriplanar = true;
+        material.Uv1TriplanarSharpness = 10.0f;
+        material.Uv1Scale = Vector3.One * 0.32f;
+    }
+
+    private static SurfaceTextureSet GetPaintedSurfaceMaps() =>
+        s_paintedSurfaceMaps ??= CreateSurfaceMaps(0.90f, 0.78f);
+
+    private static SurfaceTextureSet GetStructureSurfaceMaps() =>
+        s_structureSurfaceMaps ??= CreateSurfaceMaps(0.88f, 0.72f);
+
+    private static SurfaceTextureSet CreateSurfaceMaps(float baseRoughness, float baseMetallic)
+    {
+        const int size = 16;
+        using var normal = Image.CreateEmpty(size, size, false, Image.Format.Rgba8);
+        using var roughness = Image.CreateEmpty(size, size, false, Image.Format.Rgba8);
+        using var metallic = Image.CreateEmpty(size, size, false, Image.Format.Rgba8);
+        for (var y = 0; y < size; y++)
+        {
+            for (var x = 0; x < size; x++)
+            {
+                // Palette-only structures have no original texture that can justify invented
+                // panel lines. Keep their fallback maps almost flat, with only non-directional
+                // microvariation to keep broad lit surfaces from looking perfectly synthetic.
+                var noise = SurfaceNoise(x, y);
+                var normalX = (SurfaceNoise((x + size - 1) % size, y) -
+                               SurfaceNoise((x + 1) % size, y)) * 0.012f;
+                var normalY = (SurfaceNoise(x, (y + size - 1) % size) -
+                               SurfaceNoise(x, (y + 1) % size)) * 0.012f;
+                normal.SetPixel(x, y, new Color(0.5f + normalX, 0.5f + normalY, 1.0f));
+                var roughnessValue = Mathf.Clamp(baseRoughness + noise * 0.018f, 0.0f, 1.0f);
+                var metallicValue = Mathf.Clamp(baseMetallic - noise * 0.012f, 0.0f, 1.0f);
+                roughness.SetPixel(x, y, new Color(roughnessValue, roughnessValue, roughnessValue));
+                metallic.SetPixel(x, y, new Color(metallicValue, metallicValue, metallicValue));
+            }
+        }
+
+        return new SurfaceTextureSet(
+            null,
+            ImageTexture.CreateFromImage(normal),
+            ImageTexture.CreateFromImage(roughness),
+            ImageTexture.CreateFromImage(metallic));
+    }
+
+    private static float SurfaceNoise(int x, int y)
+    {
+        uint value = (uint)(x * 73_856_093 ^ y * 19_349_663);
+        value = (value ^ value >> 13) * 1_274_126_177;
+        return (value & 0xff) / 255.0f - 0.5f;
     }
 
     private static void AddPosition(SurfaceTool surfaceTool, MechWarriorModelVertex vertex)
@@ -486,4 +688,17 @@ public static class MechWarriorModelMeshBuilder
         surfaceTool.AddVertex(
             MechWarriorCoordinateSystem.ToGodotPosition(vertex.Position) * SourceUnitScale);
     }
+
+    private sealed record SurfaceTextureSet(
+        Texture2D Albedo,
+        Texture2D Normal,
+        Texture2D Roughness,
+        Texture2D Metallic);
+
+    private readonly record struct IndexedTextureCacheKey(
+        MechWarriorIndexedImage Image,
+        MechWarriorPalette Palette,
+        MechWarriorLuminosityTable LuminosityTable,
+        int IlluminationLevel,
+        bool PreservePalette);
 }
