@@ -24,8 +24,8 @@ public sealed class MissionSkyController
     private const float DefaultAmbientLightEnergy = 0.10f;
     private const float DefaultSunLightEnergy = 0.65f;
     private const float DefaultSkyFillLightEnergy = 0.25f;
-    private const float DefaultSunShadowOpacity = 0.72f;
-    private const float SolarAngularDiameterDegrees = 0.53f;
+    private const float DefaultSunShadowOpacity = 0.90f;
+    private const float SolarAngularDiameterDegrees = 0.25f;
     private const float DefaultCloudCoverage = 0.40f;
     private const float DefaultCloudDensity = 1.00f;
     private const float DefaultCloudHeight = 1.8f;
@@ -304,14 +304,17 @@ public sealed class MissionSkyController
         // only as the camera approaches them. Four cascades preserve cockpit detail while the
         // far cascade covers the battlefield out to roughly twice MW2's authored depth cue.
         m_sunLight.DirectionalShadowMode = DirectionalLight3D.ShadowMode.Parallel4Splits;
-        m_sunLight.DirectionalShadowSplit1 = 0.08f;
-        m_sunLight.DirectionalShadowSplit2 = 0.22f;
-        m_sunLight.DirectionalShadowSplit3 = 0.50f;
+        // Reserve the first cascade for the player and nearby scenery. With an 1,800m+
+        // battlefield range, the previous 8% split spread its texels across roughly 144m,
+        // making the player's external-view shadow look faint and over-softened.
+        m_sunLight.DirectionalShadowSplit1 = 0.025f;
+        m_sunLight.DirectionalShadowSplit2 = 0.12f;
+        m_sunLight.DirectionalShadowSplit3 = 0.42f;
         m_sunLight.DirectionalShadowBlendSplits = true;
         m_sunLight.DirectionalShadowFadeStart = 0.90f;
         SunShadowDistance = Mathf.Clamp(m_profile.DepthCueDistance * 2.0f, 1800.0f, 4000.0f);
-        // A directional light with zero angular size produces razor-edged shadows. The real sun
-        // spans roughly half a degree, giving nearby terrain a restrained physical penumbra.
+        // Keep a restrained penumbra, but use a smaller apparent disk than the physical sun so
+        // nearby mech shadows remain readable over the terrain's high-frequency surface detail.
         m_sunLight.LightAngularDistance = SolarAngularDiameterDegrees;
         m_sunLight.ShadowBlur = 1.0f;
 

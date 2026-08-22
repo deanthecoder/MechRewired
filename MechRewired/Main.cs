@@ -503,7 +503,7 @@ public partial class Main : Node3D
             "add_cvar",
             "sky.shadow.opacity",
             sky.SunShadowOpacity,
-            "Sets sun-shadow opacity from 0 to 1 (default 0.72 for desert bounce light).");
+            "Sets sun-shadow opacity from 0 to 1 (default 0.90 for readable terrain and mech shadows).");
         m_debugConsole.Call(
             "add_cvar",
             "sky.exposure",
