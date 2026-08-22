@@ -32,6 +32,12 @@ public sealed class MissionSkyController
     private const float DefaultFogStartFraction = 0.35f;
     private const float DefaultFogAerialPerspective = 1.0f;
     private const float DefaultFogSunScatter = 0.15f;
+    private const float DefaultSsaoRadius = 1.35f;
+    private const float DefaultSsaoIntensity = 1.35f;
+    private const float DefaultSsaoDetail = 0.35f;
+    // The desert's strong, direct sun otherwise hides SSAO entirely.  This deliberately gives
+    // contact cavities some influence over direct light so scenery and mechs read as grounded.
+    private const float DefaultSsaoDirectLightAffect = 0.70f;
 
     private readonly Node m_sky3D;
     private readonly Node m_skyDome;
@@ -187,6 +193,33 @@ public sealed class MissionSkyController
         set => m_sunLight.ShadowOpacity = Mathf.Clamp(value, 0.0f, 1.0f);
     }
 
+    /// <summary>
+    /// Enables the inexpensive, half-resolution screen-space contact shading used by the
+    /// Forward+ renderer. This can be toggled for visual comparisons without moving the sun.
+    /// </summary>
+    public bool AmbientOcclusionEnabled
+    {
+        get => m_environment.SsaoEnabled;
+        set => m_environment.SsaoEnabled = value;
+    }
+
+    /// <summary>
+    /// Applies a deliberately legible, local SSAO configuration for controlled renderer tests.
+    /// Gameplay settings are restored by <see cref="ResetAmbientOcclusionSettings"/>.
+    /// </summary>
+    public void UseAmbientOcclusionContactTestSettings()
+    {
+        m_environment.SsaoRadius = 1.5f;
+        m_environment.SsaoIntensity = 1.5f;
+        m_environment.SsaoPower = 1.35f;
+        m_environment.SsaoDetail = 0.5f;
+        m_environment.SsaoHorizon = 0.06f;
+        m_environment.SsaoSharpness = 0.98f;
+        m_environment.SsaoLightAffect = 0.85f;
+    }
+
+    public void ResetAmbientOcclusionSettings() => ConfigureAmbientOcclusion();
+
     public float Exposure
     {
         get => m_sky3D.Get("tonemap_exposure").AsSingle();
@@ -284,6 +317,7 @@ public sealed class MissionSkyController
         m_environment.GlowStrength = 1.0f;
         m_environment.GlowBloom = 0.05f;
         m_environment.GlowHdrThreshold = 1.5f;
+        ConfigureAmbientOcclusion();
         m_environment.FogEnabled = true;
         m_environment.FogMode = Godot.Environment.FogModeEnum.Depth;
         m_environment.FogLightColor = m_profile.HorizonColor;
@@ -297,6 +331,20 @@ public sealed class MissionSkyController
         TimeOfDay = m_profile.TimeOfDay;
         m_sky3D.Call("resume");
         ApplyFog();
+    }
+
+    private void ConfigureAmbientOcclusion()
+    {
+        // Godot renders SSAO at half resolution by default. Keep the radius deliberately local,
+        // so it grounds rocks, structures and mech details without dirtying broad desert slopes.
+        m_environment.SsaoEnabled = true;
+        m_environment.SsaoRadius = DefaultSsaoRadius;
+        m_environment.SsaoIntensity = DefaultSsaoIntensity;
+        m_environment.SsaoPower = 1.25f;
+        m_environment.SsaoDetail = DefaultSsaoDetail;
+        m_environment.SsaoHorizon = 0.06f;
+        m_environment.SsaoSharpness = 0.92f;
+        m_environment.SsaoLightAffect = DefaultSsaoDirectLightAffect;
     }
 
     private void ConfigureSunShadows()
