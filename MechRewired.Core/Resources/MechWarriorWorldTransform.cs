@@ -21,4 +21,17 @@ namespace MechRewired.Resources;
 public sealed record MechWarriorWorldTransform(Vector3 Scale, Vector3 RotationDegrees, Vector3 Translation)
 {
     public static MechWarriorWorldTransform Identity { get; } = new(Vector3.One, Vector3.Zero, Vector3.Zero);
+
+    /// <summary>Composes a nested include transform using MW2's additive BWD transform convention.</summary>
+    public static MechWarriorWorldTransform Combine(
+        MechWarriorWorldTransform parent,
+        MechWarriorWorldTransform child)
+    {
+        ArgumentNullException.ThrowIfNull(child);
+        parent ??= Identity;
+        return new MechWarriorWorldTransform(
+            parent.Scale * child.Scale,
+            parent.RotationDegrees + child.RotationDegrees,
+            parent.Translation + child.Translation);
+    }
 }

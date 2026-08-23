@@ -25,6 +25,25 @@ namespace MechRewired.Tests.Resources;
 public sealed class MechWarriorWorldFileTests
 {
     [Test]
+    public void CombineComposesNestedIncludeTransforms()
+    {
+        var parent = new MechWarriorWorldTransform(
+            new Vector3(2.0f, 3.0f, 4.0f),
+            new Vector3(10.0f, 20.0f, 30.0f),
+            new Vector3(100.0f, 200.0f, 300.0f));
+        var child = new MechWarriorWorldTransform(
+            new Vector3(5.0f, 6.0f, 7.0f),
+            new Vector3(1.0f, 2.0f, 3.0f),
+            new Vector3(4.0f, 5.0f, 6.0f));
+
+        var combined = MechWarriorWorldTransform.Combine(parent, child);
+
+        Assert.That(combined.Scale, Is.EqualTo(new Vector3(10.0f, 18.0f, 28.0f)));
+        Assert.That(combined.RotationDegrees, Is.EqualTo(new Vector3(11.0f, 22.0f, 33.0f)));
+        Assert.That(combined.Translation, Is.EqualTo(new Vector3(104.0f, 205.0f, 306.0f)));
+    }
+
+    [Test]
     public void LoadAssociatesEachIncludeWithTheCurrentBlockTransform()
     {
         var data = WriteWorld(writer =>

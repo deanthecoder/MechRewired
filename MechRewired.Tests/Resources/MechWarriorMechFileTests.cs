@@ -84,6 +84,30 @@ public sealed class MechWarriorMechFileTests
         Assert.That(mech.AmmoBins, Is.EqualTo(new[] { new MechAmmoBin(10001, 1) }));
     }
 
+    [Test]
+    public void LoadDecodesMultipleAmmoBinsForOneWeaponInstance()
+    {
+        var data = CreateMechData(3);
+        BitConverter.GetBytes(75).CopyTo(data, 0);
+        BitConverter.GetBytes(5).CopyTo(data, 4);
+        BitConverter.GetBytes(1).CopyTo(data, 0x10);
+        BitConverter.GetBytes(2).CopyTo(data, 0x14);
+        BitConverter.GetBytes((ushort)1).CopyTo(data, 0x158);
+        BitConverter.GetBytes((ushort)1).CopyTo(data, 0x0e0 + 12);
+        BitConverter.GetBytes((uint)10001).CopyTo(data, 0x160);
+        BitConverter.GetBytes((uint)1).CopyTo(data, 0x164);
+        BitConverter.GetBytes((uint)10002).CopyTo(data, 0x168);
+        BitConverter.GetBytes((uint)1).CopyTo(data, 0x16c);
+
+        var mech = MechWarriorMechFile.Load(data);
+
+        Assert.That(mech.AmmoBins, Is.EqualTo(new[]
+        {
+            new MechAmmoBin(10001, 1),
+            new MechAmmoBin(10002, 1)
+        }));
+    }
+
     private static byte[] CreateMechData(int equipmentRecords = 0)
     {
         var data = new byte[0x158 + equipmentRecords * 8];

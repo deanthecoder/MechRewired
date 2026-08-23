@@ -41,7 +41,10 @@ public static class DerivedTerrainSurfaceBuilder
 
     private const string DerivedResourcePath = "POLY/T_DERIVED.WTB";
 
-    public static DerivedTerrainSurface Build(IEnumerable<DebugTriangle> sceneTriangles)
+    public static DerivedTerrainSurface Build(
+        IEnumerable<DebugTriangle> sceneTriangles,
+        bool useMacroRelief = true,
+        bool sealToImplicitGround = true)
     {
         ArgumentNullException.ThrowIfNull(sceneTriangles);
         var source = sceneTriangles
@@ -51,30 +54,39 @@ public static class DerivedTerrainSurfaceBuilder
                 ToNumerics(triangle.B),
                 ToNumerics(triangle.C)))
             .ToArray();
+        Func<NumericsVector3, NumericsVector3> displacement = useMacroRelief
+            ? ApplyMacroRelief
+            : null;
         var render = TerrainMeshDeriver.Build(
             source,
             RenderSubdivisions,
             SmoothingAngleDegrees,
             SmoothingStrength,
-            ApplyMacroRelief);
+            displacement);
         var collision = TerrainMeshDeriver.Build(
             source,
             CollisionSubdivisions,
             SmoothingAngleDegrees,
             SmoothingStrength,
-            ApplyMacroRelief);
-        render = TerrainMeshDeriver.SnapLowExteriorVertices(
-            render,
-            ImplicitGroundHeight,
-            MaximumBaseSnapHeightMetres,
-            out var renderBaseSnapCount);
-        collision = TerrainMeshDeriver.SnapLowExteriorVertices(
-            collision,
-            ImplicitGroundHeight,
-            MaximumBaseSnapHeightMetres,
-            out _);
-        var renderSkirts = TerrainMeshBoundarySealer.BuildSkirts(render, ImplicitGroundHeight);
-        var collisionSkirts = TerrainMeshBoundarySealer.BuildSkirts(collision, ImplicitGroundHeight);
+            displacement);
+        var renderBaseSnapCount = 0;
+        IReadOnlyList<TerrainSourceTriangle> renderSkirts = Array.Empty<TerrainSourceTriangle>();
+        IReadOnlyList<TerrainSourceTriangle> collisionSkirts = Array.Empty<TerrainSourceTriangle>();
+        if (sealToImplicitGround)
+        {
+            render = TerrainMeshDeriver.SnapLowExteriorVertices(
+                render,
+                ImplicitGroundHeight,
+                MaximumBaseSnapHeightMetres,
+                out renderBaseSnapCount);
+            collision = TerrainMeshDeriver.SnapLowExteriorVertices(
+                collision,
+                ImplicitGroundHeight,
+                MaximumBaseSnapHeightMetres,
+                out _);
+            renderSkirts = TerrainMeshBoundarySealer.BuildSkirts(render, ImplicitGroundHeight);
+            collisionSkirts = TerrainMeshBoundarySealer.BuildSkirts(collision, ImplicitGroundHeight);
+        }
 
         return new DerivedTerrainSurface(
             BuildGodotMesh(render, renderSkirts),

@@ -164,7 +164,7 @@ public sealed class MechWarriorLevel
                 LoadSource(
                     archive,
                     archive.GetEntry("BWD", include.ResourceIndex),
-                    include.Transform,
+                    MechWarriorWorldTransform.Combine(parentTransform, include.Transform),
                     sources,
                     objects,
                     actors,

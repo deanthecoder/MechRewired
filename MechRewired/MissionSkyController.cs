@@ -298,14 +298,23 @@ public sealed class MissionSkyController
         m_sky3D.Set("sky_enabled", true);
         m_sky3D.Set("clouds_enabled", true);
         m_sky3D.Set("lights_enabled", true);
-        // Preserve the established remaster balance: direct sun 65%, broad sky fill 25%,
-        // neutral ambient 10%.  Sky3D expresses the former fill as a sky-contribution ratio.
-        m_sky3D.Set("sky_contribution", DefaultSkyFillLightEnergy);
-        m_sky3D.Set("ambient_energy", DefaultAmbientLightEnergy);
-        m_sky3D.Set("sun_energy", DefaultSunLightEnergy);
+        // Warm-palette rocky worlds need more fill than the bright desert. Their source palettes
+        // are deliberately dark, and Sky3D applies their tint during scattering as well as ambient
+        // lighting. Retain the authored ambient level as the input while compensating for that
+        // double attenuation in the replacement renderer.
+        var usesWarmAtmosphere = m_profile.UsesWarmPaletteAtmosphere;
+        var ambientEnergy = DefaultAmbientLightEnergy +
+                            m_profile.AuthoredAmbientLevel * (usesWarmAtmosphere ? 0.30f : 0.10f);
+        m_sky3D.Set(
+            "sky_contribution",
+            usesWarmAtmosphere ? 0.38f : DefaultSkyFillLightEnergy);
+        m_sky3D.Set("ambient_energy", ambientEnergy);
+        m_sky3D.Set(
+            "sun_energy",
+            usesWarmAtmosphere ? 0.78f : DefaultSunLightEnergy);
         ConfigureSunShadows();
         m_sky3D.Set("cloud_intensity", DefaultCloudDensity);
-        m_sky3D.Set("tonemap_exposure", 1.0f);
+        m_sky3D.Set("tonemap_exposure", usesWarmAtmosphere ? 1.12f : 1.0f);
         m_sky3D.Set("auto_exposure", false);
         // Sky3D's optional full-screen fog shader paints the empty depth behind this game's
         // sparse terrain black on Metal.  Retain Sky3D for the sky, clouds and celestial light,
@@ -317,20 +326,29 @@ public sealed class MissionSkyController
         // sky on Pyre Light).  Preserve their hue but lift their value before handing them to
         // the physically-based shader; the original values remain the source of the art
         // direction rather than becoming a hard-coded level colour.
-        var atmosphericTint = m_profile.SkyTopColor.Lerp(Colors.White, 0.70f);
-        var horizonTint = m_profile.HorizonColor.Lerp(Colors.White, 0.60f);
+        // Palettes with a strongly warm horizon (for example Colmar's red/orange sky) need that
+        // authored gradient to dominate physical Rayleigh blue. Cooler desert palettes retain the
+        // established lifted tint. The sky asset stays modern, but its art direction remains data-driven.
+        var atmosphericTint = m_profile.UsesWarmPaletteAtmosphere
+            ? m_profile.SkyTopColor.Lerp(m_profile.HorizonColor, 0.55f).Lerp(Colors.White, 0.42f)
+            : m_profile.SkyTopColor.Lerp(Colors.White, 0.70f);
+        var horizonTint = m_profile.HorizonColor.Lerp(
+            Colors.White,
+            m_profile.UsesWarmPaletteAtmosphere ? 0.42f : 0.60f);
         m_skyDome.Set("atm_day_tint", atmosphericTint);
         m_skyDome.Set("atm_horizon_light_tint", horizonTint);
         m_skyDome.Set("ground_color", m_profile.HorizonColor);
         m_skyDome.Set("sun_light_color", m_profile.SunColor);
         m_skyDome.Set("sun_horizon_light_color", m_profile.HorizonColor.Lerp(m_profile.SunColor, 0.45f));
         m_skyDome.Set("atm_sun_mie_tint", m_profile.HorizonColor.Lerp(Colors.White, 0.35f));
-        m_skyDome.Set("atm_darkness", 0.38f);
-        m_skyDome.Set("atm_thickness", 0.9f);
-        m_skyDome.Set("atm_mie", 0.055f);
-        m_skyDome.Set("atm_turbidity", 0.0015f);
-        m_skyDome.Set("cirrus_visible", true);
-        m_skyDome.Set("cirrus_coverage", DefaultCloudCoverage);
+        m_skyDome.Set("atm_darkness", m_profile.UsesWarmPaletteAtmosphere ? 0.16f : 0.38f);
+        m_skyDome.Set("atm_thickness", m_profile.UsesWarmPaletteAtmosphere ? 0.62f : 0.9f);
+        m_skyDome.Set("atm_mie", m_profile.UsesWarmPaletteAtmosphere ? 0.11f : 0.055f);
+        m_skyDome.Set("atm_turbidity", m_profile.UsesWarmPaletteAtmosphere ? 0.0035f : 0.0015f);
+        m_skyDome.Set("cirrus_visible", !m_profile.UsesWarmPaletteAtmosphere);
+        m_skyDome.Set(
+            "cirrus_coverage",
+            m_profile.UsesWarmPaletteAtmosphere ? 0.0f : DefaultCloudCoverage);
         m_skyDome.Set("cirrus_intensity", DefaultCloudDensity);
         m_skyDome.Set("cirrus_size", DefaultCloudHeight);
         m_skyDome.Set("cumulus_visible", false);
@@ -436,6 +454,14 @@ public sealed record MissionSkyProfile(
     Color HorizonColor,
     Color SunColor)
 {
+    /// <summary>
+    /// Whether the original palette describes a red/orange atmospheric gradient that should
+    /// outweigh the replacement sky's natural blue scattering.
+    /// </summary>
+    public bool UsesWarmPaletteAtmosphere =>
+        HorizonColor.R > HorizonColor.G * 1.45f &&
+        HorizonColor.R > HorizonColor.B * 2.0f;
+
     public static MissionSkyProfile FromWorld(
         MechWarriorWorldFile world,
         MechWarriorPalette palette,

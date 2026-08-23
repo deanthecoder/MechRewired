@@ -13,7 +13,7 @@ using Godot;
 namespace MechRewired;
 
 /// <summary>
-/// Builds the shared desert-biome PBR material used by derived MW2 terrain and its implicit fill.
+/// Builds the shared PBR material used by derived MW2 terrain and its implicit fill.
 /// </summary>
 /// <remarks>
 /// World-space triplanar projection avoids inventing UVs for the original terrain. Pocketed sand
@@ -82,13 +82,23 @@ public static class TerrainSurfaceMaterial
     /// <summary>
     /// Creates one terrain material using the remastered biome colour unless an explicit tint is supplied.
     /// </summary>
-    public static ShaderMaterial Create(Color? albedoTint = null, bool isImplicitGround = false)
+    public static ShaderMaterial Create(
+        Color? albedoTint = null,
+        bool isImplicitGround = false,
+        bool useDesertDetails = true)
     {
         var material = new ShaderMaterial
         {
-            Shader = new Shader { Code = ShaderCode }
+            Shader = new Shader { Code = useDesertDetails ? ShaderCode : RockyPlainsShaderCode }
         };
         material.SetShaderParameter("albedo_tint", albedoTint ?? DesertBaseColor);
+        if (!useDesertDetails)
+        {
+            material.SetShaderParameter("macro_variation_strength", 0.10f);
+            material.SetShaderParameter("strata_strength", 0.07f);
+            return material;
+        }
+
         material.SetShaderParameter("sand_color", GD.Load<Texture2D>(SandColorPath));
         material.SetShaderParameter("sand_normal", GD.Load<Texture2D>(SandNormalPath));
         material.SetShaderParameter("sand_roughness", GD.Load<Texture2D>(SandRoughnessPath));
@@ -117,6 +127,7 @@ public static class TerrainSurfaceMaterial
         material.SetShaderParameter("stone_patch_coverage", StonePatchCoverage);
         material.SetShaderParameter("stone_texture_scale", StoneTextureScale);
         material.SetShaderParameter("parallax_depth_metres", ParallaxDepthMetres);
+        material.SetShaderParameter("macro_variation_strength", 0.07f);
         material.SetShaderParameter("debug_wireframe", 0.0f);
         material.SetShaderParameter("slope_blend_start", ToSteepness(RockSlopeStartDegrees));
         material.SetShaderParameter("slope_blend_end", ToSteepness(RockSlopeEndDegrees));
@@ -128,18 +139,75 @@ public static class TerrainSurfaceMaterial
     /// </summary>
     public static ShaderMaterial CreateWireframe(
         Color? albedoTint = null,
-        bool isImplicitGround = false)
+        bool isImplicitGround = false,
+        bool useDesertDetails = true)
     {
-        var material = Create(albedoTint, isImplicitGround);
-        material.Shader.Code = ShaderCode.Replace(
+        var material = Create(albedoTint, isImplicitGround, useDesertDetails);
+        material.Shader.Code = material.Shader.Code.Replace(
             "render_mode cull_back;",
             "render_mode cull_back, wireframe, unshaded;");
-        material.SetShaderParameter("debug_wireframe", 1.0f);
+        if (useDesertDetails)
+        {
+            material.SetShaderParameter("debug_wireframe", 1.0f);
+        }
+
         return material;
     }
 
     public static float ToSteepness(float slopeDegrees) =>
         1.0f - Mathf.Cos(Mathf.DegToRad(slopeDegrees));
+
+    private const string RockyPlainsShaderCode =
+        """
+        shader_type spatial;
+        render_mode cull_back;
+
+        uniform vec4 albedo_tint : source_color = vec4(1.0);
+        uniform float macro_variation_strength = 0.10;
+        uniform float strata_strength = 0.07;
+
+        varying vec3 world_position;
+        varying vec3 world_geometric_normal;
+
+        float hash(vec2 point) {
+            return fract(sin(dot(point, vec2(127.1, 311.7))) * 43758.5453);
+        }
+
+        float value_noise(vec2 point) {
+            vec2 cell = floor(point);
+            vec2 local = fract(point);
+            local = local * local * (3.0 - 2.0 * local);
+            return mix(
+                mix(hash(cell), hash(cell + vec2(1.0, 0.0)), local.x),
+                mix(hash(cell + vec2(0.0, 1.0)), hash(cell + vec2(1.0)), local.y),
+                local.y);
+        }
+
+        float layered_noise(vec2 point) {
+            return value_noise(point) * 0.62 +
+                value_noise(point * 2.07 + vec2(17.3, -9.1)) * 0.27 +
+                value_noise(point * 4.19 + vec2(-6.7, 23.4)) * 0.11;
+        }
+
+        void vertex() {
+            world_position = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+            world_geometric_normal = normalize(MODEL_NORMAL_MATRIX * NORMAL);
+        }
+
+        void fragment() {
+            float broad = layered_noise(world_position.xz * 0.008);
+            float medium = layered_noise(world_position.xz * 0.035 + vec2(41.0, -23.0));
+            float slope = 1.0 - clamp(world_geometric_normal.y, 0.0, 1.0);
+            float strata = 0.5 + 0.5 * sin(world_position.y * 0.42 + broad * 5.0);
+            float variation = (broad - 0.5) * 2.0 * macro_variation_strength;
+            variation += (medium - 0.5) * 0.035;
+            variation -= smoothstep(0.70, 0.96, strata) * slope * strata_strength;
+
+            ALBEDO = albedo_tint.rgb * (1.0 + variation);
+            ROUGHNESS = 0.94;
+            METALLIC = 0.0;
+        }
+        """;
 
     private const string ShaderCode =
         """

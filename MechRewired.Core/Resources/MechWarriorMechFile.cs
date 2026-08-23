@@ -181,6 +181,11 @@ public sealed class MechWarriorMechFile
         }
 
         var ammoBins = new List<MechAmmoBin>();
+        var weaponInstanceIds = Enumerable.Range(0, weaponCount)
+            .Select(index => BinaryPrimitives.ReadUInt16LittleEndian(
+                data.AsSpan(BaseFileSize + index * EquipmentRecordSize, 2)))
+            .ToHashSet();
+        var ammoIds = new HashSet<uint>();
         for (var index = 0; index < ammoBinCount; index++)
         {
             var recordOffset = BaseFileSize + (weaponCount + index) * EquipmentRecordSize;
@@ -192,12 +197,17 @@ public sealed class MechWarriorMechFile
                     $"The MEK ammunition bin {index} has an unsupported weapon instance ID {associatedWeaponId}.");
             }
 
-            var expectedAmmoId = 10_000u + associatedWeaponId;
-            if (ammoId != expectedAmmoId)
+            if (ammoId < 10_000 || !ammoIds.Add(ammoId))
             {
                 throw new InvalidDataException(
-                    $"The MEK ammunition bin {index} has ID {ammoId}, expected {expectedAmmoId} for " +
-                    $"weapon instance {associatedWeaponId}.");
+                    $"The MEK ammunition bin {index} has invalid or duplicate ID {ammoId}.");
+            }
+
+            if (!weaponInstanceIds.Contains((ushort)associatedWeaponId))
+            {
+                throw new InvalidDataException(
+                    $"The MEK ammunition bin {index} refers to missing weapon instance " +
+                    $"{associatedWeaponId}.");
             }
 
             ammoBins.Add(new MechAmmoBin(ammoId, (ushort)associatedWeaponId));

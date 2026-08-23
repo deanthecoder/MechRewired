@@ -32,6 +32,10 @@ public partial class Main : Node3D
     private const byte MaximumTexturedMechMaterialIndex = 63;
     private const byte CamoMechMaterialIndex = 0;
     private const byte FlaggedCamoMechMaterialIndex = 0x70;
+    private const byte WolfSmallInsigniaMaterialIndex = 0x14;
+    private const byte JadeFalconSmallInsigniaMaterialIndex = 0x15;
+    private const byte WolfLargeInsigniaMaterialIndex = 0x3C;
+    private const byte JadeFalconLargeInsigniaMaterialIndex = 0xF0;
     private const float DefaultFogDistance = 1200.0f;
     private const float MinimumFogDistance = 300.0f;
     private const float MaximumFogDistance = 5000.0f;
@@ -39,7 +43,7 @@ public partial class Main : Node3D
     private const string WolfScenarioPath = "BWD/YELLSCN1.BWD";
     private const string WolfPlayerMechPath = "MEK/MDG00STD.MEK";
     private const string JadeFalconScenarioPath = "BWD/PINKSCN1.BWD";
-    private const string JadeFalconPlayerMechPath = "MEK/STM00STD.MEK";
+    private const string JadeFalconPlayerMechPath = "MEK/STM01STD.MEK";
     private static readonly IReadOnlyDictionary<string, string> DamageShapePrefixes =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -989,7 +993,21 @@ public partial class Main : Node3D
 
             level = MechWarriorLevel.Load(
                 archive,
-                missionResources.Level.Entry.Path);
+                missionResources.Level.Entry.Path,
+                include =>
+                {
+                    var includeEntry = archive.GetEntry("BWD", include.ResourceIndex);
+                    var includeWorld = MechWarriorWorldFile.Load(archive.ReadEntry(includeEntry));
+                    var isAnimatedDropShip = WorldHasTaskArgument(includeWorld, "drop");
+                    if (isAnimatedDropShip)
+                    {
+                        GD.Print(
+                            $"MechRewired: reserved {includeEntry.Path} for the animated DropShip " +
+                            "set piece instead of rendering a duplicate static world copy.");
+                    }
+
+                    return !isAnimatedDropShip;
+                });
             foreach (var source in level.Sources)
             {
                 GD.Print($"MechRewired: loaded {source.Entry.Path} ({source.ObjectCount} objects).");
@@ -1138,14 +1156,25 @@ public partial class Main : Node3D
             Name = "MissionWorld"
         };
         AddChild(levelRoot);
-        var terrainMaterial = TerrainSurfaceMaterial.Create();
-        var terrainWireframeMaterial = TerrainSurfaceMaterial.CreateWireframe();
+        // Mountain worlds use large authored landforms rather than the tiled desert terrain used
+        // by Pyre Light. Their names come from the original BWD hierarchy, so this remains driven
+        // by mission data instead of the selected clan.
+        var useDesertTerrain = !level.Sources.Any(source =>
+            Path.GetFileNameWithoutExtension(source.Entry.Name)
+                .Contains("MTN", StringComparison.OrdinalIgnoreCase));
+        var playerUsesJadeFalconDecals = string.Equals(
+            missionResources.MissionPrefix,
+            "PINK",
+            StringComparison.OrdinalIgnoreCase);
+        var terrainMaterial = useDesertTerrain ? TerrainSurfaceMaterial.Create() : null;
+        var terrainWireframeMaterial = useDesertTerrain ? TerrainSurfaceMaterial.CreateWireframe() : null;
         // MW2's material selectors are context-sensitive. The first playable mech set uses the
         // low material-bank range; scenery selectors may instead be palette/visibility flags.
         // Keep indexed albedo lookup scoped to the verified mech range below.
         var materialMapEntry = archive.GetEntry("BWD/MW2_MAP1.BWD");
         var materialMap = MechWarriorMaterialMap.Load(archive.ReadEntry(materialMapEntry), 1);
         var materialImages = new Dictionary<byte, MechWarriorIndexedImage>();
+        var playerMaterialImages = new Dictionary<byte, MechWarriorIndexedImage>();
         TerrainDiagnostics terrainDiagnostics = null;
 #if DEBUG
         terrainDiagnostics = new TerrainDiagnostics
@@ -1230,6 +1259,12 @@ public partial class Main : Node3D
             IReadOnlyList<SceneryWallTriangle>>();
         var renderedBoundsByObject = new Dictionary<(string SourcePath, int ObjectId), Aabb>();
         var authoredColorTasks = LoadAuthoredColorTasks(archive, level.Sources, palette);
+        var airborneSetPieceSources = level.Sources
+            .Where(source => WorldHasTaskArgument(
+                MechWarriorWorldFile.Load(archive.ReadEntry(source.Entry)),
+                "recon"))
+            .Select(source => source.Entry.Path)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var renderedObjects = level.StaticObjects
             .Concat(level.Actors.SelectMany(actor => actor.Components))
             .Concat(level.Actors.SelectMany(actor => actor.DestroyedComponents));
@@ -1382,6 +1417,7 @@ public partial class Main : Node3D
             if (battlefieldActor != null &&
                 battlefieldActor.IsDamageable &&
                 !isDestroyedRepresentation &&
+                !airborneSetPieceSources.Contains(levelObject.SourceEntry.Path) &&
                 settledActors.Add(battlefieldActor))
             {
                 pendingActorSettlements.Add((
@@ -1404,15 +1440,16 @@ public partial class Main : Node3D
                         ? GeometryInstance3D.ShadowCastingSetting.On
                         : GeometryInstance3D.ShadowCastingSetting.DoubleSided,
                     // Authored terrain meshes are control geometry only. A single welded and
-                    // smoothed derivative is created after all source objects have been decoded.
-                    Visible = levelObject.Kind != MechWarriorLevelObjectKind.Terrain
+                    // smoothed derivative is created for desert worlds. Mountain worlds retain
+                    // their authored landform geometry while using a restrained rocky material.
+                    Visible = levelObject.Kind != MechWarriorLevelObjectKind.Terrain || !useDesertTerrain
                 };
                 objectRoot.AddChild(solidInstance);
-                if (levelObject.Kind != MechWarriorLevelObjectKind.Terrain)
+                if (solidInstance.Visible)
                 {
                     solidInstance.AddToGroup(DebugCamera.SolidMeshGroup);
                 }
-                if (levelObject.Kind != MechWarriorLevelObjectKind.Terrain)
+                if (solidInstance.Visible)
                 {
                     var wireframeInstance = new MeshInstance3D
                     {
@@ -1498,12 +1535,48 @@ public partial class Main : Node3D
             $"{renderedActorComponentCount} active actor components, {renderedDebrisCount} ground-settled debris objects, " +
             $"{meshCache.Count} unique models; luminosity levels {GeneralIlluminationLevel} terrain / " +
             $"{ObjectIlluminationLevel} objects).");
-        var derivedTerrain = AddDerivedTerrain(
-            levelRoot,
-            debugTriangles,
-            terrainMaterial,
-            terrainWireframeMaterial,
-            terrainDiagnostics);
+        IReadOnlyList<DebugTriangle> groundCoverageTriangles;
+        if (useDesertTerrain)
+        {
+            var derivedTerrain = AddDerivedTerrain(
+                levelRoot,
+                debugTriangles,
+                terrainMaterial,
+                terrainWireframeMaterial,
+                terrainDiagnostics,
+                useDesertEnhancements: true);
+            groundCoverageTriangles = derivedTerrain.CollisionTriangles;
+        }
+        else
+        {
+            var rockyGroundColor = CalculateRepresentativeGroundColor(
+                groundPaletteWeights,
+                palette,
+                sourcePaletteIndex => sourcePaletteIndex,
+                "raw visible rocky-plains terrain",
+                out _);
+            var derivedTerrain = AddDerivedTerrain(
+                levelRoot,
+                debugTriangles,
+                TerrainSurfaceMaterial.Create(
+                    rockyGroundColor,
+                    useDesertDetails: false),
+                TerrainSurfaceMaterial.CreateWireframe(
+                    rockyGroundColor,
+                    useDesertDetails: false),
+                terrainDiagnostics,
+                useDesertEnhancements: false);
+            groundCoverageTriangles = derivedTerrain.CollisionTriangles;
+            GD.Print(
+                "MechRewired: extracted only the original mountain landforms' upward surfaces; " +
+                "desert macro relief and boundary walls are disabled.");
+        }
+
+        foreach (var sourceTerrainRoot in sourceTerrainRoots)
+        {
+            sourceTerrainRoot.QueueFree();
+        }
+
         AddImplicitGround(
             levelRoot,
             worldBounds,
@@ -1511,34 +1584,37 @@ public partial class Main : Node3D
             palette,
             luminosityTable,
             debugTriangles,
-            derivedTerrain.CollisionTriangles,
-            terrainDiagnostics);
+            groundCoverageTriangles,
+            terrainDiagnostics,
+            useDesertTerrain);
         var terrainSurface = new TerrainSurfaceIndex(debugTriangles);
         GD.Print(
             $"MechRewired: spatially indexed {terrainSurface.TriangleCount:N0} terrain triangles " +
             $"into {terrainSurface.CellCount:N0} height-query cells " +
             $"({terrainSurface.AverageCellOccupancy:F1} average, " +
             $"{terrainSurface.MaximumCellOccupancy:N0} maximum candidates per cell).");
-        var terrainRocks = TerrainRockScatter.Create(
-            terrainSurface,
-            GetTerrainBounds(debugTriangles));
-        levelRoot.AddChild(terrainRocks);
-        foreach (var sourceTerrainRoot in sourceTerrainRoots)
+        TerrainRockScatter terrainRocks = null;
+        if (useDesertTerrain)
         {
-            sourceTerrainRoot.QueueFree();
+            terrainRocks = TerrainRockScatter.Create(
+                terrainSurface,
+                GetTerrainBounds(debugTriangles));
+            levelRoot.AddChild(terrainRocks);
         }
         foreach (var (actor, rootRepresentation, models) in pendingActorSettlements)
         {
             SettleActorOnTerrain(actor, rootRepresentation, models, terrainSurface, debugTriangles);
         }
-        GD.Print(
-            $"MechRewired: applied desert-biome triplanar pocketed sand, lowland dunes, hardpan, " +
-            $"scattered rock and sandstone detail to the derived surface from {level.TerrainObjects.Count} " +
-            $"terrain objects and the implicit ground (dune coverage {TerrainSurfaceMaterial.DunePatchCoverage:F2}; " +
-            $"hardpan coverage {TerrainSurfaceMaterial.HardpanPatchCoverage:F2}; " +
-            $"stone coverage {TerrainSurfaceMaterial.StonePatchCoverage:F2}; " +
-            $"parallax {TerrainSurfaceMaterial.ParallaxDepthMetres:F2}m; " +
-            $"roughness {TerrainSurfaceMaterial.Roughness:F2}).");
+        GD.Print(useDesertTerrain
+            ? $"MechRewired: applied desert-biome triplanar pocketed sand, lowland dunes, hardpan, " +
+              $"scattered rock and sandstone detail to the derived surface from {level.TerrainObjects.Count} " +
+              $"terrain objects and the implicit ground (dune coverage {TerrainSurfaceMaterial.DunePatchCoverage:F2}; " +
+              $"hardpan coverage {TerrainSurfaceMaterial.HardpanPatchCoverage:F2}; " +
+              $"stone coverage {TerrainSurfaceMaterial.StonePatchCoverage:F2}; " +
+              $"parallax {TerrainSurfaceMaterial.ParallaxDepthMetres:F2}m; " +
+              $"roughness {TerrainSurfaceMaterial.Roughness:F2})."
+            : "MechRewired: applied the original mountain-world palette to authored terrain and " +
+              "a restrained rocky implicit ground; desert dunes, scatter rocks and sand layers are disabled.");
 #if DEBUG
         GD.Print(
             $"MechRewired: terrain diagnostics registered {terrainDiagnostics.RegisteredMeshCount} " +
@@ -1635,8 +1711,9 @@ public partial class Main : Node3D
                 archive,
                 materialMapEntry,
                 materialMap,
-                materialImages,
-                model.Polygons.Select(polygon => polygon.MaterialIndex));
+                playerMaterialImages,
+                model.Polygons.Select(polygon => polygon.MaterialIndex),
+                playerUsesJadeFalconDecals);
             var isTorsoPart = playerTorsoObjectId != 0 &&
                               IsDescendantOf(chassisObject.Id, playerTorsoObjectId, playerObjectsById);
             var partPosition = MechWarriorCoordinateSystem.ToGodotPosition(
@@ -1651,7 +1728,7 @@ public partial class Main : Node3D
                 palette,
                 luminosityTable,
                 GeneralIlluminationLevel,
-                materialImages,
+                playerMaterialImages,
                 preserveTexturePalette: isDecalModel);
             if (isDecalModel)
             {
@@ -1725,7 +1802,7 @@ public partial class Main : Node3D
             BuildWeaponMounts(playerChassis, playerObjectsById, playerTorsoObjectId),
             terrainSurface,
             () => GetSceneryObstacles(staticSceneryObstacles, battlefieldActors));
-        terrainRocks.ConfigureObserver(playerMech);
+        terrainRocks?.ConfigureObserver(playerMech);
 #if DEBUG
         RegisterDebugConsoleCockpit(playerMech.Cockpit);
         RegisterDebugConsoleSky(
@@ -1743,7 +1820,7 @@ public partial class Main : Node3D
             playerMission.Fail);
         AddChild(playerDeathSequence);
         battlefieldEffects.ConfigureObserver(playerMech);
-        if (missionSky.EnableLocalizedVolumetricFog())
+        if (useDesertTerrain && missionSky.EnableLocalizedVolumetricFog())
         {
             var groundSand = new GroundSandFog(playerMech, terrainSurface)
             {
@@ -1758,7 +1835,10 @@ public partial class Main : Node3D
             RegisterDebugConsoleGroundSand(groundSand);
 #endif
         }
-        playerMech.FootfallLanded += battlefieldEffects.SpawnFootfallDust;
+        if (useDesertTerrain)
+        {
+            playerMech.FootfallLanded += battlefieldEffects.SpawnFootfallDust;
+        }
         foreach (var battlefieldActor in battlefieldActors)
         {
             battlefieldActor.ConfigureEffectPersistence(playerMech);
@@ -1772,6 +1852,7 @@ public partial class Main : Node3D
             materialMap,
             materialImages,
             missionGamePieces,
+            !playerUsesJadeFalconDecals,
             playerMech,
             playerMechSounds.WeaponFireSounds,
             battlefieldEffects,
@@ -1917,6 +1998,7 @@ public partial class Main : Node3D
         MechWarriorMaterialMap materialMap,
         Dictionary<byte, MechWarriorIndexedImage> materialImages,
         IReadOnlyList<MechWarriorMissionGamePiece> missionGamePieces,
+        bool useJadeFalconDecals,
         PlayerMech playerMech,
         IReadOnlyDictionary<string, AudioStreamWav> weaponSounds,
         BattlefieldEffects battlefieldEffects,
@@ -1985,7 +2067,8 @@ public partial class Main : Node3D
                     materialMapEntry,
                     materialMap,
                     materialImages,
-                    model.Polygons.Select(polygon => polygon.MaterialIndex));
+                    model.Polygons.Select(polygon => polygon.MaterialIndex),
+                    useJadeFalconDecals);
                 var mesh = MechWarriorModelMeshBuilder.Build(
                     model,
                     palette,
@@ -2125,12 +2208,16 @@ public partial class Main : Node3D
         MechWarriorProjectEntry materialMapEntry,
         MechWarriorMaterialMap materialMap,
         Dictionary<byte, MechWarriorIndexedImage> materialImages,
-        IEnumerable<byte> materialIndices)
+        IEnumerable<byte> materialIndices,
+        bool useJadeFalconDecal = false)
     {
         foreach (var materialIndex in materialIndices.Distinct())
         {
-            var textureMaterialIndex = ResolveMechTextureMaterialIndex(materialIndex);
-            if (textureMaterialIndex > MaximumTexturedMechMaterialIndex ||
+            var textureMaterialIndex = ResolveMechTextureMaterialIndex(
+                materialIndex,
+                useJadeFalconDecal);
+            if ((textureMaterialIndex > MaximumTexturedMechMaterialIndex &&
+                 textureMaterialIndex != JadeFalconLargeInsigniaMaterialIndex) ||
                 materialImages.ContainsKey(materialIndex) ||
                 !materialMap.Images.TryGetValue(textureMaterialIndex, out var materialImage))
             {
@@ -2147,10 +2234,26 @@ public partial class Main : Node3D
 
     // Timber Wolf arm barrels use 0x70 for camouflaged housing sides; their separate end caps retain
     // material 15 (V1DGNHOL), which supplies the original twin gun openings.
-    private static byte ResolveMechTextureMaterialIndex(byte materialIndex) =>
-        materialIndex == FlaggedCamoMechMaterialIndex
-            ? CamoMechMaterialIndex
-            : materialIndex;
+    private static byte ResolveMechTextureMaterialIndex(
+        byte materialIndex,
+        bool useJadeFalconDecal)
+    {
+        if (materialIndex == FlaggedCamoMechMaterialIndex)
+        {
+            return CamoMechMaterialIndex;
+        }
+
+        // MW2_MAP1 provides small and large clan-insignia pairs. Chassis WTBs consistently author
+        // the small Wolf slot and large Jade Falcon slot, so resolve both pairs for the active side.
+        return materialIndex switch
+        {
+            WolfSmallInsigniaMaterialIndex when useJadeFalconDecal => JadeFalconSmallInsigniaMaterialIndex,
+            JadeFalconSmallInsigniaMaterialIndex when !useJadeFalconDecal => WolfSmallInsigniaMaterialIndex,
+            WolfLargeInsigniaMaterialIndex when useJadeFalconDecal => JadeFalconLargeInsigniaMaterialIndex,
+            JadeFalconLargeInsigniaMaterialIndex when !useJadeFalconDecal => WolfLargeInsigniaMaterialIndex,
+            _ => materialIndex
+        };
+    }
 
     private static IReadOnlyList<MechWeaponMountDefinition> BuildWeaponMounts(
         MechWarriorMechChassis chassis,
@@ -2216,9 +2319,7 @@ public partial class Main : Node3D
         {
             var setPieceEntry = archive.GetEntry("BWD", include.ResourceIndex);
             var setPieceWorld = MechWarriorWorldFile.Load(archive.ReadEntry(setPieceEntry));
-            if (!setPieceWorld.Tasks.Any(task =>
-                    task.Command.Split([';', ','], StringSplitOptions.TrimEntries)
-                        .Any(argument => argument.Equals("drop", StringComparison.OrdinalIgnoreCase))))
+            if (!WorldHasTaskArgument(setPieceWorld, "drop"))
             {
                 continue;
             }
@@ -2332,6 +2433,11 @@ public partial class Main : Node3D
         GD.Print($"MechRewired: staged {dropShips.Count} map-authored dropship set pieces.");
         return dropShips.AsReadOnly();
     }
+
+    private static bool WorldHasTaskArgument(MechWarriorWorldFile world, string argument) =>
+        world.Tasks.Any(task =>
+            task.Command.Split([';', ','], StringSplitOptions.TrimEntries)
+                .Any(candidate => candidate.Equals(argument, StringComparison.OrdinalIgnoreCase)));
 
     private static void MakeMeshDoubleSided(ArrayMesh mesh)
     {
@@ -2908,14 +3014,22 @@ public partial class Main : Node3D
         MechWarriorLuminosityTable luminosityTable,
         ICollection<DebugTriangle> debugTriangles,
         IReadOnlyList<DebugTriangle> terrainTriangles,
-        TerrainDiagnostics terrainDiagnostics)
+        TerrainDiagnostics terrainDiagnostics,
+        bool useDesertDetails)
     {
         const float margin = 1000.0f;
-        var groundColor = CalculateRepresentativeGroundColor(
-            groundPaletteWeights,
-            palette,
-            luminosityTable,
-            out var representativePaletteIndex);
+        var groundColor = useDesertDetails
+            ? CalculateRepresentativeGroundColor(
+                groundPaletteWeights,
+                palette,
+                luminosityTable,
+                out var representativePaletteIndex)
+            : CalculateRepresentativeGroundColor(
+                groundPaletteWeights,
+                palette,
+                sourcePaletteIndex => sourcePaletteIndex,
+                "raw visible rocky-plains terrain",
+                out representativePaletteIndex);
         var center = worldBounds.GetCenter();
         var size = new Vector2(worldBounds.Size.X + margin * 2.0f, worldBounds.Size.Z + margin * 2.0f);
         var sparseGround = ImplicitGroundMeshBuilder.Build(
@@ -2932,7 +3046,10 @@ public partial class Main : Node3D
                 DerivedTerrainSurfaceBuilder.ImplicitGroundHeight,
                 center.Z),
             Mesh = sparseGround.Mesh,
-            MaterialOverride = TerrainSurfaceMaterial.Create(isImplicitGround: true)
+            MaterialOverride = TerrainSurfaceMaterial.Create(
+                useDesertDetails ? null : groundColor,
+                isImplicitGround: true,
+                useDesertDetails: useDesertDetails)
         };
         levelRoot.AddChild(ground);
         ground.AddToGroup(DebugCamera.SolidMeshGroup);
@@ -2942,7 +3059,9 @@ public partial class Main : Node3D
             Position = ground.Position,
             Mesh = ground.Mesh,
             MaterialOverride = TerrainSurfaceMaterial.CreateWireframe(
-                isImplicitGround: true),
+                useDesertDetails ? null : groundColor,
+                isImplicitGround: true,
+                useDesertDetails: useDesertDetails),
             Visible = false
         };
         levelRoot.AddChild(groundWireframe);
@@ -2982,10 +3101,11 @@ public partial class Main : Node3D
         debugTriangles.Add(new DebugTriangle("IMPLICIT/GROUND", "IMPLICIT/GROUND", -1, 0, 1, cornerA, cornerC, cornerD));
         GD.Print(
             $"MechRewired: added sparse implicit ground plane at Y={DerivedTerrainSurfaceBuilder.ImplicitGroundHeight:F2} " +
-            $"({size.X:F0} × {size.Y:F0}; desert base RGB " +
-            $"({TerrainSurfaceMaterial.DesertBaseColor.R8}, " +
-            $"{TerrainSurfaceMaterial.DesertBaseColor.G8}, " +
-            $"{TerrainSurfaceMaterial.DesertBaseColor.B8}); source palette diagnostic index " +
+            $"({size.X:F0} × {size.Y:F0}; surface RGB " +
+            $"({(useDesertDetails ? TerrainSurfaceMaterial.DesertBaseColor : groundColor).R8}, " +
+            $"{(useDesertDetails ? TerrainSurfaceMaterial.DesertBaseColor : groundColor).G8}, " +
+            $"{(useDesertDetails ? TerrainSurfaceMaterial.DesertBaseColor : groundColor).B8}); " +
+            $"source palette diagnostic index " +
             $"{representativePaletteIndex}, RGB ({groundColor.R8}, {groundColor.G8}, {groundColor.B8}); " +
             $"removed {sparseGround.RemovedTriangleCount:N0} covered triangles, retained " +
             $"{sparseGround.TriangleCount:N0}).");
@@ -2996,10 +3116,14 @@ public partial class Main : Node3D
         List<DebugTriangle> sceneTriangles,
         ShaderMaterial terrainMaterial,
         ShaderMaterial terrainWireframeMaterial,
-        TerrainDiagnostics terrainDiagnostics)
+        TerrainDiagnostics terrainDiagnostics,
+        bool useDesertEnhancements)
     {
         var derivationStartedAt = Time.GetTicksMsec();
-        var derived = DerivedTerrainSurfaceBuilder.Build(sceneTriangles);
+        var derived = DerivedTerrainSurfaceBuilder.Build(
+            sceneTriangles,
+            useMacroRelief: useDesertEnhancements,
+            sealToImplicitGround: useDesertEnhancements);
         if (derived.RenderMesh.GetSurfaceCount() == 0)
         {
             throw new InvalidDataException("The decoded level did not produce an upward-facing terrain surface.");
