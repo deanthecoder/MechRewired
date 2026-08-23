@@ -106,6 +106,34 @@ public sealed class MissionSkyController
     }
 
     /// <summary>
+    /// Enables the near-field volumetric buffer used by localized effects such as
+    /// windblown sand.  The scene deliberately keeps the global density at zero:
+    /// only authored <see cref="FogVolume"/> nodes contribute visible volume.
+    /// </summary>
+    public bool EnableLocalizedVolumetricFog()
+    {
+        if (!string.Equals(
+                RenderingServer.GetCurrentRenderingMethod().ToString(),
+                "forward_plus",
+                StringComparison.Ordinal))
+        {
+            GD.Print(
+                "MechRewired: localized volumetric fog is unavailable outside the Forward+ renderer; " +
+                "skipping windblown sand.");
+            return false;
+        }
+
+        m_environment.VolumetricFogEnabled = true;
+        m_environment.VolumetricFogDensity = 0.0f;
+        m_environment.VolumetricFogLength = 160.0f;
+        m_environment.VolumetricFogDetailSpread = 1.8f;
+        // Sand and future projectile lights move too quickly for history blending.
+        m_environment.VolumetricFogTemporalReprojectionEnabled = false;
+        m_environment.VolumetricFogSkyAffect = 1.0f;
+        return true;
+    }
+
+    /// <summary>
     /// Scales the level-authored depth cue without changing the source data.
     /// </summary>
     public float FogMultiplier

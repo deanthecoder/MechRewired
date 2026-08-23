@@ -78,6 +78,7 @@ public partial class Main : Node3D
     private MissionSkyController m_debugSky;
     private DebugVisualCapture m_debugVisualCapture;
     private TerrainDiagnostics m_debugTerrain;
+    private GroundSandFog m_debugGroundSand;
 #endif
 
     public override void _Ready()
@@ -542,6 +543,46 @@ public partial class Main : Node3D
             "Closes the console and saves a timestamped screenshot to Downloads.");
     }
 
+    private void RegisterDebugConsoleGroundSand(GroundSandFog groundSand)
+    {
+        m_debugGroundSand = groundSand;
+        if (m_debugConsole == null)
+        {
+            return;
+        }
+
+        m_debugConsole.Call(
+            "add_cvar",
+            "sand.enabled",
+            groundSand.Enabled ? 1.0f : 0.0f,
+            "Enables the near-field windblown sand layer (0 or 1).");
+        m_debugConsole.Call(
+            "add_cvar",
+            "sand.density",
+            groundSand.Density,
+            "Sets sand-sheet opacity/density (default 0.20).");
+        m_debugConsole.Call(
+            "add_cvar",
+            "sand.coverage",
+            groundSand.Coverage,
+            "Sets how much ground is occupied by moving sand sheets (0-1; default 0.50).");
+        m_debugConsole.Call(
+            "add_cvar",
+            "sand.speed",
+            groundSand.WindSpeed,
+            "Sets windblown sand drift speed in metres per second (default 10).");
+        m_debugConsole.Call(
+            "add_cvar",
+            "sand.height",
+            groundSand.Height,
+            "Sets the maximum height of the sand layer in metres (default 3).");
+        m_debugConsole.Call(
+            "add_cvar",
+            "sand.fill",
+            groundSand.Fill,
+            "Adds a warm ambient lift to sand shadowing (default 0.25).");
+    }
+
     private void OnDebugConsoleCvarChanged(string name, Variant value)
     {
         if (!float.TryParse(
@@ -697,6 +738,36 @@ public partial class Main : Node3D
                  m_debugSky != null)
         {
             m_debugSky.Exposure = numericValue;
+        }
+        else if (string.Equals(name, "sand.enabled", StringComparison.OrdinalIgnoreCase) &&
+                 m_debugGroundSand != null)
+        {
+            m_debugGroundSand.Enabled = numericValue >= 0.5f;
+        }
+        else if (string.Equals(name, "sand.density", StringComparison.OrdinalIgnoreCase) &&
+                 m_debugGroundSand != null)
+        {
+            m_debugGroundSand.Density = numericValue;
+        }
+        else if (string.Equals(name, "sand.coverage", StringComparison.OrdinalIgnoreCase) &&
+                 m_debugGroundSand != null)
+        {
+            m_debugGroundSand.Coverage = numericValue;
+        }
+        else if (string.Equals(name, "sand.speed", StringComparison.OrdinalIgnoreCase) &&
+                 m_debugGroundSand != null)
+        {
+            m_debugGroundSand.WindSpeed = numericValue;
+        }
+        else if (string.Equals(name, "sand.height", StringComparison.OrdinalIgnoreCase) &&
+                 m_debugGroundSand != null)
+        {
+            m_debugGroundSand.Height = numericValue;
+        }
+        else if (string.Equals(name, "sand.fill", StringComparison.OrdinalIgnoreCase) &&
+                 m_debugGroundSand != null)
+        {
+            m_debugGroundSand.Fill = numericValue;
         }
     }
 
@@ -1611,6 +1682,21 @@ public partial class Main : Node3D
             playerMission.Fail);
         AddChild(playerDeathSequence);
         battlefieldEffects.ConfigureObserver(playerMech);
+        if (missionSky.EnableLocalizedVolumetricFog())
+        {
+            var groundSand = new GroundSandFog(playerMech, terrainSurface)
+            {
+                Name = "GroundSandFog"
+            };
+            levelRoot.AddChild(groundSand);
+            GD.Print(
+                $"MechRewired: enabled windblown ground sand around the {playerChassisName} " +
+                $"({playerMech.WorldBounds.Size.Y:F1}m visual height; sand height is its volume depth, " +
+                "with density concentrated near the ground).");
+#if DEBUG
+            RegisterDebugConsoleGroundSand(groundSand);
+#endif
+        }
         playerMech.FootfallLanded += battlefieldEffects.SpawnFootfallDust;
         foreach (var battlefieldActor in battlefieldActors)
         {
