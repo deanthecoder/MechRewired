@@ -135,4 +135,50 @@ public sealed class TerrainMeshDeriverTests
             }
         });
     }
+
+    [Test]
+    public void ElevatedExteriorEdgeProducesGroundSealingSkirt()
+    {
+        var source = new TerrainSourceTriangle(
+            new Vector3(-2.0f, 2.0f, -1.0f),
+            new Vector3(0.0f, 4.0f, 2.0f),
+            new Vector3(2.0f, 2.0f, -1.0f));
+
+        var derived = TerrainMeshDeriver.Build(new[] { source }, subdivisions: 1);
+        var skirts = TerrainMeshBoundarySealer.BuildSkirts(derived, groundHeight: 0.0f);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(derived.BoundaryEdges, Has.Count.EqualTo(3));
+            Assert.That(skirts, Has.Count.EqualTo(6));
+            Assert.That(
+                skirts.SelectMany(triangle => new[] { triangle.A, triangle.B, triangle.C })
+                    .Any(vertex => Math.Abs(vertex.Y) < 0.0001f),
+                Is.True,
+                "Each elevated exterior edge should be closed to the ground plane.");
+        });
+    }
+
+    [Test]
+    public void LowExteriorVerticesAreSnappedToTheSharedGroundPlane()
+    {
+        var source = new TerrainSourceTriangle(
+            new Vector3(-2.0f, 0.85f, -1.0f),
+            new Vector3(0.0f, 4.0f, 2.0f),
+            new Vector3(2.0f, 0.85f, -1.0f));
+
+        var derived = TerrainMeshDeriver.Build(new[] { source }, subdivisions: 1);
+        var snapped = TerrainMeshDeriver.SnapLowExteriorVertices(
+            derived,
+            groundHeight: 0.0f,
+            maximumHeightAboveGround: 2.0f,
+            out var snappedCount);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(snappedCount, Is.EqualTo(2));
+            Assert.That(snapped.Vertices.Count(vertex => Math.Abs(vertex.Y) < 0.0001f), Is.EqualTo(2));
+            Assert.That(snapped.Vertices.Any(vertex => Math.Abs(vertex.Y - 4.0f) < 0.0001f), Is.True);
+        });
+    }
 }

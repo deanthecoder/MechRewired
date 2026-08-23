@@ -25,9 +25,6 @@ namespace MechRewired;
 /// </remarks>
 public partial class Main : Node3D
 {
-    // MW2 terrain is authored around Y=0. Keep the fallback a centimetre below it so it fills
-    // genuine gaps without covering coplanar source polygons or producing depth-buffer flicker.
-    private const float ImplicitGroundHeight = -0.01f;
     private const int SkyTopPaletteIndex = 224;
     private const int SkyHorizonPaletteIndex = 238;
     private const int GeneralIlluminationLevel = 12;
@@ -1304,7 +1301,7 @@ public partial class Main : Node3D
             if (levelObject.Kind == MechWarriorLevelObjectKind.Debris)
             {
                 var lowestVertex = meshes.Min(mesh => mesh.GetAabb().Position.Y);
-                position.Y = ImplicitGroundHeight - lowestVertex;
+                position.Y = DerivedTerrainSurfaceBuilder.ImplicitGroundHeight - lowestVertex;
             }
 
             var objectRoot = new Node3D
@@ -1458,6 +1455,12 @@ public partial class Main : Node3D
             $"{renderedActorComponentCount} active actor components, {renderedDebrisCount} ground-settled debris objects, " +
             $"{meshCache.Count} unique models; luminosity levels {GeneralIlluminationLevel} terrain / " +
             $"{ObjectIlluminationLevel} objects).");
+        var derivedTerrain = AddDerivedTerrain(
+            levelRoot,
+            debugTriangles,
+            terrainMaterial,
+            terrainWireframeMaterial,
+            terrainDiagnostics);
         AddImplicitGround(
             levelRoot,
             worldBounds,
@@ -1465,12 +1468,7 @@ public partial class Main : Node3D
             palette,
             luminosityTable,
             debugTriangles,
-            terrainDiagnostics);
-        AddDerivedTerrain(
-            levelRoot,
-            debugTriangles,
-            terrainMaterial,
-            terrainWireframeMaterial,
+            derivedTerrain.CollisionTriangles,
             terrainDiagnostics);
         var terrainSurface = new TerrainSurfaceIndex(debugTriangles);
         GD.Print(
@@ -2644,7 +2642,7 @@ public partial class Main : Node3D
             .Min(position => position.Y);
         var surfaceHeight = terrainSurface.TryGetHeight(rootRepresentation.GlobalPosition, out var terrainHeight)
             ? terrainHeight
-            : ImplicitGroundHeight;
+            : DerivedTerrainSurfaceBuilder.ImplicitGroundHeight;
         var adjustment = surfaceHeight - lowestY;
         actor.Position += Vector3.Up * adjustment;
         TranslateActorTriangles(actor, sceneTriangles, Vector3.Up * adjustment);
@@ -2866,6 +2864,7 @@ public partial class Main : Node3D
         MechWarriorPalette palette,
         MechWarriorLuminosityTable luminosityTable,
         ICollection<DebugTriangle> debugTriangles,
+        IReadOnlyList<DebugTriangle> terrainTriangles,
         TerrainDiagnostics terrainDiagnostics)
     {
         const float margin = 1000.0f;
@@ -2876,11 +2875,21 @@ public partial class Main : Node3D
             out var representativePaletteIndex);
         var center = worldBounds.GetCenter();
         var size = new Vector2(worldBounds.Size.X + margin * 2.0f, worldBounds.Size.Z + margin * 2.0f);
+        var sparseGround = ImplicitGroundMeshBuilder.Build(
+            size,
+            center,
+            DerivedTerrainSurfaceBuilder.ImplicitGroundHeight,
+            groundColor,
+            terrainTriangles);
         var ground = new MeshInstance3D
         {
             Name = "ImplicitGround",
-            Position = new Vector3(center.X, ImplicitGroundHeight, center.Z),
-            Mesh = BuildImplicitGroundMesh(size, groundColor)
+            Position = new Vector3(
+                center.X,
+                DerivedTerrainSurfaceBuilder.ImplicitGroundHeight,
+                center.Z),
+            Mesh = sparseGround.Mesh,
+            MaterialOverride = TerrainSurfaceMaterial.Create(isImplicitGround: true)
         };
         levelRoot.AddChild(ground);
         ground.AddToGroup(DebugCamera.SolidMeshGroup);
@@ -2902,36 +2911,44 @@ public partial class Main : Node3D
             sourcePaletteIndex => sourcePaletteIndex,
             "raw visible terrain",
             out _);
+        var rawSparseGround = ImplicitGroundMeshBuilder.Build(
+            size,
+            center,
+            DerivedTerrainSurfaceBuilder.ImplicitGroundHeight,
+            rawGroundColor,
+            terrainTriangles);
         terrainDiagnostics.Register(
             ground,
-            BuildImplicitGroundDiagnosticMesh(size, rawGroundColor),
-            BuildImplicitGroundDiagnosticMesh(size, groundColor));
+            rawSparseGround.Mesh,
+            sparseGround.Mesh);
 #endif
 
         var minimum = new Vector3(
             center.X - size.X / 2.0f,
-            ImplicitGroundHeight,
+            DerivedTerrainSurfaceBuilder.ImplicitGroundHeight,
             center.Z - size.Y / 2.0f);
         var maximum = new Vector3(
             center.X + size.X / 2.0f,
-            ImplicitGroundHeight,
+            DerivedTerrainSurfaceBuilder.ImplicitGroundHeight,
             center.Z + size.Y / 2.0f);
-        var cornerA = new Vector3(minimum.X, ImplicitGroundHeight, minimum.Z);
-        var cornerB = new Vector3(maximum.X, ImplicitGroundHeight, minimum.Z);
-        var cornerC = new Vector3(maximum.X, ImplicitGroundHeight, maximum.Z);
-        var cornerD = new Vector3(minimum.X, ImplicitGroundHeight, maximum.Z);
+        var cornerA = new Vector3(minimum.X, DerivedTerrainSurfaceBuilder.ImplicitGroundHeight, minimum.Z);
+        var cornerB = new Vector3(maximum.X, DerivedTerrainSurfaceBuilder.ImplicitGroundHeight, minimum.Z);
+        var cornerC = new Vector3(maximum.X, DerivedTerrainSurfaceBuilder.ImplicitGroundHeight, maximum.Z);
+        var cornerD = new Vector3(minimum.X, DerivedTerrainSurfaceBuilder.ImplicitGroundHeight, maximum.Z);
         debugTriangles.Add(new DebugTriangle("IMPLICIT/GROUND", "IMPLICIT/GROUND", -1, 0, 0, cornerA, cornerB, cornerC));
         debugTriangles.Add(new DebugTriangle("IMPLICIT/GROUND", "IMPLICIT/GROUND", -1, 0, 1, cornerA, cornerC, cornerD));
         GD.Print(
-            $"MechRewired: added implicit ground plane at Y={ImplicitGroundHeight:F2} " +
+            $"MechRewired: added sparse implicit ground plane at Y={DerivedTerrainSurfaceBuilder.ImplicitGroundHeight:F2} " +
             $"({size.X:F0} × {size.Y:F0}; desert base RGB " +
             $"({TerrainSurfaceMaterial.DesertBaseColor.R8}, " +
             $"{TerrainSurfaceMaterial.DesertBaseColor.G8}, " +
             $"{TerrainSurfaceMaterial.DesertBaseColor.B8}); source palette diagnostic index " +
-            $"{representativePaletteIndex}, RGB ({groundColor.R8}, {groundColor.G8}, {groundColor.B8})).");
+            $"{representativePaletteIndex}, RGB ({groundColor.R8}, {groundColor.G8}, {groundColor.B8}); " +
+            $"removed {sparseGround.RemovedTriangleCount:N0} covered triangles, retained " +
+            $"{sparseGround.TriangleCount:N0}).");
     }
 
-    private static void AddDerivedTerrain(
+    private static DerivedTerrainSurface AddDerivedTerrain(
         Node3D levelRoot,
         List<DebugTriangle> sceneTriangles,
         ShaderMaterial terrainMaterial,
@@ -2973,54 +2990,16 @@ public partial class Main : Node3D
             $"MechRewired: derived one welded terrain surface from {derived.SourceTriangleCount:N0} " +
             $"upward source triangles: {derived.RenderTriangleCount:N0} render triangles " +
             $"({DerivedTerrainSurfaceBuilder.RenderSubdivisions}x per edge) and " +
+            $"{derived.BaseSnapVertexCount:N0} low base vertices snapped to floor; " +
+            $"{derived.BaseSealTriangleCount:N0} base-seal render triangles; " +
             $"{derived.CollisionTriangles.Count:N0} collision triangles " +
             $"({DerivedTerrainSurfaceBuilder.CollisionSubdivisions}x per edge); replaced " +
             $"{removedSourceTriangles:N0} decoded terrain triangles. Connected-edge curvature " +
             $"ramps to full smoothing by {DerivedTerrainSurfaceBuilder.SmoothingAngleDegrees:F0} degrees " +
             $"after tolerance-based source seam welding " +
             $"({Time.GetTicksMsec() - derivationStartedAt:N0}ms).");
+        return derived;
     }
-
-    private static Mesh BuildImplicitGroundMesh(Vector2 size, Color color)
-    {
-        const float targetVertexSpacingMetres = 24.0f;
-        return new PlaneMesh
-        {
-            Size = size,
-            SubdivideWidth = Mathf.Clamp(
-                Mathf.CeilToInt(size.X / targetVertexSpacingMetres),
-                32,
-                256),
-            SubdivideDepth = Mathf.Clamp(
-                Mathf.CeilToInt(size.Y / targetVertexSpacingMetres),
-                32,
-                256),
-            Material = TerrainSurfaceMaterial.Create(isImplicitGround: true)
-        };
-    }
-
-#if DEBUG
-    private static Mesh BuildImplicitGroundDiagnosticMesh(Vector2 size, Color color)
-    {
-        var halfWidth = size.X / 2.0f;
-        var halfDepth = size.Y / 2.0f;
-        var cornerA = new Vector3(-halfWidth, 0.0f, -halfDepth);
-        var cornerB = new Vector3(halfWidth, 0.0f, -halfDepth);
-        var cornerC = new Vector3(halfWidth, 0.0f, halfDepth);
-        var cornerD = new Vector3(-halfWidth, 0.0f, halfDepth);
-        using var surfaceTool = new SurfaceTool();
-        surfaceTool.Begin(Mesh.PrimitiveType.Triangles);
-        foreach (var vertex in new[] { cornerA, cornerD, cornerC, cornerA, cornerC, cornerB })
-        {
-            surfaceTool.SetColor(color);
-            surfaceTool.SetNormal(Vector3.Up);
-            surfaceTool.AddVertex(vertex);
-        }
-
-        return surfaceTool.Commit() ??
-               throw new InvalidOperationException("Godot did not create the diagnostic implicit-ground mesh.");
-    }
-#endif
 
     private static Color CalculateRepresentativeGroundColor(
         IReadOnlyDictionary<byte, double> groundPaletteWeights,

@@ -23,10 +23,17 @@ public readonly record struct TerrainSourceTriangle(Vector3 A, Vector3 B, Vector
 public sealed record DerivedTerrainMesh(
     IReadOnlyList<Vector3> Vertices,
     IReadOnlyList<Vector3> Normals,
-    IReadOnlyList<int> Indices)
+    IReadOnlyList<int> Indices,
+    IReadOnlyList<DerivedTerrainBoundaryEdge> BoundaryEdges)
 {
     public int TriangleCount => Indices.Count / 3;
 }
+
+/// <summary>
+/// One directed exterior edge of a derived terrain mesh. The direction retains the source
+/// triangle winding, so a sealing face made from the edge can face away from the terrain.
+/// </summary>
+public readonly record struct DerivedTerrainBoundaryEdge(int FirstVertexIndex, int SecondVertexIndex);
 
 /// <summary>
 /// Tessellates the original low-poly terrain as a smooth curved control surface.
@@ -62,7 +69,8 @@ public static class TerrainMeshDeriver
             return new DerivedTerrainMesh(
                 Array.Empty<Vector3>(),
                 Array.Empty<Vector3>(),
-                Array.Empty<int>());
+                Array.Empty<int>(),
+                Array.Empty<DerivedTerrainBoundaryEdge>());
         }
 
         var vertexNormals = CalculateSourceVertexNormals(source);
@@ -160,7 +168,80 @@ public static class TerrainMeshDeriver
         }
 
         var normals = CalculateDerivedNormals(vertices, indices);
-        return new DerivedTerrainMesh(vertices.AsReadOnly(), normals, indices.AsReadOnly());
+        return new DerivedTerrainMesh(
+            vertices.AsReadOnly(),
+            normals,
+            indices.AsReadOnly(),
+            FindBoundaryEdges(indices).AsReadOnly());
+    }
+
+    /// <summary>
+    /// Grounds derived exterior vertices that sit just above the shared floor. This removes small
+    /// gaps introduced when a nominal hill base is rounded upward between authored control points.
+    /// </summary>
+    public static DerivedTerrainMesh SnapLowExteriorVertices(
+        DerivedTerrainMesh terrain,
+        float groundHeight,
+        float maximumHeightAboveGround,
+        out int snappedVertexCount)
+    {
+        ArgumentNullException.ThrowIfNull(terrain);
+        if (maximumHeightAboveGround <= 0.0f)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maximumHeightAboveGround));
+        }
+
+        var vertices = terrain.Vertices.ToArray();
+        var boundaryVertices = terrain.BoundaryEdges
+            .SelectMany(edge => new[] { edge.FirstVertexIndex, edge.SecondVertexIndex })
+            .ToHashSet();
+        snappedVertexCount = 0;
+        foreach (var index in boundaryVertices)
+        {
+            var vertex = vertices[index];
+            if (vertex.Y <= groundHeight + 0.0001f ||
+                vertex.Y > groundHeight + maximumHeightAboveGround)
+            {
+                continue;
+            }
+
+            vertices[index] = new Vector3(vertex.X, groundHeight, vertex.Z);
+            snappedVertexCount++;
+        }
+
+        return snappedVertexCount == 0
+            ? terrain
+            : terrain with
+            {
+                Vertices = vertices,
+                Normals = CalculateDerivedNormals(vertices, terrain.Indices)
+            };
+    }
+
+    private static List<DerivedTerrainBoundaryEdge> FindBoundaryEdges(IReadOnlyList<int> indices)
+    {
+        var edges = new Dictionary<Edge, DerivedTerrainBoundaryEdge>();
+        var sharedEdges = new HashSet<Edge>();
+        for (var index = 0; index < indices.Count; index += 3)
+        {
+            AddEdge(indices[index], indices[index + 1]);
+            AddEdge(indices[index + 1], indices[index + 2]);
+            AddEdge(indices[index + 2], indices[index]);
+        }
+
+        return edges
+            .Where(pair => !sharedEdges.Contains(pair.Key))
+            .Select(pair => pair.Value)
+            .ToList();
+
+        void AddEdge(int first, int second)
+        {
+            var edge = Edge.Create(first, second);
+            if (!edges.TryAdd(edge, new DerivedTerrainBoundaryEdge(first, second)))
+            {
+                sharedEdges.Add(edge);
+            }
+        }
     }
 
     private static SourceTopology BuildSourceTopology(IEnumerable<TerrainSourceTriangle> sourceTriangles)

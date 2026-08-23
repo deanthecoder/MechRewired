@@ -21,7 +21,9 @@ public sealed record DerivedTerrainSurface(
     ArrayMesh RenderMesh,
     IReadOnlyList<DebugTriangle> CollisionTriangles,
     int SourceTriangleCount,
-    int RenderTriangleCount);
+    int RenderTriangleCount,
+    int BaseSealTriangleCount,
+    int BaseSnapVertexCount);
 
 public static class DerivedTerrainSurfaceBuilder
 {
@@ -32,6 +34,10 @@ public static class DerivedTerrainSurfaceBuilder
     public const int CollisionSubdivisions = 2;
     public const float SmoothingAngleDegrees = 30.0f;
     public const float SmoothingStrength = 0.70f;
+    public const float MaximumBaseSnapHeightMetres = 2.0f;
+    // This is kept a centimetre below source terrain at Y=0 so coplanar authored surfaces do not
+    // flicker, while the derived-edge sealing pass still has a single precise destination.
+    public const float ImplicitGroundHeight = -0.01f;
 
     private const string DerivedResourcePath = "POLY/T_DERIVED.WTB";
 
@@ -57,36 +63,76 @@ public static class DerivedTerrainSurfaceBuilder
             SmoothingAngleDegrees,
             SmoothingStrength,
             ApplyMacroRelief);
+        render = TerrainMeshDeriver.SnapLowExteriorVertices(
+            render,
+            ImplicitGroundHeight,
+            MaximumBaseSnapHeightMetres,
+            out var renderBaseSnapCount);
+        collision = TerrainMeshDeriver.SnapLowExteriorVertices(
+            collision,
+            ImplicitGroundHeight,
+            MaximumBaseSnapHeightMetres,
+            out _);
+        var renderSkirts = TerrainMeshBoundarySealer.BuildSkirts(render, ImplicitGroundHeight);
+        var collisionSkirts = TerrainMeshBoundarySealer.BuildSkirts(collision, ImplicitGroundHeight);
 
         return new DerivedTerrainSurface(
-            BuildGodotMesh(render),
-            BuildDebugTriangles(collision),
+            BuildGodotMesh(render, renderSkirts),
+            BuildDebugTriangles(collision, collisionSkirts),
             source.Length,
-            render.TriangleCount);
+            render.TriangleCount,
+            renderSkirts.Count,
+            renderBaseSnapCount);
     }
 
     public static bool IsAuthoredTerrain(DebugTriangle triangle) =>
         triangle.ResourcePath.StartsWith("POLY/T_", StringComparison.Ordinal) &&
         !string.Equals(triangle.ResourcePath, DerivedResourcePath, StringComparison.Ordinal);
 
-    private static ArrayMesh BuildGodotMesh(DerivedTerrainMesh derived)
+    private static ArrayMesh BuildGodotMesh(
+        DerivedTerrainMesh derived,
+        IReadOnlyList<TerrainSourceTriangle> skirts)
     {
-        var surfaceTool = new SurfaceTool();
-        surfaceTool.Begin(Mesh.PrimitiveType.Triangles);
-        for (var index = 0; index < derived.Vertices.Count; index++)
+        var vertices = derived.Vertices.ToList();
+        var normals = derived.Normals.ToList();
+        var indices = derived.Indices.ToList();
+        foreach (var skirt in skirts)
         {
-            surfaceTool.SetNormal(ToGodot(derived.Normals[index]));
-            surfaceTool.SetColor(TerrainSurfaceMaterial.DesertBaseColor);
-            surfaceTool.AddVertex(ToGodot(derived.Vertices[index]));
+            var normal = NumericsVector3.Cross(skirt.B - skirt.A, skirt.C - skirt.A);
+            if (normal.LengthSquared() <= 0.000001f)
+            {
+                continue;
+            }
+
+            normal = NumericsVector3.Normalize(normal);
+            var first = vertices.Count;
+            vertices.Add(skirt.A);
+            vertices.Add(skirt.B);
+            vertices.Add(skirt.C);
+            normals.Add(normal);
+            normals.Add(normal);
+            normals.Add(normal);
+            indices.Add(first);
+            indices.Add(first + 1);
+            indices.Add(first + 2);
         }
 
-        for (var index = 0; index < derived.Indices.Count; index += 3)
+        var surfaceTool = new SurfaceTool();
+        surfaceTool.Begin(Mesh.PrimitiveType.Triangles);
+        for (var index = 0; index < vertices.Count; index++)
+        {
+            surfaceTool.SetNormal(ToGodot(normals[index]));
+            surfaceTool.SetColor(TerrainSurfaceMaterial.DesertBaseColor);
+            surfaceTool.AddVertex(ToGodot(vertices[index]));
+        }
+
+        for (var index = 0; index < indices.Count; index += 3)
         {
             // The derivation uses conventional upward-facing winding. Godot considers clockwise
             // triangles front-facing, so reverse each index triplet while retaining its supplied normal.
-            surfaceTool.AddIndex(derived.Indices[index]);
-            surfaceTool.AddIndex(derived.Indices[index + 2]);
-            surfaceTool.AddIndex(derived.Indices[index + 1]);
+            surfaceTool.AddIndex(indices[index]);
+            surfaceTool.AddIndex(indices[index + 2]);
+            surfaceTool.AddIndex(indices[index + 1]);
         }
 
         var mesh = new ArrayMesh();
@@ -98,13 +144,15 @@ public static class DerivedTerrainSurfaceBuilder
         return mesh;
     }
 
-    private static IReadOnlyList<DebugTriangle> BuildDebugTriangles(DerivedTerrainMesh derived)
+    private static IReadOnlyList<DebugTriangle> BuildDebugTriangles(
+        DerivedTerrainMesh derived,
+        IReadOnlyList<TerrainSourceTriangle> skirts)
     {
-        var triangles = new DebugTriangle[derived.TriangleCount];
-        for (var triangleIndex = 0; triangleIndex < triangles.Length; triangleIndex++)
+        var triangles = new List<DebugTriangle>(derived.TriangleCount + skirts.Count);
+        for (var triangleIndex = 0; triangleIndex < derived.TriangleCount; triangleIndex++)
         {
             var index = triangleIndex * 3;
-            triangles[triangleIndex] = new DebugTriangle(
+            triangles.Add(new DebugTriangle(
                 "DERIVED/TERRAIN",
                 DerivedResourcePath,
                 -1,
@@ -112,10 +160,23 @@ public static class DerivedTerrainSurfaceBuilder
                 triangleIndex,
                 ToGodot(derived.Vertices[derived.Indices[index]]),
                 ToGodot(derived.Vertices[derived.Indices[index + 1]]),
-                ToGodot(derived.Vertices[derived.Indices[index + 2]]));
+                ToGodot(derived.Vertices[derived.Indices[index + 2]])));
         }
 
-        return triangles;
+        foreach (var skirt in skirts)
+        {
+            triangles.Add(new DebugTriangle(
+                "DERIVED/TERRAIN",
+                DerivedResourcePath,
+                -1,
+                0,
+                triangles.Count,
+                ToGodot(skirt.A),
+                ToGodot(skirt.B),
+                ToGodot(skirt.C)));
+        }
+
+        return triangles.AsReadOnly();
     }
 
     private static NumericsVector3 ApplyMacroRelief(NumericsVector3 position)
