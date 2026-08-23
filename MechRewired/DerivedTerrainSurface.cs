@@ -86,8 +86,10 @@ public static class DerivedTerrainSurfaceBuilder
     }
 
     public static bool IsAuthoredTerrain(DebugTriangle triangle) =>
-        triangle.ResourcePath.StartsWith("POLY/T_", StringComparison.Ordinal) &&
-        !string.Equals(triangle.ResourcePath, DerivedResourcePath, StringComparison.Ordinal);
+        !string.Equals(triangle.ResourcePath, DerivedResourcePath, StringComparison.Ordinal) &&
+        (triangle.ResourcePath.StartsWith("POLY/T_", StringComparison.Ordinal) ||
+         Path.GetFileNameWithoutExtension(triangle.SourceResourcePath)
+             .Contains("MTN", StringComparison.OrdinalIgnoreCase));
 
     private static ArrayMesh BuildGodotMesh(
         DerivedTerrainMesh derived,

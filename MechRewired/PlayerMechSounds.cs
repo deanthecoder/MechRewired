@@ -54,7 +54,6 @@ public sealed record PlayerMechSounds(
     private const string FootfallPath = "SNDS/NONFOOT.SFL";
     private const string StartupPath = "SNDS/NONPSTRT.SFL";
     private const string ReactorHumPath = "SNDS/MECHUMXX.WAV";
-    private const string DeploymentReportPath = "SNDS/YELL00BS.SFL";
     private const string StartWalkingPath = "SNDS/STOP2WLK.SFL";
     private const string StopWalkingPath = "SNDS/WLK2STOP.SFL";
     private const string StartRunningPath = "SNDS/WALK2RUN.SFL";
@@ -106,15 +105,20 @@ public sealed record PlayerMechSounds(
 
     public AudioStreamWav MediumLaser => WeaponFireSounds["MECMLASR.SFL"];
 
-    public static PlayerMechSounds Load(MechWarriorProjectArchive archive)
+    public static PlayerMechSounds Load(MechWarriorProjectArchive archive, string missionPrefix)
     {
         ArgumentNullException.ThrowIfNull(archive);
+        ArgumentException.ThrowIfNullOrWhiteSpace(missionPrefix);
         return new PlayerMechSounds(
             LoadResource(archive, TorsoMotorPath, true, "torso motor"),
             LoadResource(archive, FootfallPath, false, "footfall"),
             LoadResource(archive, StartupPath, false, "mech startup"),
             LoadWaveResource(archive, ReactorHumPath, true, "mech reactor hum"),
-            LoadResource(archive, DeploymentReportPath, false, "Pyre Light deployment report"),
+            LoadResource(
+                archive,
+                $"SNDS/{missionPrefix}00BS.SFL",
+                false,
+                $"{missionPrefix} mission deployment report"),
             LoadResource(archive, StartWalkingPath, false, "stop-to-walk transition"),
             LoadResource(archive, StopWalkingPath, false, "walk-to-stop transition"),
             LoadResource(archive, StartRunningPath, false, "walk-to-run transition"),
@@ -127,7 +131,7 @@ public sealed record PlayerMechSounds(
                     archive,
                     path,
                     false,
-                    $"Pyre Light NAV {index + 1} arrival report"))
+                    $"{missionPrefix} NAV {index + 1} arrival report"))
                 .ToArray(),
             LoadResource(archive, DisplayZoomPath, true, "cockpit display zoom motor"),
             LoadResource(archive, ExternalCameraEngagedPath, false, "external-camera engaged report"),

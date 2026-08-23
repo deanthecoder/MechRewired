@@ -62,8 +62,10 @@ public static class MechWarriorMissionGamePieceLoader
 
             if (!spawnPointsByGroup.TryGetValue(specification.GroupId, out var spawnPoint))
             {
-                throw new InvalidDataException(
-                    $"{sourceEntry.Path} GPS group {specification.GroupId} has no deployment NAVP.");
+                // Some campaign includes define non-deployed pieces (for example, scenario-only
+                // entries in the Jade Falcon campaign). They have no world position and must not
+                // be turned into runtime actors.
+                continue;
             }
 
             gamePieces.Add(new MechWarriorMissionGamePiece(

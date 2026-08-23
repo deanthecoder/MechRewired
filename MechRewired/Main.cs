@@ -36,8 +36,10 @@ public partial class Main : Node3D
     private const float MinimumFogDistance = 300.0f;
     private const float MaximumFogDistance = 5000.0f;
     private const float MinimumSceneryObstacleHeight = 5.0f;
-    private const string DefaultScenarioPath = "BWD/YELLSCN1.BWD";
-    private const string DefaultPlayerMechPath = "MEK/MDG00STD.MEK";
+    private const string WolfScenarioPath = "BWD/YELLSCN1.BWD";
+    private const string WolfPlayerMechPath = "MEK/MDG00STD.MEK";
+    private const string JadeFalconScenarioPath = "BWD/PINKSCN1.BWD";
+    private const string JadeFalconPlayerMechPath = "MEK/STM00STD.MEK";
     private static readonly IReadOnlyDictionary<string, string> DamageShapePrefixes =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -87,8 +89,34 @@ public partial class Main : Node3D
 #if DEBUG
         ConfigureDebugConsole();
 #endif
+        if (!TryOpenGameArchive(out var archive))
+        {
+            return;
+        }
+
+        var clanSelection = new ClanSelectionScreen(archive)
+        {
+            Name = "ClanSelection"
+        };
+        clanSelection.CampaignSelected += campaign => StartCampaign(archive, campaign);
+        AddChild(clanSelection);
+    }
+
+    private void StartCampaign(MechWarriorProjectArchive archive, ClanCampaignSelection campaign)
+    {
+        var clanSelection = GetNodeOrNull<ClanSelectionScreen>("ClanSelection");
+        clanSelection?.Hide();
+        var (scenarioPath, playerMechPath) = campaign switch
+        {
+            ClanCampaignSelection.JadeFalcon => (JadeFalconScenarioPath, JadeFalconPlayerMechPath),
+            ClanCampaignSelection.Wolf => (WolfScenarioPath, WolfPlayerMechPath),
+            _ => throw new ArgumentOutOfRangeException(nameof(campaign), campaign, "A Clan campaign must be selected.")
+        };
+        GD.Print($"MechRewired: selected {campaign} campaign ({scenarioPath}; {playerMechPath}).");
         if (!TryLoadGameData(
-                out var archive,
+                archive,
+                scenarioPath,
+                playerMechPath,
                 out var palette,
                 out var playerChassis,
                 out var playerChassisName,
@@ -102,6 +130,7 @@ public partial class Main : Node3D
                 out var missionGamePieces,
                 out var missionResources))
         {
+            clanSelection?.Show();
             return;
         }
 
@@ -125,6 +154,31 @@ public partial class Main : Node3D
         catch (Exception exception)
         {
             GD.PushError($"MechRewired cannot render the scene: {exception.Message}");
+            clanSelection?.Show();
+            return;
+        }
+
+        clanSelection?.QueueFree();
+    }
+
+    private static bool TryOpenGameArchive(out MechWarriorProjectArchive archive)
+    {
+        archive = null;
+        try
+        {
+            var projectDirectory = new DirectoryInfo(ProjectSettings.GlobalizePath("res://"));
+            var repositoryDirectory = projectDirectory.Parent ??
+                                      throw new DirectoryNotFoundException("The MechRewired repository directory could not be resolved.");
+            var dataDirectory = new DirectoryInfo(Path.Combine(repositoryDirectory.FullName, "local", "game-data"));
+            var projectArchive = MechWarriorResourceCheck.CheckDosFiles(dataDirectory);
+            archive = MechWarriorProjectArchive.Open(projectArchive);
+            GD.Print($"MechRewired: indexed {archive.Entries.Count:N0} resources from {projectArchive.Name} ({projectArchive.Length:N0} bytes).");
+            return true;
+        }
+        catch (Exception exception)
+        {
+            GD.PushError($"MechRewired cannot load original game data: {exception}");
+            return false;
         }
     }
 
@@ -814,7 +868,9 @@ public partial class Main : Node3D
     }
 
     private static bool TryLoadGameData(
-        out MechWarriorProjectArchive archive,
+        MechWarriorProjectArchive archive,
+        string scenarioPath,
+        string playerMechPath,
         out MechWarriorPalette palette,
         out MechWarriorMechChassis playerChassis,
         out string playerChassisName,
@@ -828,7 +884,6 @@ public partial class Main : Node3D
         out IReadOnlyList<MechWarriorMissionGamePiece> missionGamePieces,
         out MechWarriorMissionResources missionResources)
     {
-        archive = null;
         palette = null;
         playerChassis = null;
         playerChassisName = null;
@@ -843,17 +898,8 @@ public partial class Main : Node3D
         missionResources = null;
         try
         {
-            var projectDirectory = new DirectoryInfo(ProjectSettings.GlobalizePath("res://"));
-            var repositoryDirectory = projectDirectory.Parent ??
-                                      throw new DirectoryNotFoundException("The MechRewired repository directory could not be resolved.");
-            var dataDirectory = new DirectoryInfo(Path.Combine(repositoryDirectory.FullName, "local", "game-data"));
-            var projectArchive = MechWarriorResourceCheck.CheckDosFiles(dataDirectory);
-            archive = MechWarriorProjectArchive.Open(projectArchive);
-            GD.Print(
-                $"MechRewired: indexed {archive.Entries.Count:N0} resources from {projectArchive.Name} " +
-                $"({projectArchive.Length:N0} bytes).");
-
-            var resolvedMissionResources = MechWarriorMissionResources.Load(archive, DefaultScenarioPath);
+            ArgumentNullException.ThrowIfNull(archive);
+            var resolvedMissionResources = MechWarriorMissionResources.Load(archive, scenarioPath);
             missionResources = resolvedMissionResources;
             GD.Print(
                 $"MechRewired: resolved mission {missionResources.ScenarioEntry.Path} " +
@@ -866,7 +912,7 @@ public partial class Main : Node3D
             palette = MechWarriorPalette.Load(archive.ReadEntry(paletteEntry));
             GD.Print($"MechRewired: loaded {paletteEntry.Path} ({palette.Colors.Count} colors).");
 
-            var playerMechEntry = archive.GetEntry(DefaultPlayerMechPath);
+            var playerMechEntry = archive.GetEntry(playerMechPath);
             var mechCatalog = MechWarriorMechCatalog.Load(archive);
             var playerChassisIdentity = mechCatalog.ResolveConfiguration(playerMechEntry.Name);
             var playerChassisEntry = archive.GetEntry(
@@ -943,8 +989,7 @@ public partial class Main : Node3D
 
             level = MechWarriorLevel.Load(
                 archive,
-                missionResources.Level.Entry.Path,
-                include => include.Name.StartsWith(resolvedMissionResources.AreaPrefix, StringComparison.OrdinalIgnoreCase));
+                missionResources.Level.Entry.Path);
             foreach (var source in level.Sources)
             {
                 GD.Print($"MechRewired: loaded {source.Entry.Path} ({source.ObjectCount} objects).");
@@ -1209,9 +1254,7 @@ public partial class Main : Node3D
                             .MaxBy(index => models[index].Polygons.Count);
                         var highestDetailModels = new[] { models[highestDetailIndex] };
                         modelCache.Add(levelObject.ModelEntry.Path, highestDetailModels);
-                        var illuminationLevel = levelObject.ModelEntry.Name.StartsWith(
-                            "T_",
-                            StringComparison.OrdinalIgnoreCase)
+                        var illuminationLevel = levelObject.Kind == MechWarriorLevelObjectKind.Terrain
                             ? GeneralIlluminationLevel
                             : ObjectIlluminationLevel;
                         meshes = highestDetailModels
@@ -1556,7 +1599,7 @@ public partial class Main : Node3D
             extractionAnchor,
             dropShipDepartureDirection);
 
-        var playerMechSounds = PlayerMechSounds.Load(archive);
+        var playerMechSounds = PlayerMechSounds.Load(archive, missionResources.MissionPrefix);
         var playerMech = new PlayerMech(
             playerMechDefinition,
             playerMechSounds);

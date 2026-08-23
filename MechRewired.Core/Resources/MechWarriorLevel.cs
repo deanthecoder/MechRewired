@@ -93,6 +93,8 @@ public sealed class MechWarriorLevel
             var world = MechWarriorWorldFile.Load(archive.ReadEntry(entry), parentTransform);
             sources.Add(new MechWarriorLevelSource(entry, world.Objects.Count));
             var worldObjectsById = world.Objects.ToDictionary(worldObject => worldObject.Id);
+            var isTerrainSource = Path.GetFileNameWithoutExtension(entry.Name)
+                .Contains("MTN", StringComparison.OrdinalIgnoreCase);
             var activeActorObjectIds = new Dictionary<int, IReadOnlySet<int>>();
             var destroyedActorObjectIds = new Dictionary<int, IReadOnlySet<int>>();
             var claimedObjectIds = new HashSet<int>();
@@ -124,7 +126,7 @@ public sealed class MechWarriorLevel
                     ? MechWarriorLevelObjectKind.Actor
                     : worldObject.RelativeToId == -1
                         ? MechWarriorLevelObjectKind.Debris
-                        : modelEntry.Name.StartsWith("T_", StringComparison.OrdinalIgnoreCase)
+                        : isTerrainSource || modelEntry.Name.StartsWith("T_", StringComparison.OrdinalIgnoreCase)
                             ? MechWarriorLevelObjectKind.Terrain
                             : MechWarriorLevelObjectKind.Scenery;
                 var levelObject = new MechWarriorLevelObject(
