@@ -46,7 +46,7 @@ public partial class PlayerHud : Control
     private static readonly float[] RadarRanges = [500.0f, 1000.0f, 2000.0f, 4000.0f];
     private static readonly Color HudGreen = Color.FromHtml("00f000");
     private static readonly Color RadarAmber = Color.FromHtml("d7a900");
-    private static readonly Color RadarBackground = new(0.0f, 0.0f, 0.0f, 0.2f);
+    private static readonly Color RadarBackground = new(0.0f, 0.0f, 0.0f, 0.4f);
     private static readonly Color ReachedNavigationAmber = Color.FromHtml("796000");
     private static readonly Color TerrainBlue = Color.FromHtml("1828e8");
     private static readonly Color GaugeRed = Color.FromHtml("e00000");
