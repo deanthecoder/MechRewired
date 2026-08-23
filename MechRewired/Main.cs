@@ -374,6 +374,13 @@ public partial class Main : Node3D
             "Recreates and captures the authored terrain-seam regression views.");
         m_debugConsole.Call(
             "add_command",
+            "terrain.capture_jade_mountain",
+            Callable.From(() => m_debugVisualCapture?.CaptureJadeMountainFixture(m_debugTerrain)),
+            0,
+            0,
+            "Recreates and captures the Jade mountain-base and sunlit-crest regression view.");
+        m_debugConsole.Call(
+            "add_command",
             "terrain.parallax_sweep",
             Callable.From(() => m_debugVisualCapture?.CaptureTerrainParallaxSweep(m_debugTerrain)),
             0,
@@ -446,6 +453,12 @@ public partial class Main : Node3D
         else if (OS.GetCmdlineUserArgs().Contains("--capture-terrain-seam"))
         {
             m_debugVisualCapture?.CaptureTerrainSeamFixture(
+                m_debugTerrain,
+                quitAfterCapture: true);
+        }
+        else if (OS.GetCmdlineUserArgs().Contains("--capture-jade-mountain"))
+        {
+            m_debugVisualCapture?.CaptureJadeMountainFixture(
                 m_debugTerrain,
                 quitAfterCapture: true);
         }
@@ -1133,6 +1146,8 @@ public partial class Main : Node3D
         IReadOnlyList<MechWarriorMissionGamePiece> missionGamePieces,
         MechWarriorMissionResources missionResources)
     {
+        var terrainBiome = level.TerrainBiome;
+        var usesDesertTerrain = terrainBiome == MechWarriorTerrainBiome.Desert;
         var atmosphericVisibilityRange = CalculateDepthCueDistance(
             planet.Lighting?.ShadeDistance,
             planet.ViewDistance);
@@ -1142,7 +1157,8 @@ public partial class Main : Node3D
             atmosphericVisibilityRange,
             SkyTopPaletteIndex,
             SkyHorizonPaletteIndex,
-            17);
+            17,
+            terrainBiome);
         var missionSky = MissionSkyController.Create(this, skyProfile);
         GD.Print(
             $"MechRewired: rendered Sky3D mission atmosphere ({missionSky.Describe()}; " +
@@ -1156,18 +1172,16 @@ public partial class Main : Node3D
             Name = "MissionWorld"
         };
         AddChild(levelRoot);
-        // Mountain worlds use large authored landforms rather than the tiled desert terrain used
-        // by Pyre Light. Their names come from the original BWD hierarchy, so this remains driven
-        // by mission data instead of the selected clan.
-        var useDesertTerrain = !level.Sources.Any(source =>
-            Path.GetFileNameWithoutExtension(source.Entry.Name)
-                .Contains("MTN", StringComparison.OrdinalIgnoreCase));
         var playerUsesJadeFalconDecals = string.Equals(
             missionResources.MissionPrefix,
             "PINK",
             StringComparison.OrdinalIgnoreCase);
-        var terrainMaterial = useDesertTerrain ? TerrainSurfaceMaterial.Create() : null;
-        var terrainWireframeMaterial = useDesertTerrain ? TerrainSurfaceMaterial.CreateWireframe() : null;
+        var terrainMaterial = usesDesertTerrain
+            ? TerrainSurfaceMaterial.Create(TerrainSurfaceKind.Desert)
+            : null;
+        var terrainWireframeMaterial = usesDesertTerrain
+            ? TerrainSurfaceMaterial.CreateWireframe(TerrainSurfaceKind.Desert)
+            : null;
         // MW2's material selectors are context-sensitive. The first playable mech set uses the
         // low material-bank range; scenery selectors may instead be palette/visibility flags.
         // Keep indexed albedo lookup scoped to the verified mech range below.
@@ -1439,10 +1453,9 @@ public partial class Main : Node3D
                     CastShadow = levelObject.Kind == MechWarriorLevelObjectKind.Terrain
                         ? GeometryInstance3D.ShadowCastingSetting.On
                         : GeometryInstance3D.ShadowCastingSetting.DoubleSided,
-                    // Authored terrain meshes are control geometry only. A single welded and
-                    // smoothed derivative is created for desert worlds. Mountain worlds retain
-                    // their authored landform geometry while using a restrained rocky material.
-                    Visible = levelObject.Kind != MechWarriorLevelObjectKind.Terrain || !useDesertTerrain
+                    // Authored terrain meshes are control geometry only. One welded derivative
+                    // owns rendering for every biome, preventing transient overlap and z-fighting.
+                    Visible = levelObject.Kind != MechWarriorLevelObjectKind.Terrain
                 };
                 objectRoot.AddChild(solidInstance);
                 if (solidInstance.Visible)
@@ -1536,7 +1549,7 @@ public partial class Main : Node3D
             $"{meshCache.Count} unique models; luminosity levels {GeneralIlluminationLevel} terrain / " +
             $"{ObjectIlluminationLevel} objects).");
         IReadOnlyList<DebugTriangle> groundCoverageTriangles;
-        if (useDesertTerrain)
+        if (usesDesertTerrain)
         {
             var derivedTerrain = AddDerivedTerrain(
                 levelRoot,
@@ -1544,7 +1557,9 @@ public partial class Main : Node3D
                 terrainMaterial,
                 terrainWireframeMaterial,
                 terrainDiagnostics,
-                useDesertEnhancements: true);
+                useMacroRelief: true,
+                snapLowExteriorVertices: true,
+                sealToImplicitGround: true);
             groundCoverageTriangles = derivedTerrain.CollisionTriangles;
         }
         else
@@ -1559,17 +1574,19 @@ public partial class Main : Node3D
                 levelRoot,
                 debugTriangles,
                 TerrainSurfaceMaterial.Create(
-                    rockyGroundColor,
-                    useDesertDetails: false),
+                    TerrainSurfaceKind.RockyMountain,
+                    rockyGroundColor),
                 TerrainSurfaceMaterial.CreateWireframe(
-                    rockyGroundColor,
-                    useDesertDetails: false),
+                    TerrainSurfaceKind.RockyMountain,
+                    rockyGroundColor),
                 terrainDiagnostics,
-                useDesertEnhancements: false);
+                useMacroRelief: false,
+                snapLowExteriorVertices: false,
+                sealToImplicitGround: true);
             groundCoverageTriangles = derivedTerrain.CollisionTriangles;
             GD.Print(
                 "MechRewired: extracted only the original mountain landforms' upward surfaces; " +
-                "desert macro relief and boundary walls are disabled.");
+                "desert macro relief is disabled and exterior edges are sealed to the shared ground.");
         }
 
         foreach (var sourceTerrainRoot in sourceTerrainRoots)
@@ -1577,7 +1594,7 @@ public partial class Main : Node3D
             sourceTerrainRoot.QueueFree();
         }
 
-        AddImplicitGround(
+        var renderedGroundDebugTriangles = AddImplicitGround(
             levelRoot,
             worldBounds,
             groundPaletteWeights,
@@ -1586,7 +1603,7 @@ public partial class Main : Node3D
             debugTriangles,
             groundCoverageTriangles,
             terrainDiagnostics,
-            useDesertTerrain);
+            terrainBiome);
         var terrainSurface = new TerrainSurfaceIndex(debugTriangles);
         GD.Print(
             $"MechRewired: spatially indexed {terrainSurface.TriangleCount:N0} terrain triangles " +
@@ -1594,7 +1611,7 @@ public partial class Main : Node3D
             $"({terrainSurface.AverageCellOccupancy:F1} average, " +
             $"{terrainSurface.MaximumCellOccupancy:N0} maximum candidates per cell).");
         TerrainRockScatter terrainRocks = null;
-        if (useDesertTerrain)
+        if (usesDesertTerrain)
         {
             terrainRocks = TerrainRockScatter.Create(
                 terrainSurface,
@@ -1605,7 +1622,7 @@ public partial class Main : Node3D
         {
             SettleActorOnTerrain(actor, rootRepresentation, models, terrainSurface, debugTriangles);
         }
-        GD.Print(useDesertTerrain
+        GD.Print(usesDesertTerrain
             ? $"MechRewired: applied desert-biome triplanar pocketed sand, lowland dunes, hardpan, " +
               $"scattered rock and sandstone detail to the derived surface from {level.TerrainObjects.Count} " +
               $"terrain objects and the implicit ground (dune coverage {TerrainSurfaceMaterial.DunePatchCoverage:F2}; " +
@@ -1614,7 +1631,7 @@ public partial class Main : Node3D
               $"parallax {TerrainSurfaceMaterial.ParallaxDepthMetres:F2}m; " +
               $"roughness {TerrainSurfaceMaterial.Roughness:F2})."
             : "MechRewired: applied the original mountain-world palette to authored terrain and " +
-              "a restrained rocky implicit ground; desert dunes, scatter rocks and sand layers are disabled.");
+              "dedicated rocky ground and cliff detail; desert dunes, scatter rocks and sand layers are disabled.");
 #if DEBUG
         GD.Print(
             $"MechRewired: terrain diagnostics registered {terrainDiagnostics.RegisteredMeshCount} " +
@@ -1820,7 +1837,7 @@ public partial class Main : Node3D
             playerMission.Fail);
         AddChild(playerDeathSequence);
         battlefieldEffects.ConfigureObserver(playerMech);
-        if (useDesertTerrain && missionSky.EnableLocalizedVolumetricFog())
+        if (usesDesertTerrain && missionSky.EnableLocalizedVolumetricFog())
         {
             var groundSand = new GroundSandFog(playerMech, terrainSurface)
             {
@@ -1835,7 +1852,7 @@ public partial class Main : Node3D
             RegisterDebugConsoleGroundSand(groundSand);
 #endif
         }
-        if (useDesertTerrain)
+        if (usesDesertTerrain)
         {
             playerMech.FootfallLanded += battlefieldEffects.SpawnFootfallDust;
         }
@@ -1962,13 +1979,17 @@ public partial class Main : Node3D
         var modelSize = Math.Max(bounds.Size.X, Math.Max(bounds.Size.Y, bounds.Size.Z));
         var cameraDistance = Math.Max(modelSize * 3.0f, 1.0f);
         var cameraDirection = new Vector3(0.75f, 0.4f, 1.0f).Normalized();
+        var visualSceneTriangles = debugTriangles
+            .Where(triangle => triangle.ResourcePath != "IMPLICIT/GROUND")
+            .Concat(renderedGroundDebugTriangles)
+            .ToArray();
         var camera = new DebugCamera
         {
             Position = target + cameraDirection * cameraDistance,
             Current = false,
             Far = Math.Max(cameraDistance * 4.0f, 8000.0f),
             CullMask = 1u | PlayerMech.ExteriorRenderLayer,
-            SceneTriangles = debugTriangles.AsReadOnly(),
+            SceneTriangles = visualSceneTriangles,
             CockpitCamera = playerMech.CockpitCamera,
             ExternalCamera = playerMech.ExternalCamera,
             PlayerMech = playerMech,
@@ -3006,7 +3027,7 @@ public partial class Main : Node3D
         return new Aabb(minimum - spill, maximum - minimum + spill * 2.0f);
     }
 
-    private static void AddImplicitGround(
+    private static IReadOnlyList<DebugTriangle> AddImplicitGround(
         Node3D levelRoot,
         Aabb worldBounds,
         IReadOnlyDictionary<byte, double> groundPaletteWeights,
@@ -3015,10 +3036,11 @@ public partial class Main : Node3D
         ICollection<DebugTriangle> debugTriangles,
         IReadOnlyList<DebugTriangle> terrainTriangles,
         TerrainDiagnostics terrainDiagnostics,
-        bool useDesertDetails)
+        MechWarriorTerrainBiome terrainBiome)
     {
         const float margin = 1000.0f;
-        var groundColor = useDesertDetails
+        var usesDesertTerrain = terrainBiome == MechWarriorTerrainBiome.Desert;
+        var groundColor = usesDesertTerrain
             ? CalculateRepresentativeGroundColor(
                 groundPaletteWeights,
                 palette,
@@ -3029,7 +3051,11 @@ public partial class Main : Node3D
                 palette,
                 sourcePaletteIndex => sourcePaletteIndex,
                 "raw visible rocky-plains terrain",
-                out representativePaletteIndex);
+                out representativePaletteIndex,
+                returnSampledAverage: true);
+        var groundSurfaceKind = usesDesertTerrain
+            ? TerrainSurfaceKind.Desert
+            : TerrainSurfaceKind.RockyGround;
         var center = worldBounds.GetCenter();
         var size = new Vector2(worldBounds.Size.X + margin * 2.0f, worldBounds.Size.Z + margin * 2.0f);
         var sparseGround = ImplicitGroundMeshBuilder.Build(
@@ -3047,9 +3073,8 @@ public partial class Main : Node3D
                 center.Z),
             Mesh = sparseGround.Mesh,
             MaterialOverride = TerrainSurfaceMaterial.Create(
-                useDesertDetails ? null : groundColor,
-                isImplicitGround: true,
-                useDesertDetails: useDesertDetails)
+                groundSurfaceKind,
+                usesDesertTerrain ? null : groundColor)
         };
         levelRoot.AddChild(ground);
         ground.AddToGroup(DebugCamera.SolidMeshGroup);
@@ -3059,9 +3084,8 @@ public partial class Main : Node3D
             Position = ground.Position,
             Mesh = ground.Mesh,
             MaterialOverride = TerrainSurfaceMaterial.CreateWireframe(
-                useDesertDetails ? null : groundColor,
-                isImplicitGround: true,
-                useDesertDetails: useDesertDetails),
+                groundSurfaceKind,
+                usesDesertTerrain ? null : groundColor),
             Visible = false
         };
         levelRoot.AddChild(groundWireframe);
@@ -3099,16 +3123,28 @@ public partial class Main : Node3D
         var cornerD = new Vector3(minimum.X, DerivedTerrainSurfaceBuilder.ImplicitGroundHeight, maximum.Z);
         debugTriangles.Add(new DebugTriangle("IMPLICIT/GROUND", "IMPLICIT/GROUND", -1, 0, 0, cornerA, cornerB, cornerC));
         debugTriangles.Add(new DebugTriangle("IMPLICIT/GROUND", "IMPLICIT/GROUND", -1, 0, 1, cornerA, cornerC, cornerD));
+        var renderedGroundTriangles = sparseGround.WorldTriangles
+            .Select((triangle, index) => new DebugTriangle(
+                "IMPLICIT/GROUND_RENDER",
+                "IMPLICIT/GROUND_RENDER",
+                -1,
+                0,
+                index,
+                new Vector3(triangle.A.X, triangle.A.Y, triangle.A.Z),
+                new Vector3(triangle.B.X, triangle.B.Y, triangle.B.Z),
+                new Vector3(triangle.C.X, triangle.C.Y, triangle.C.Z)))
+            .ToArray();
         GD.Print(
             $"MechRewired: added sparse implicit ground plane at Y={DerivedTerrainSurfaceBuilder.ImplicitGroundHeight:F2} " +
             $"({size.X:F0} × {size.Y:F0}; surface RGB " +
-            $"({(useDesertDetails ? TerrainSurfaceMaterial.DesertBaseColor : groundColor).R8}, " +
-            $"{(useDesertDetails ? TerrainSurfaceMaterial.DesertBaseColor : groundColor).G8}, " +
-            $"{(useDesertDetails ? TerrainSurfaceMaterial.DesertBaseColor : groundColor).B8}); " +
+            $"({(usesDesertTerrain ? TerrainSurfaceMaterial.DesertBaseColor : groundColor).R8}, " +
+            $"{(usesDesertTerrain ? TerrainSurfaceMaterial.DesertBaseColor : groundColor).G8}, " +
+            $"{(usesDesertTerrain ? TerrainSurfaceMaterial.DesertBaseColor : groundColor).B8}); " +
             $"source palette diagnostic index " +
             $"{representativePaletteIndex}, RGB ({groundColor.R8}, {groundColor.G8}, {groundColor.B8}); " +
             $"removed {sparseGround.RemovedTriangleCount:N0} covered triangles, retained " +
             $"{sparseGround.TriangleCount:N0}).");
+        return renderedGroundTriangles;
     }
 
     private static DerivedTerrainSurface AddDerivedTerrain(
@@ -3117,13 +3153,16 @@ public partial class Main : Node3D
         ShaderMaterial terrainMaterial,
         ShaderMaterial terrainWireframeMaterial,
         TerrainDiagnostics terrainDiagnostics,
-        bool useDesertEnhancements)
+        bool useMacroRelief,
+        bool snapLowExteriorVertices,
+        bool sealToImplicitGround)
     {
         var derivationStartedAt = Time.GetTicksMsec();
         var derived = DerivedTerrainSurfaceBuilder.Build(
             sceneTriangles,
-            useMacroRelief: useDesertEnhancements,
-            sealToImplicitGround: useDesertEnhancements);
+            useMacroRelief,
+            snapLowExteriorVertices,
+            sealToImplicitGround);
         if (derived.RenderMesh.GetSurfaceCount() == 0)
         {
             throw new InvalidDataException("The decoded level did not produce an upward-facing terrain surface.");
@@ -3185,7 +3224,8 @@ public partial class Main : Node3D
         MechWarriorPalette palette,
         Func<byte, byte> mapPaletteIndex,
         string description,
-        out byte representativePaletteIndex)
+        out byte representativePaletteIndex,
+        bool returnSampledAverage = false)
     {
         if (groundPaletteWeights.Count == 0)
         {
@@ -3227,7 +3267,7 @@ public partial class Main : Node3D
             $"({sampledAverage.R},{sampledAverage.G},{sampledAverage.B}) -> palette " +
             $"{representativePaletteIndex} RGB " +
             $"({representativePaletteColor.R},{representativePaletteColor.G},{representativePaletteColor.B}).");
-        return ToGodotColor(representativePaletteColor);
+        return ToGodotColor(returnSampledAverage ? sampledAverage : representativePaletteColor);
     }
 
     /// <summary>

@@ -298,23 +298,23 @@ public sealed class MissionSkyController
         m_sky3D.Set("sky_enabled", true);
         m_sky3D.Set("clouds_enabled", true);
         m_sky3D.Set("lights_enabled", true);
-        // Warm-palette rocky worlds need more fill than the bright desert. Their source palettes
-        // are deliberately dark, and Sky3D applies their tint during scattering as well as ambient
-        // lighting. Retain the authored ambient level as the input while compensating for that
-        // double attenuation in the replacement renderer.
+        // Warm-palette rocky worlds still need enough fill to read their source palette, but must
+        // not inherit the desert world's high-key sunlight. Retain the authored ambient level as
+        // the input while applying only restrained compensation for Sky3D's double attenuation.
         var usesWarmAtmosphere = m_profile.UsesWarmPaletteAtmosphere;
+        var usesRockyMountainTerrain = m_profile.TerrainBiome == MechWarriorTerrainBiome.RockyMountain;
         var ambientEnergy = DefaultAmbientLightEnergy +
-                            m_profile.AuthoredAmbientLevel * (usesWarmAtmosphere ? 0.30f : 0.10f);
+                            m_profile.AuthoredAmbientLevel * (usesRockyMountainTerrain ? 0.16f : 0.10f);
         m_sky3D.Set(
             "sky_contribution",
-            usesWarmAtmosphere ? 0.38f : DefaultSkyFillLightEnergy);
+            usesRockyMountainTerrain ? 0.24f : DefaultSkyFillLightEnergy);
         m_sky3D.Set("ambient_energy", ambientEnergy);
         m_sky3D.Set(
             "sun_energy",
-            usesWarmAtmosphere ? 0.78f : DefaultSunLightEnergy);
+            usesRockyMountainTerrain ? 0.56f : DefaultSunLightEnergy);
         ConfigureSunShadows();
         m_sky3D.Set("cloud_intensity", DefaultCloudDensity);
-        m_sky3D.Set("tonemap_exposure", usesWarmAtmosphere ? 1.12f : 1.0f);
+        m_sky3D.Set("tonemap_exposure", 1.0f);
         m_sky3D.Set("auto_exposure", false);
         // Sky3D's optional full-screen fog shader paints the empty depth behind this game's
         // sparse terrain black on Metal.  Retain Sky3D for the sky, clouds and celestial light,
@@ -366,13 +366,19 @@ public sealed class MissionSkyController
         ConfigureAmbientOcclusion();
         m_environment.FogEnabled = true;
         m_environment.FogMode = Godot.Environment.FogModeEnum.Depth;
-        m_environment.FogLightColor = m_profile.HorizonColor;
-        m_environment.FogLightEnergy = 1.0f;
+        // PINK's saturated orange horizon is valid sky art direction, but feeding it into Godot's
+        // additive depth fog at full value turns mountain silhouettes and their ground contact
+        // into bright orange/red patches. Preserve its hue while keeping the fog below the source
+        // terrain's midtone; the original depth-cue distance remains unchanged.
+        m_environment.FogLightColor = usesRockyMountainTerrain
+            ? m_profile.HorizonColor.Lerp(Colors.Black, 0.42f)
+            : m_profile.HorizonColor;
+        m_environment.FogLightEnergy = usesRockyMountainTerrain ? 0.72f : 1.0f;
         m_environment.FogDensity = 1.0f;
         m_environment.FogDepthCurve = 1.0f;
         m_environment.FogSkyAffect = 0.0f;
-        FogAerialPerspective = DefaultFogAerialPerspective;
-        FogSunScatter = DefaultFogSunScatter;
+        FogAerialPerspective = usesRockyMountainTerrain ? 0.08f : DefaultFogAerialPerspective;
+        FogSunScatter = usesRockyMountainTerrain ? 0.01f : DefaultFogSunScatter;
 
         TimeOfDay = m_profile.TimeOfDay;
         m_sky3D.Call("resume");
@@ -452,7 +458,8 @@ public sealed record MissionSkyProfile(
     float DepthCueDistance,
     Color SkyTopColor,
     Color HorizonColor,
-    Color SunColor)
+    Color SunColor,
+    MechWarriorTerrainBiome TerrainBiome)
 {
     /// <summary>
     /// Whether the original palette describes a red/orange atmospheric gradient that should
@@ -468,7 +475,8 @@ public sealed record MissionSkyProfile(
         float depthCueDistance,
         int skyTopPaletteIndex,
         int skyHorizonPaletteIndex,
-        int sunPaletteIndex)
+        int sunPaletteIndex,
+        MechWarriorTerrainBiome terrainBiome)
     {
         var militaryTime = world.TimeOfDay ?? 1200;
         var hours = Mathf.PosMod(militaryTime / 100, 24);
@@ -479,7 +487,8 @@ public sealed record MissionSkyProfile(
             depthCueDistance,
             ToGodotColor(palette[skyTopPaletteIndex]),
             ToGodotColor(palette[skyHorizonPaletteIndex]),
-            ToGodotColor(palette[sunPaletteIndex]));
+            ToGodotColor(palette[sunPaletteIndex]),
+            terrainBiome);
     }
 
     private static Color ToGodotColor(DTC.Core.Rgb color) =>

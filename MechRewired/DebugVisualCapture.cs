@@ -33,6 +33,10 @@ public sealed partial class DebugVisualCapture : Node
         new(3641.05f, 10.56f, 3195.71f);
     private static readonly System.Numerics.Vector3 SecondTerrainSeamFixtureSourceDirection =
         new(-0.9736f, 0.1948f, 0.1187f);
+    private static readonly System.Numerics.Vector3 JadeMountainFixtureSourcePosition =
+        new(-101.72f, 12.65f, -2.90f);
+    private static readonly System.Numerics.Vector3 JadeMountainFixtureSourceDirection =
+        new(-0.5067f, 0.4511f, -0.7347f);
 
     private readonly MissionSkyController m_sky;
     private readonly Camera3D m_camera;
@@ -200,6 +204,68 @@ public sealed partial class DebugVisualCapture : Node
         }
         finally
         {
+            m_camera.Current = true;
+            fixtureCamera.QueueFree();
+            RestoreConsoleAfterCapture(restoreConsoleAfterCapture);
+            if (quitAfterCapture)
+            {
+                GetTree().Quit();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Recreates the Jade Falcon mountain-base and sunlit-crest regression view supplied from the
+    /// cockpit, without moving the player or depending on manual torso aiming.
+    /// </summary>
+    public async void CaptureJadeMountainFixture(
+        TerrainDiagnostics terrain = null,
+        bool quitAfterCapture = false)
+    {
+        var restoreConsoleAfterCapture = HideConsoleForCapture();
+        var originalMode = terrain?.Mode ?? TerrainDiagnosticMode.Lit;
+        var fixtureCamera = CreateFixtureCamera(
+            "JadeMountainFixtureCamera",
+            JadeMountainFixtureSourcePosition,
+            JadeMountainFixtureSourceDirection);
+        AddChild(fixtureCamera);
+
+        try
+        {
+            var modes = terrain == null
+                ? new[] { TerrainDiagnosticMode.Lit }
+                : new[]
+                {
+                    TerrainDiagnosticMode.Lit,
+                    TerrainDiagnosticMode.RawPaletteAlbedo,
+                    TerrainDiagnosticMode.GeometricNormal,
+                    TerrainDiagnosticMode.DirectSun
+                };
+            foreach (var mode in modes)
+            {
+                if (terrain != null)
+                {
+                    terrain.Mode = mode;
+                }
+
+                await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+                await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+                await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+                var modeName = terrain?.ModeName ?? "lit";
+                WriteCapture(
+                    $"jade-mountain-fixture-{modeName.Replace(' ', '-')}",
+                    terrainDiagnostic: $"{modeName} Jade mountain base and crest fixture",
+                    terrain: terrain,
+                    captureCamera: fixtureCamera);
+            }
+        }
+        finally
+        {
+            if (terrain != null)
+            {
+                terrain.Mode = originalMode;
+            }
+
             m_camera.Current = true;
             fixtureCamera.QueueFree();
             RestoreConsoleAfterCapture(restoreConsoleAfterCapture);

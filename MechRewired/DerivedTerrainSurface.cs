@@ -44,6 +44,7 @@ public static class DerivedTerrainSurfaceBuilder
     public static DerivedTerrainSurface Build(
         IEnumerable<DebugTriangle> sceneTriangles,
         bool useMacroRelief = true,
+        bool snapLowExteriorVertices = true,
         bool sealToImplicitGround = true)
     {
         ArgumentNullException.ThrowIfNull(sceneTriangles);
@@ -72,7 +73,7 @@ public static class DerivedTerrainSurfaceBuilder
         var renderBaseSnapCount = 0;
         IReadOnlyList<TerrainSourceTriangle> renderSkirts = Array.Empty<TerrainSourceTriangle>();
         IReadOnlyList<TerrainSourceTriangle> collisionSkirts = Array.Empty<TerrainSourceTriangle>();
-        if (sealToImplicitGround)
+        if (snapLowExteriorVertices)
         {
             render = TerrainMeshDeriver.SnapLowExteriorVertices(
                 render,
@@ -84,6 +85,10 @@ public static class DerivedTerrainSurfaceBuilder
                 ImplicitGroundHeight,
                 MaximumBaseSnapHeightMetres,
                 out _);
+        }
+
+        if (sealToImplicitGround)
+        {
             renderSkirts = TerrainMeshBoundarySealer.BuildSkirts(render, ImplicitGroundHeight);
             collisionSkirts = TerrainMeshBoundarySealer.BuildSkirts(collision, ImplicitGroundHeight);
         }

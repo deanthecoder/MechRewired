@@ -23,6 +23,7 @@ namespace MechRewired.Rendering;
 public static class TerrainMeshBoundarySealer
 {
     private const float MinimumClearanceMetres = 0.02f;
+    public const float GroundOverlapMetres = 0.50f;
 
     /// <summary>Builds outward-facing skirt triangles for every elevated exterior edge.</summary>
     public static IReadOnlyList<TerrainSourceTriangle> BuildSkirts(
@@ -40,8 +41,12 @@ public static class TerrainMeshBoundarySealer
                 continue;
             }
 
-            var groundFirst = new Vector3(first.X, groundHeight, first.Z);
-            var groundSecond = new Vector3(second.X, groundHeight, second.Z);
+            // Finish below the implicit plane instead of exactly on it. Equal-depth endpoints can
+            // expose a one-pixel horizon crack after projection and depth quantisation, especially
+            // along PINK's long, low mountain boundaries.
+            var skirtBottom = groundHeight - GroundOverlapMetres;
+            var groundFirst = new Vector3(first.X, skirtBottom, first.Z);
+            var groundSecond = new Vector3(second.X, skirtBottom, second.Z);
             // The terrain lies to the right of its directed boundary edge. Reverse the vertical
             // face winding so it points outward and remains visible from the surrounding floor.
             skirts.Add(new TerrainSourceTriangle(first, groundFirst, second));

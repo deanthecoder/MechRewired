@@ -30,6 +30,7 @@ public sealed class MechWarriorLevel
         DebrisObjects = objects.Where(levelObject => levelObject.Kind == MechWarriorLevelObjectKind.Debris).ToArray();
         StaticObjects = objects.Where(levelObject => levelObject.Kind != MechWarriorLevelObjectKind.Actor).ToArray();
         Actors = actors;
+        TerrainBiome = MechWarriorTerrainBiomeResolver.Resolve(sources.Select(source => source.Entry.Name));
     }
 
     public IReadOnlyList<MechWarriorLevelSource> Sources { get; }
@@ -45,6 +46,8 @@ public sealed class MechWarriorLevel
     public IReadOnlyList<MechWarriorLevelObject> StaticObjects { get; }
 
     public IReadOnlyList<MechWarriorLevelActor> Actors { get; }
+
+    public MechWarriorTerrainBiome TerrainBiome { get; }
 
     /// <summary>
     /// Loads a BWD world and recursively follows its included BWD resources.

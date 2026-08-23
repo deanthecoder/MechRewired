@@ -4,7 +4,9 @@ The terrain detail materials are [Ground054](https://ambientcg.com/view?id=Groun
 [Ground097](https://ambientcg.com/view?id=Ground097),
 [Ground051](https://ambientcg.com/view?id=Ground051),
 [Ground088](https://ambientcg.com/view?id=Ground088), and
-[Rocks021](https://ambientcg.com/view?id=Rocks021) from ambientCG. All are provided under
+[Rocks021](https://ambientcg.com/view?id=Rocks021) from ambientCG. The rocky-mountain biome uses
+[Ground085](https://ambientcg.com/view?id=Ground085) for compact brown, stony ground and
+[Rock052](https://ambientcg.com/view?id=Rock052) for cliff faces. All are provided under
 the [CC0 1.0 licence](https://creativecommons.org/publicdomain/zero/1.0/).
 
 Only the 1K colour, displacement, OpenGL normal and roughness maps are retained. MechRewired uses
@@ -24,3 +26,9 @@ material. Rocks021 is restricted to irregular patches away from dune fields rath
 the authored slope-based sandstone material. The full authored colour relationship is retained
 inside rock and hardpan patches so the sandy background remains tan, the granite stones stay dark,
 and the compacted soil remains visibly brown.
+
+Ground085 and Rock052 are kept strictly out of the desert material. Rocky ground uses Ground085's
+colour, OpenGL normal and roughness maps, while mountain surfaces blend toward Rock052 only on
+authored slopes. Their average colour is removed in the shader before applying detail, keeping the
+mission palette responsible for the terrain's overall brown/red direction. No displacement map is
+used, so the original mountain control vertices and silhouette remain unchanged.

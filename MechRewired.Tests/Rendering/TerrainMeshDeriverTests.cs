@@ -153,9 +153,10 @@ public sealed class TerrainMeshDeriverTests
             Assert.That(skirts, Has.Count.EqualTo(6));
             Assert.That(
                 skirts.SelectMany(triangle => new[] { triangle.A, triangle.B, triangle.C })
-                    .Any(vertex => Math.Abs(vertex.Y) < 0.0001f),
+                    .Any(vertex => Math.Abs(
+                        vertex.Y + TerrainMeshBoundarySealer.GroundOverlapMetres) < 0.0001f),
                 Is.True,
-                "Each elevated exterior edge should be closed to the ground plane.");
+                "Each elevated exterior edge should overlap below the ground plane.");
         });
     }
 

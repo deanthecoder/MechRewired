@@ -99,13 +99,39 @@ public static class ImplicitGroundMeshBuilder
             throw new InvalidOperationException("Godot did not create the sparse implicit-ground mesh.");
         }
 
-        return new ImplicitGroundMesh(mesh, indices.Count / 3, removedTriangleCount);
+        var worldTriangles = new List<TerrainSourceTriangle>(indices.Count / 3);
+        for (var index = 0; index < indices.Count; index += 3)
+        {
+            worldTriangles.Add(new TerrainSourceTriangle(
+                ToWorld(vertices[indices[index]]),
+                ToWorld(vertices[indices[index + 1]]),
+                ToWorld(vertices[indices[index + 2]])));
+        }
+
+        return new ImplicitGroundMesh(
+            mesh,
+            indices.Count / 3,
+            removedTriangleCount,
+            worldTriangles.AsReadOnly());
 
         int GetVertexIndex(int x, int z) => z * (cellsAcross + 1) + x;
 
         void AddTriangle(int first, int second, int third)
         {
-            if (IsCovered(vertices[first]) && IsCovered(vertices[second]) && IsCovered(vertices[third]))
+            var firstPosition = vertices[first];
+            var secondPosition = vertices[second];
+            var thirdPosition = vertices[third];
+            // Three covered corners do not prove that a coarse 24 m grid triangle lies wholly
+            // below an irregular or concave mountain footprint. Retaining triangles whose edge
+            // midpoints or centroid fall outside the authored surface prevents a background-
+            // coloured moat from appearing between the terrain skirt and implicit ground.
+            if (IsCovered(firstPosition) &&
+                IsCovered(secondPosition) &&
+                IsCovered(thirdPosition) &&
+                IsCovered((firstPosition + secondPosition) * 0.5f) &&
+                IsCovered((secondPosition + thirdPosition) * 0.5f) &&
+                IsCovered((thirdPosition + firstPosition) * 0.5f) &&
+                IsCovered((firstPosition + secondPosition + thirdPosition) / 3.0f))
             {
                 removedTriangleCount++;
                 return;
@@ -124,10 +150,19 @@ public static class ImplicitGroundMeshBuilder
             return terrainIndex.TryGetHeight(worldPosition, out var height, out _) &&
                    height > groundHeight + CoveredHeightToleranceMetres;
         }
+
+        NumericsVector3 ToWorld(Vector3 localPosition) => new(
+            center.X + localPosition.X,
+            groundHeight,
+            center.Z + localPosition.Z);
     }
 
     private static NumericsVector3 ToNumerics(Vector3 value) => new(value.X, value.Y, value.Z);
 }
 
 /// <summary>One sparse implicit-ground mesh and its triangle accounting.</summary>
-public sealed record ImplicitGroundMesh(Mesh Mesh, int TriangleCount, int RemovedTriangleCount);
+public sealed record ImplicitGroundMesh(
+    Mesh Mesh,
+    int TriangleCount,
+    int RemovedTriangleCount,
+    IReadOnlyList<TerrainSourceTriangle> WorldTriangles);
