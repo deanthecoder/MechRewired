@@ -581,6 +581,21 @@ public partial class Main : Node3D
             "sand.fill",
             groundSand.Fill,
             "Adds a warm ambient lift to sand shadowing (default 0.25).");
+        if (m_battlefieldEffects != null)
+        {
+            m_debugConsole.Call(
+                "add_cvar",
+                "vfx.explosion_fog",
+                m_battlefieldEffects.ExplosionFogDensity,
+                "Sets initial localized volumetric smoke density for major explosions (default 0.40).");
+            m_debugConsole.Call(
+                "add_command",
+                "vfx.test_explosion_fog",
+                Callable.From(m_battlefieldEffects.SpawnExplosionFogTest),
+                0,
+                0,
+                "Spawns only a major-explosion fog volume 18m ahead for visibility testing.");
+        }
     }
 
     private void OnDebugConsoleCvarChanged(string name, Variant value)
@@ -768,6 +783,11 @@ public partial class Main : Node3D
                  m_debugGroundSand != null)
         {
             m_debugGroundSand.Fill = numericValue;
+        }
+        else if (string.Equals(name, "vfx.explosion_fog", StringComparison.OrdinalIgnoreCase) &&
+                 m_battlefieldEffects != null)
+        {
+            m_battlefieldEffects.ExplosionFogDensity = numericValue;
         }
     }
 

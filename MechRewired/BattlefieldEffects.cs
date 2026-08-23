@@ -26,6 +26,7 @@ public partial class BattlefieldEffects : Node3D
     private const int WeaponImpactPoolSize = 24;
     private const int DestructionPoolSize = 12;
     private const int DustPoolSize = 64;
+    private const float ExplosionFogLifetimeSeconds = 4.8f;
     private static readonly Vector3 DustWindDirection = new(0.82f, 0.0f, 0.57f);
 
     private static bool s_vfxTexturesLogged;
@@ -64,6 +65,7 @@ public partial class BattlefieldEffects : Node3D
     private float m_dustWind = 1.0f;
     private float m_dustLifetime = 1.0f;
     private float m_dustSpread = 68.0f;
+    private float m_explosionFogDensity = 0.40f;
 
     public BattlefieldEffects(IReadOnlyList<AudioStreamWav> explosionSounds)
     {
@@ -94,6 +96,42 @@ public partial class BattlefieldEffects : Node3D
         ArgumentNullException.ThrowIfNull(observer);
         m_observer = observer;
         UpdateDistanceBoundEffects();
+    }
+
+    /// <summary>Controls the initial density of the short-lived volumetric smoke at major explosions.</summary>
+    public float ExplosionFogDensity
+    {
+        get => m_explosionFogDensity;
+        set => m_explosionFogDensity = Mathf.Clamp(value, 0.0f, 1.0f);
+    }
+
+    /// <summary>Spawns only the major-explosion fog volume nearby so it can be tuned in isolation.</summary>
+    public void SpawnExplosionFogTest()
+    {
+        if (!IsInstanceValid(m_observer))
+        {
+            return;
+        }
+
+        var forward = -m_observer.GlobalBasis.Z;
+        if (forward.IsZeroApprox())
+        {
+            forward = Vector3.Forward;
+        }
+
+        var hitPosition = m_observer.GlobalPosition + forward.Normalized() * 18.0f;
+        hitPosition.Y = FindTerrainHeight(hitPosition, hitPosition.Y);
+        const float testBoundsLength = 52.0f;
+        var fog = CreateExplosionFog();
+        ConfigureExplosionFog(fog, testBoundsLength, m_explosionFogDensity);
+        var effect = new FogTestEffect(fog, m_explosionFogDensity)
+        {
+            Name = "ExplosionFogTest",
+            Position = hitPosition
+        };
+        effect.AddChild(fog);
+        AddChild(effect);
+        GD.Print($"MechRewired: spawning fog-only test at density {m_explosionFogDensity:F2}.");
     }
 
     private void CreateEffectPools()
@@ -130,17 +168,20 @@ public partial class BattlefieldEffects : Node3D
                 ExplosionSmoke = CreateSmoke(true, 34, 4.5f, 2.5f),
                 Sparks = CreateSparks(0.2f),
                 LingeringSmoke = CreateSmoke(false, 76, 7.0f, 2.2f),
+                ExplosionFog = CreateExplosionFog(),
                 ExplosionLight = CreateFireLight(7.0f, 22.0f)
             };
             effect.ExplosionFire.Emitting = false;
             effect.ExplosionSmoke.Emitting = false;
             effect.Sparks.Emitting = false;
             effect.LingeringSmoke.Emitting = false;
+            effect.ExplosionFog.Visible = false;
             effect.ExplosionLight.Visible = false;
             effect.AddChild(effect.ExplosionFire);
             effect.AddChild(effect.ExplosionSmoke);
             effect.AddChild(effect.Sparks);
             effect.AddChild(effect.LingeringSmoke);
+            effect.AddChild(effect.ExplosionFog);
             effect.AddChild(effect.ExplosionLight);
             if (m_explosionSounds.Count > 0)
             {
@@ -473,6 +514,8 @@ public partial class BattlefieldEffects : Node3D
             76,
             7.0f,
             Math.Clamp(boundsLength * 0.08f, 1.5f, 3.5f));
+        ConfigureExplosionFog(effect.ExplosionFog, boundsLength, m_explosionFogDensity);
+        effect.ExplosionFogDensity = m_explosionFogDensity;
         effect.ExplosionLight.OmniRange = Math.Clamp(boundsLength * 0.45f, 5.0f, 13.0f);
         effect.ExplosionLight.LightEnergy = 22.0f;
         if (effect.ExplosionAudio != null && (explosionSound != null || m_explosionSounds.Count > 0))
@@ -650,6 +693,16 @@ public partial class BattlefieldEffects : Node3D
         process.ScaleMin = size * 0.35f;
         process.ScaleMax = size;
         process.EmissionSphereRadius = 0.7f;
+    }
+
+    private static void ConfigureExplosionFog(FogVolume fog, float boundsLength, float density)
+    {
+        var radius = Math.Clamp(boundsLength * 0.27f, 5.5f, 15.0f);
+        fog.Size = new Vector3(radius * 2.0f, radius * 1.20f, radius * 2.0f);
+        if (fog.Material is ShaderMaterial material)
+        {
+            material.SetShaderParameter("smoke_density", density);
+        }
     }
 
     private void ConfigureDust(
@@ -1356,9 +1409,53 @@ public partial class BattlefieldEffects : Node3D
             Name = "FireLight",
             LightColor = new Color(1.0f, 0.28f, 0.04f),
             LightEnergy = energy,
+            LightVolumetricFogEnergy = 1.35f,
             OmniRange = range,
             ShadowEnabled = false
         };
+
+    private static FogVolume CreateExplosionFog()
+    {
+        var shader = new Shader
+        {
+            Code = """
+                shader_type fog;
+
+                uniform float smoke_density = 0.14;
+
+                float hash(vec2 p) {
+                    return fract(sin(dot(p, vec2(91.7, 263.3))) * 143758.5453);
+                }
+
+                float noise(vec2 p) {
+                    vec2 cell = floor(p);
+                    vec2 fraction = fract(p);
+                    fraction = fraction * fraction * (3.0 - 2.0 * fraction);
+                    return mix(
+                        mix(hash(cell), hash(cell + vec2(1.0, 0.0)), fraction.x),
+                        mix(hash(cell + vec2(0.0, 1.0)), hash(cell + vec2(1.0)), fraction.x),
+                        fraction.y);
+                }
+
+                void fog() {
+                    vec2 sample_position = WORLD_POSITION.xz * 0.20 + TIME * vec2(0.08, 0.05);
+                    float breakup = noise(sample_position) * noise(sample_position * 2.3 + vec2(17.0, 5.0));
+                    float lower_smoke = 1.0 - smoothstep(0.45, 1.0, UVW.y);
+                    DENSITY = smoke_density * smoothstep(0.08, 0.60, breakup) * lower_smoke;
+                    ALBEDO = vec3(0.56, 0.34, 0.16);
+                    // A restrained heated-dust fill keeps the volume legible in daylight even
+                    // before the short-lived explosion light has reached it.
+                    EMISSION = vec3(0.16, 0.065, 0.018) * lower_smoke;
+                }
+                """
+        };
+        return new FogVolume
+        {
+            Name = "ExplosionFog",
+            Shape = RenderingServer.FogVolumeShape.Ellipsoid,
+            Material = new ShaderMaterial { Shader = shader }
+        };
+    }
 
     private static AudioStreamPlayer3D CreatePositionalAudio(
         string name,
@@ -1586,6 +1683,10 @@ public partial class BattlefieldEffects : Node3D
 
         public GpuParticles3D LingeringSmoke { get; set; }
 
+        public FogVolume ExplosionFog { get; set; }
+
+        public float ExplosionFogDensity { get; set; }
+
         public OmniLight3D ExplosionLight { get; set; }
 
         public AudioStreamPlayer3D ExplosionAudio { get; set; }
@@ -1613,6 +1714,8 @@ public partial class BattlefieldEffects : Node3D
             LingeringSmoke.Position = Vector3.Zero;
             LingeringSmoke.Emitting = true;
             LingeringSmoke.Restart();
+            ExplosionFog.Position = localHit + Vector3.Up * (ExplosionFog.Size.Y * 0.18f);
+            ExplosionFog.Visible = true;
             ExplosionLight.Position = localHit;
             ExplosionLight.LightEnergy = 22.0f;
             ExplosionLight.Visible = true;
@@ -1635,6 +1738,7 @@ public partial class BattlefieldEffects : Node3D
             ExplosionSmoke.Emitting = false;
             Sparks.Emitting = false;
             LingeringSmoke.Emitting = false;
+            ExplosionFog.Visible = false;
 
             ExplosionLight.Visible = false;
             ExplosionAudio?.Stop();
@@ -1673,6 +1777,43 @@ public partial class BattlefieldEffects : Node3D
                 ExplosionLight.LightEnergy = Math.Max(0.0f, 22.0f * (1.0f - m_age / 0.9f));
             }
 
+            if (ExplosionFog?.Material is ShaderMaterial fogMaterial)
+            {
+                var fade = Mathf.Clamp(1.0f - m_age / ExplosionFogLifetimeSeconds, 0.0f, 1.0f);
+                fogMaterial.SetShaderParameter("smoke_density", fade * ExplosionFogDensity);
+                ExplosionFog.Visible = fade > 0.01f;
+            }
+
+        }
+    }
+
+    private sealed partial class FogTestEffect : Node3D
+    {
+        private const float LifetimeSeconds = ExplosionFogLifetimeSeconds;
+        private readonly FogVolume m_fog;
+        private readonly float m_initialDensity;
+        private float m_age;
+
+        public FogTestEffect(FogVolume fog, float initialDensity)
+        {
+            m_fog = fog;
+            m_initialDensity = initialDensity;
+            m_fog.Position = Vector3.Up * (m_fog.Size.Y * 0.18f);
+        }
+
+        public override void _Process(double delta)
+        {
+            m_age += (float)delta;
+            var fade = Mathf.Clamp(1.0f - m_age / LifetimeSeconds, 0.0f, 1.0f);
+            if (m_fog.Material is ShaderMaterial material)
+            {
+                material.SetShaderParameter("smoke_density", fade * m_initialDensity);
+            }
+
+            if (fade <= 0.01f)
+            {
+                QueueFree();
+            }
         }
     }
 }
