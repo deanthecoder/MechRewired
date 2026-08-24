@@ -1804,7 +1804,8 @@ public partial class Main : Node3D
                 materialMap,
                 playerMaterialImages,
                 model.Polygons.Select(polygon => polygon.MaterialIndex),
-                playerUsesJadeFalconDecals);
+                playerUsesJadeFalconDecals,
+                isDecalModel);
             var isTorsoPart = playerTorsoObjectId != 0 &&
                               IsDescendantOf(chassisObject.Id, playerTorsoObjectId, playerObjectsById);
             var partPosition = MechWarriorCoordinateSystem.ToGodotPosition(
@@ -2163,7 +2164,8 @@ public partial class Main : Node3D
                     materialMap,
                     materialImages,
                     model.Polygons.Select(polygon => polygon.MaterialIndex),
-                    useJadeFalconDecals);
+                    useJadeFalconDecals,
+                    isDecalModel);
                 var mesh = MechWarriorModelMeshBuilder.Build(
                     model,
                     palette,
@@ -2304,15 +2306,20 @@ public partial class Main : Node3D
         MechWarriorMaterialMap materialMap,
         Dictionary<byte, MechWarriorIndexedImage> materialImages,
         IEnumerable<byte> materialIndices,
-        bool useJadeFalconDecal = false)
+        bool useJadeFalconDecal = false,
+        bool isDecalModel = false)
     {
         foreach (var materialIndex in materialIndices.Distinct())
         {
             var textureMaterialIndex = ResolveMechTextureMaterialIndex(
                 materialIndex,
                 useJadeFalconDecal);
+            var isLargeClanInsigniaMaterial = materialIndex is
+                WolfLargeInsigniaMaterialIndex or JadeFalconLargeInsigniaMaterialIndex;
+            var usesLargeClanInsignia = isDecalModel && isLargeClanInsigniaMaterial;
             if ((textureMaterialIndex > MaximumTexturedMechMaterialIndex &&
-                 textureMaterialIndex != JadeFalconLargeInsigniaMaterialIndex) ||
+                 !usesLargeClanInsignia) ||
+                isLargeClanInsigniaMaterial && !isDecalModel ||
                 materialImages.ContainsKey(materialIndex) ||
                 !materialMap.Images.TryGetValue(textureMaterialIndex, out var materialImage))
             {
