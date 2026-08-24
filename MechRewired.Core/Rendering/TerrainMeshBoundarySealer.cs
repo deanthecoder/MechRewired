@@ -28,15 +28,25 @@ public static class TerrainMeshBoundarySealer
     /// <summary>Builds outward-facing skirt triangles for every elevated exterior edge.</summary>
     public static IReadOnlyList<TerrainSourceTriangle> BuildSkirts(
         DerivedTerrainMesh terrain,
-        float groundHeight)
+        float groundHeight) =>
+        BuildSkirts(terrain, _ => groundHeight);
+
+    /// <summary>Builds skirts against a varying ground-height field.</summary>
+    public static IReadOnlyList<TerrainSourceTriangle> BuildSkirts(
+        DerivedTerrainMesh terrain,
+        Func<Vector3, float> groundHeightAt)
     {
         ArgumentNullException.ThrowIfNull(terrain);
+        ArgumentNullException.ThrowIfNull(groundHeightAt);
         var skirts = new List<TerrainSourceTriangle>();
         foreach (var edge in terrain.BoundaryEdges)
         {
             var first = terrain.Vertices[edge.FirstVertexIndex];
             var second = terrain.Vertices[edge.SecondVertexIndex];
-            if (MathF.Max(first.Y, second.Y) <= groundHeight + MinimumClearanceMetres)
+            var firstGroundHeight = groundHeightAt(first);
+            var secondGroundHeight = groundHeightAt(second);
+            if (first.Y <= firstGroundHeight + MinimumClearanceMetres &&
+                second.Y <= secondGroundHeight + MinimumClearanceMetres)
             {
                 continue;
             }
@@ -44,9 +54,14 @@ public static class TerrainMeshBoundarySealer
             // Finish below the implicit plane instead of exactly on it. Equal-depth endpoints can
             // expose a one-pixel horizon crack after projection and depth quantisation, especially
             // along PINK's long, low mountain boundaries.
-            var skirtBottom = groundHeight - GroundOverlapMetres;
-            var groundFirst = new Vector3(first.X, skirtBottom, first.Z);
-            var groundSecond = new Vector3(second.X, skirtBottom, second.Z);
+            var groundFirst = new Vector3(
+                first.X,
+                firstGroundHeight - GroundOverlapMetres,
+                first.Z);
+            var groundSecond = new Vector3(
+                second.X,
+                secondGroundHeight - GroundOverlapMetres,
+                second.Z);
             // The terrain lies to the right of its directed boundary edge. Reverse the vertical
             // face winding so it points outward and remains visible from the surrounding floor.
             skirts.Add(new TerrainSourceTriangle(first, groundFirst, second));

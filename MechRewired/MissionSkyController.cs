@@ -283,6 +283,7 @@ public sealed class MissionSkyController
 
     public string Describe() =>
         $"time {TimeOfDay:F2}h; authored {m_profile.TimeOfDay:F2}h; fog x{FogMultiplier:F2}, " +
+        $"depth cue {m_profile.DepthCueDistance:F0}m, visibility {m_profile.VisibilityDistance:F0}m, " +
         $"aerial {FogAerialPerspective:F2}, sun scatter {FogSunScatter:F2}; " +
         $"cirrus coverage {CloudCoverage:F2}, density {CloudDensity:F2}, scale {CloudHeight:F2}; " +
         $"sun azimuth offset {SunAzimuthOffsetDegrees:F1} degrees; shadow distance " +
@@ -366,19 +367,23 @@ public sealed class MissionSkyController
         ConfigureAmbientOcclusion();
         m_environment.FogEnabled = true;
         m_environment.FogMode = Godot.Environment.FogModeEnum.Depth;
-        // PINK's saturated orange horizon is valid sky art direction, but feeding it into Godot's
-        // additive depth fog at full value turns mountain silhouettes and their ground contact
-        // into bright orange/red patches. Preserve its hue while keeping the fog below the source
-        // terrain's midtone; the original depth-cue distance remains unchanged.
+        // PINK's saturated orange horizon remains the sky art direction, but it is unsuitable as
+        // the destination colour for Godot's additive depth fog: even at low energy, distant dark
+        // mountains converge on a luminous orange slab. Derive a dark, low-chroma atmospheric
+        // extinction colour from both ends of the authored sky gradient instead. The level data
+        // still determines the hue and depth-cue distance without forcing geometry to become sky.
+        var rockyFogColor = m_profile.SkyTopColor
+            .Lerp(m_profile.HorizonColor, 0.16f)
+            .Lerp(Colors.Black, 0.28f);
         m_environment.FogLightColor = usesRockyMountainTerrain
-            ? m_profile.HorizonColor.Lerp(Colors.Black, 0.42f)
+            ? rockyFogColor
             : m_profile.HorizonColor;
-        m_environment.FogLightEnergy = usesRockyMountainTerrain ? 0.72f : 1.0f;
+        m_environment.FogLightEnergy = usesRockyMountainTerrain ? 0.85f : 1.0f;
         m_environment.FogDensity = 1.0f;
         m_environment.FogDepthCurve = 1.0f;
         m_environment.FogSkyAffect = 0.0f;
-        FogAerialPerspective = usesRockyMountainTerrain ? 0.08f : DefaultFogAerialPerspective;
-        FogSunScatter = usesRockyMountainTerrain ? 0.01f : DefaultFogSunScatter;
+        FogAerialPerspective = usesRockyMountainTerrain ? 0.0f : DefaultFogAerialPerspective;
+        FogSunScatter = usesRockyMountainTerrain ? 0.0f : DefaultFogSunScatter;
 
         TimeOfDay = m_profile.TimeOfDay;
         m_sky3D.Call("resume");
@@ -426,11 +431,14 @@ public sealed class MissionSkyController
 
     private void ApplyFog()
     {
-        // The MW2 shade distance is where the palette depth cue has converged.  Sky3D performs
-        // that cue in screen space, so preserve a clear foreground before driving its end from
-        // the same authored distance. The later onset keeps terrain texture readable without
-        // changing the mission's final visibility range.
-        var fogEnd = Math.Max(100.0f, m_profile.DepthCueDistance / m_fogMultiplier);
+        // The MW2 shade distance is where its palette depth cue has converged; VDIST is the outer
+        // authored visibility limit. Desert sand can plausibly reach full density at SHADE, while
+        // clear rocky air should use the broader VDIST band. Both inputs still come from the level,
+        // but the biome determines how the modern renderer interprets them.
+        var authoredFogEnd = m_profile.TerrainBiome == MechWarriorTerrainBiome.RockyMountain
+            ? m_profile.VisibilityDistance
+            : m_profile.DepthCueDistance;
+        var fogEnd = Math.Max(100.0f, authoredFogEnd / m_fogMultiplier);
         m_environment.FogDepthBegin = fogEnd * m_fogStartFraction;
         m_environment.FogDepthEnd = fogEnd;
     }
@@ -456,6 +464,7 @@ public sealed record MissionSkyProfile(
     float TimeOfDay,
     float AuthoredAmbientLevel,
     float DepthCueDistance,
+    float VisibilityDistance,
     Color SkyTopColor,
     Color HorizonColor,
     Color SunColor,
@@ -473,6 +482,7 @@ public sealed record MissionSkyProfile(
         MechWarriorWorldFile world,
         MechWarriorPalette palette,
         float depthCueDistance,
+        float visibilityDistance,
         int skyTopPaletteIndex,
         int skyHorizonPaletteIndex,
         int sunPaletteIndex,
@@ -485,6 +495,7 @@ public sealed record MissionSkyProfile(
             hours + minutes / 60.0f,
             Mathf.Clamp((world.Lighting?.AmbientLevel ?? 50) / 100.0f, 0.0f, 1.0f),
             depthCueDistance,
+            visibilityDistance,
             ToGodotColor(palette[skyTopPaletteIndex]),
             ToGodotColor(palette[skyHorizonPaletteIndex]),
             ToGodotColor(palette[sunPaletteIndex]),

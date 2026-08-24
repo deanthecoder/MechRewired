@@ -78,6 +78,16 @@ dotnet test MechRewired.Tests/MechRewired.Tests.csproj --no-build
 
 Open `MechRewired/project.godot` with the .NET edition of Godot to run the application.
 
+Pass a campaign after Godot's `--` separator to bypass clan selection during development:
+
+```shell
+/Applications/Godot.app/Contents/MacOS/Godot --path MechRewired -- --campaign jade
+/Applications/Godot.app/Contents/MacOS/Godot --path MechRewired -- --campaign wolf
+```
+
+`--jade` and `--wolf` are shorthand aliases. Other arguments, including debug capture arguments,
+can follow the campaign selection.
+
 The application starts in the 3D cockpit. The current piloting controls follow the original game's defaults:
 
 - Press `1` to stop, `2`–`9` for 20–90% throttle, or `0` for full throttle. Press `-`/`=` to adjust the throttle in 10% steps.

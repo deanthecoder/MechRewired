@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://b4qr6174bs1ce"
-path="res://.godot/imported/Ground085_1K-PNG_Roughness.png-abb39d1bbeeb0f38c7c3ce08e8336f9a.ctex"
+uid="uid://dmor7grryfosv"
+path="res://.godot/imported/Rock050_1K-PNG_Color.png-713e68c821d269ccbbc609567cf7ae7d.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://Assets/Textures/Terrain/Ground085/Ground085_1K-PNG_Roughness.png"
-dest_files=["res://.godot/imported/Ground085_1K-PNG_Roughness.png-abb39d1bbeeb0f38c7c3ce08e8336f9a.ctex"]
+source_file="res://Assets/Textures/Terrain/Rock050/Rock050_1K-PNG_Color.png"
+dest_files=["res://.godot/imported/Rock050_1K-PNG_Color.png-713e68c821d269ccbbc609567cf7ae7d.ctex"]
 
 [params]
 

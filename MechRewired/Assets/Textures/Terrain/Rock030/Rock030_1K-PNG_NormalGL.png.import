@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://b4qr6174bs1ce"
-path="res://.godot/imported/Ground085_1K-PNG_Roughness.png-abb39d1bbeeb0f38c7c3ce08e8336f9a.ctex"
+uid="uid://belpo6qeejxaq"
+path="res://.godot/imported/Rock030_1K-PNG_NormalGL.png-e0f733771a37a99e6a94715dc6e52702.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://Assets/Textures/Terrain/Ground085/Ground085_1K-PNG_Roughness.png"
-dest_files=["res://.godot/imported/Ground085_1K-PNG_Roughness.png-abb39d1bbeeb0f38c7c3ce08e8336f9a.ctex"]
+source_file="res://Assets/Textures/Terrain/Rock030/Rock030_1K-PNG_NormalGL.png"
+dest_files=["res://.godot/imported/Rock030_1K-PNG_NormalGL.png-e0f733771a37a99e6a94715dc6e52702.ctex"]
 
 [params]
 
@@ -21,7 +21,7 @@ compress/lossy_quality=0.7
 compress/uastc_level=0
 compress/rdo_quality_loss=0.0
 compress/hdr_compression=1
-compress/normal_map=0
+compress/normal_map=1
 compress/channel_pack=0
 mipmaps/generate=true
 mipmaps/limit=-1

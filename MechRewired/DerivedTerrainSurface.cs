@@ -44,6 +44,7 @@ public static class DerivedTerrainSurfaceBuilder
     public static DerivedTerrainSurface Build(
         IEnumerable<DebugTriangle> sceneTriangles,
         bool useMacroRelief = true,
+        TerrainGroundReliefKind groundReliefKind = TerrainGroundReliefKind.None,
         bool snapLowExteriorVertices = true,
         bool sealToImplicitGround = true)
     {
@@ -55,9 +56,16 @@ public static class DerivedTerrainSurfaceBuilder
                 ToNumerics(triangle.B),
                 ToNumerics(triangle.C)))
             .ToArray();
-        Func<NumericsVector3, NumericsVector3> displacement = useMacroRelief
-            ? ApplyMacroRelief
-            : null;
+        Func<NumericsVector3, NumericsVector3> displacement =
+            useMacroRelief || groundReliefKind != TerrainGroundReliefKind.None
+                ? position => ApplyRelief(position, useMacroRelief, groundReliefKind)
+                : null;
+        Func<NumericsVector3, float> groundHeightAt =
+            groundReliefKind != TerrainGroundReliefKind.None
+                ? position => ImplicitGroundHeight + TerrainGroundRelief.SampleOffset(
+                    new System.Numerics.Vector2(position.X, position.Z),
+                    groundReliefKind)
+                : _ => ImplicitGroundHeight;
         var render = TerrainMeshDeriver.Build(
             source,
             RenderSubdivisions,
@@ -77,20 +85,20 @@ public static class DerivedTerrainSurfaceBuilder
         {
             render = TerrainMeshDeriver.SnapLowExteriorVertices(
                 render,
-                ImplicitGroundHeight,
+                groundHeightAt,
                 MaximumBaseSnapHeightMetres,
                 out renderBaseSnapCount);
             collision = TerrainMeshDeriver.SnapLowExteriorVertices(
                 collision,
-                ImplicitGroundHeight,
+                groundHeightAt,
                 MaximumBaseSnapHeightMetres,
                 out _);
         }
 
         if (sealToImplicitGround)
         {
-            renderSkirts = TerrainMeshBoundarySealer.BuildSkirts(render, ImplicitGroundHeight);
-            collisionSkirts = TerrainMeshBoundarySealer.BuildSkirts(collision, ImplicitGroundHeight);
+            renderSkirts = TerrainMeshBoundarySealer.BuildSkirts(render, groundHeightAt);
+            collisionSkirts = TerrainMeshBoundarySealer.BuildSkirts(collision, groundHeightAt);
         }
 
         return new DerivedTerrainSurface(
@@ -100,6 +108,21 @@ public static class DerivedTerrainSurfaceBuilder
             render.TriangleCount,
             renderSkirts.Count,
             renderBaseSnapCount);
+    }
+
+    private static NumericsVector3 ApplyRelief(
+        NumericsVector3 position,
+        bool useMacroRelief,
+        TerrainGroundReliefKind groundReliefKind)
+    {
+        var displaced = TerrainGroundRelief.ApplyAtLandformBase(position, groundReliefKind);
+        if (!useMacroRelief)
+        {
+            return displaced;
+        }
+
+        var macroDisplaced = ApplyMacroRelief(position);
+        return displaced + (macroDisplaced - position);
     }
 
     public static bool IsAuthoredTerrain(DebugTriangle triangle) =>

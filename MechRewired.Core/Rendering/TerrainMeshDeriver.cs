@@ -183,9 +183,22 @@ public static class TerrainMeshDeriver
         DerivedTerrainMesh terrain,
         float groundHeight,
         float maximumHeightAboveGround,
+        out int snappedVertexCount) =>
+        SnapLowExteriorVertices(
+            terrain,
+            _ => groundHeight,
+            maximumHeightAboveGround,
+            out snappedVertexCount);
+
+    /// <summary>Grounds derived exterior vertices against a varying floor-height field.</summary>
+    public static DerivedTerrainMesh SnapLowExteriorVertices(
+        DerivedTerrainMesh terrain,
+        Func<Vector3, float> groundHeightAt,
+        float maximumHeightAboveGround,
         out int snappedVertexCount)
     {
         ArgumentNullException.ThrowIfNull(terrain);
+        ArgumentNullException.ThrowIfNull(groundHeightAt);
         if (maximumHeightAboveGround <= 0.0f)
         {
             throw new ArgumentOutOfRangeException(nameof(maximumHeightAboveGround));
@@ -199,6 +212,7 @@ public static class TerrainMeshDeriver
         foreach (var index in boundaryVertices)
         {
             var vertex = vertices[index];
+            var groundHeight = groundHeightAt(vertex);
             if (vertex.Y <= groundHeight + 0.0001f ||
                 vertex.Y > groundHeight + maximumHeightAboveGround)
             {

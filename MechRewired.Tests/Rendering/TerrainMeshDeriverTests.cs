@@ -161,6 +161,35 @@ public sealed class TerrainMeshDeriverTests
     }
 
     [Test]
+    public void ElevatedExteriorEdgeFollowsVaryingGroundHeight()
+    {
+        var source = new TerrainSourceTriangle(
+            new Vector3(-2.0f, 2.0f, -1.0f),
+            new Vector3(0.0f, 4.0f, 2.0f),
+            new Vector3(2.0f, 2.0f, -1.0f));
+
+        var derived = TerrainMeshDeriver.Build(new[] { source }, subdivisions: 1);
+        var skirts = TerrainMeshBoundarySealer.BuildSkirts(
+            derived,
+            position => position.X * 0.25f);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(skirts, Has.Count.EqualTo(6));
+            Assert.That(
+                skirts.SelectMany(triangle => new[] { triangle.A, triangle.B, triangle.C })
+                    .Any(vertex => Math.Abs(vertex.Y - (-1.0f)) < 0.0001f),
+                Is.True,
+                "The low-X skirt endpoint should follow its local ground height and overlap it.");
+            Assert.That(
+                skirts.SelectMany(triangle => new[] { triangle.A, triangle.B, triangle.C })
+                    .Any(vertex => Math.Abs(vertex.Y) < 0.0001f),
+                Is.True,
+                "The high-X skirt endpoint should follow its different local ground height.");
+        });
+    }
+
+    [Test]
     public void LowExteriorVerticesAreSnappedToTheSharedGroundPlane()
     {
         var source = new TerrainSourceTriangle(
@@ -180,6 +209,29 @@ public sealed class TerrainMeshDeriverTests
             Assert.That(snappedCount, Is.EqualTo(2));
             Assert.That(snapped.Vertices.Count(vertex => Math.Abs(vertex.Y) < 0.0001f), Is.EqualTo(2));
             Assert.That(snapped.Vertices.Any(vertex => Math.Abs(vertex.Y - 4.0f) < 0.0001f), Is.True);
+        });
+    }
+
+    [Test]
+    public void LowExteriorVerticesFollowVaryingGroundHeight()
+    {
+        var source = new TerrainSourceTriangle(
+            new Vector3(-2.0f, 0.85f, -1.0f),
+            new Vector3(0.0f, 4.0f, 2.0f),
+            new Vector3(2.0f, 0.85f, -1.0f));
+
+        var derived = TerrainMeshDeriver.Build(new[] { source }, subdivisions: 1);
+        var snapped = TerrainMeshDeriver.SnapLowExteriorVertices(
+            derived,
+            position => position.X * 0.25f,
+            maximumHeightAboveGround: 2.0f,
+            out var snappedCount);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(snappedCount, Is.EqualTo(2));
+            Assert.That(snapped.Vertices.Any(vertex => Math.Abs(vertex.Y + 0.5f) < 0.0001f), Is.True);
+            Assert.That(snapped.Vertices.Any(vertex => Math.Abs(vertex.Y - 0.5f) < 0.0001f), Is.True);
         });
     }
 }

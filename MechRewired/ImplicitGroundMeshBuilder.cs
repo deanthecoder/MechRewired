@@ -28,9 +28,11 @@ public static class ImplicitGroundMeshBuilder
         Vector3 center,
         float groundHeight,
         Color color,
-        IEnumerable<DebugTriangle> terrainTriangles)
+        IEnumerable<DebugTriangle> terrainTriangles,
+        Func<NumericsVector2, float> groundHeightAt = null)
     {
         ArgumentNullException.ThrowIfNull(terrainTriangles);
+        var usesRelief = groundHeightAt != null;
         var terrain = terrainTriangles
             .Select(triangle => new TerrainHeightTriangle(
                 ToNumerics(triangle.A),
@@ -41,20 +43,22 @@ public static class ImplicitGroundMeshBuilder
         var cellsAcross = Mathf.Clamp(
             Mathf.CeilToInt(size.X / TargetVertexSpacingMetres),
             32,
-            256);
+            usesRelief ? 160 : 256);
         var cellsDeep = Mathf.Clamp(
             Mathf.CeilToInt(size.Y / TargetVertexSpacingMetres),
             32,
-            256);
+            usesRelief ? 160 : 256);
         var vertices = new Vector3[(cellsAcross + 1) * (cellsDeep + 1)];
         for (var z = 0; z <= cellsDeep; z++)
         {
             for (var x = 0; x <= cellsAcross; x++)
             {
-                vertices[GetVertexIndex(x, z)] = new Vector3(
+                var localPosition = new Vector3(
                     -size.X / 2.0f + size.X * x / cellsAcross,
                     0.0f,
                     -size.Y / 2.0f + size.Y * z / cellsDeep);
+                localPosition.Y = ResolveGroundHeight(localPosition) - groundHeight;
+                vertices[GetVertexIndex(x, z)] = localPosition;
             }
         }
 
@@ -77,9 +81,11 @@ public static class ImplicitGroundMeshBuilder
 
         var surfaceTool = new SurfaceTool();
         surfaceTool.Begin(Mesh.PrimitiveType.Triangles);
+        var stepX = size.X / cellsAcross;
+        var stepZ = size.Y / cellsDeep;
         foreach (var vertex in vertices)
         {
-            surfaceTool.SetNormal(Vector3.Up);
+            surfaceTool.SetNormal(CalculateGroundNormal(vertex, stepX, stepZ));
             surfaceTool.SetColor(color);
             surfaceTool.AddVertex(vertex);
         }
@@ -148,13 +154,41 @@ public static class ImplicitGroundMeshBuilder
                 center.X + localPosition.X,
                 center.Z + localPosition.Z);
             return terrainIndex.TryGetHeight(worldPosition, out var height, out _) &&
-                   height > groundHeight + CoveredHeightToleranceMetres;
+                   height > ResolveGroundHeight(localPosition) + CoveredHeightToleranceMetres;
         }
 
         NumericsVector3 ToWorld(Vector3 localPosition) => new(
             center.X + localPosition.X,
-            groundHeight,
+            groundHeight + localPosition.Y,
             center.Z + localPosition.Z);
+
+        float ResolveGroundHeight(Vector3 localPosition)
+        {
+            if (groundHeightAt == null)
+            {
+                return groundHeight;
+            }
+
+            return groundHeightAt(new NumericsVector2(
+                center.X + localPosition.X,
+                center.Z + localPosition.Z));
+        }
+
+        Vector3 CalculateGroundNormal(Vector3 localPosition, float sampleStepX, float sampleStepZ)
+        {
+            if (!usesRelief)
+            {
+                return Vector3.Up;
+            }
+
+            var left = ResolveGroundHeight(localPosition - Vector3.Right * sampleStepX);
+            var right = ResolveGroundHeight(localPosition + Vector3.Right * sampleStepX);
+            var back = ResolveGroundHeight(localPosition - Vector3.Back * sampleStepZ);
+            var front = ResolveGroundHeight(localPosition + Vector3.Back * sampleStepZ);
+            var slopeX = (right - left) / (sampleStepX * 2.0f);
+            var slopeZ = (front - back) / (sampleStepZ * 2.0f);
+            return new Vector3(-slopeX, 1.0f, -slopeZ).Normalized();
+        }
     }
 
     private static NumericsVector3 ToNumerics(Vector3 value) => new(value.X, value.Y, value.Z);

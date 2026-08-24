@@ -98,12 +98,79 @@ public partial class Main : Node3D
             return;
         }
 
+        if (TryGetRequestedCampaign(out var requestedCampaign))
+        {
+            GD.Print($"MechRewired: launching {requestedCampaign} directly from the command line.");
+            StartCampaign(archive, requestedCampaign);
+            return;
+        }
+
         var clanSelection = new ClanSelectionScreen(archive)
         {
             Name = "ClanSelection"
         };
         clanSelection.CampaignSelected += campaign => StartCampaign(archive, campaign);
         AddChild(clanSelection);
+    }
+
+    private static bool TryGetRequestedCampaign(out ClanCampaignSelection campaign)
+    {
+        var arguments = OS.GetCmdlineUserArgs();
+        for (var index = 0; index < arguments.Length; index++)
+        {
+            var argument = arguments[index];
+            if (string.Equals(argument, "--jade", StringComparison.OrdinalIgnoreCase))
+            {
+                campaign = ClanCampaignSelection.JadeFalcon;
+                return true;
+            }
+
+            if (string.Equals(argument, "--wolf", StringComparison.OrdinalIgnoreCase))
+            {
+                campaign = ClanCampaignSelection.Wolf;
+                return true;
+            }
+
+            const string assignmentPrefix = "--campaign=";
+            if (argument.StartsWith(assignmentPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return TryParseCampaignName(argument[assignmentPrefix.Length..], out campaign);
+            }
+
+            if (!string.Equals(argument, "--campaign", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (index + 1 < arguments.Length &&
+                TryParseCampaignName(arguments[index + 1], out campaign))
+            {
+                return true;
+            }
+
+            GD.PushWarning(
+                "MechRewired: --campaign expects 'jade' or 'wolf'; showing clan selection.");
+            campaign = ClanCampaignSelection.None;
+            return false;
+        }
+
+        campaign = ClanCampaignSelection.None;
+        return false;
+    }
+
+    private static bool TryParseCampaignName(
+        string name,
+        out ClanCampaignSelection campaign)
+    {
+        campaign = name.Trim().ToLowerInvariant() switch
+        {
+            "jade" or "jadefalcon" or "jade-falcon" or "falcon" or "pink" =>
+                ClanCampaignSelection.JadeFalcon,
+            "wolf" or "wolfclan" or "wolf-clan" or "colmar" or "yellow" =>
+                ClanCampaignSelection.Wolf,
+            _ => ClanCampaignSelection.None
+        };
+        return campaign != ClanCampaignSelection.None;
     }
 
     private void StartCampaign(MechWarriorProjectArchive archive, ClanCampaignSelection campaign)
@@ -1148,12 +1215,14 @@ public partial class Main : Node3D
     {
         var terrainBiome = level.TerrainBiome;
         var usesDesertTerrain = terrainBiome == MechWarriorTerrainBiome.Desert;
-        var atmosphericVisibilityRange = CalculateDepthCueDistance(
+        var atmosphericVisibilityRange = CalculateVisibilityDistance(planet.ViewDistance);
+        var atmosphericDepthCueRange = CalculateDepthCueDistance(
             planet.Lighting?.ShadeDistance,
-            planet.ViewDistance);
+            atmosphericVisibilityRange);
         var skyProfile = MissionSkyProfile.FromWorld(
             planet,
             palette,
+            atmosphericDepthCueRange,
             atmosphericVisibilityRange,
             SkyTopPaletteIndex,
             SkyHorizonPaletteIndex,
@@ -1163,7 +1232,8 @@ public partial class Main : Node3D
         GD.Print(
             $"MechRewired: rendered Sky3D mission atmosphere ({missionSky.Describe()}; " +
             $"palette sky {SkyTopPaletteIndex}-{SkyHorizonPaletteIndex}; LITE ambient " +
-            $"{skyProfile.AuthoredAmbientLevel:F2}; authored depth cue {atmosphericVisibilityRange:F0}m; " +
+            $"{skyProfile.AuthoredAmbientLevel:F2}; authored depth cue {atmosphericDepthCueRange:F0}m; " +
+            $"view distance {atmosphericVisibilityRange:F0}m; " +
             $"INIT sun time {skyProfile.TimeOfDay:F2}h; sky tint {skyProfile.SkyTopColor}; " +
             $"horizon tint {skyProfile.HorizonColor}).");
 
@@ -1558,6 +1628,7 @@ public partial class Main : Node3D
                 terrainWireframeMaterial,
                 terrainDiagnostics,
                 useMacroRelief: true,
+                groundReliefKind: TerrainGroundReliefKind.Desert,
                 snapLowExteriorVertices: true,
                 sealToImplicitGround: true);
             groundCoverageTriangles = derivedTerrain.CollisionTriangles;
@@ -1581,12 +1652,15 @@ public partial class Main : Node3D
                     rockyGroundColor),
                 terrainDiagnostics,
                 useMacroRelief: false,
+                groundReliefKind: TerrainGroundReliefKind.Rocky,
                 snapLowExteriorVertices: false,
                 sealToImplicitGround: true);
             groundCoverageTriangles = derivedTerrain.CollisionTriangles;
             GD.Print(
                 "MechRewired: extracted only the original mountain landforms' upward surfaces; " +
-                "desert macro relief is disabled and exterior edges are sealed to the shared ground.");
+                $"applied up to {TerrainGroundRelief.RockyMaximumAmplitudeMetres:F2}m of broad ground " +
+                $"relief fading out over the lowest {TerrainGroundRelief.RockyBaseFadeEndMetres:F0}m, " +
+                "and sealed exterior edges to the same height field.");
         }
 
         foreach (var sourceTerrainRoot in sourceTerrainRoots)
@@ -2768,19 +2842,22 @@ public partial class Main : Node3D
         return bounds;
     }
 
-    private static float CalculateDepthCueDistance(float? shadeDistance, float? viewDistance)
-    {
-        var visibleDistance = Mathf.Clamp(
+    private static float CalculateVisibilityDistance(float? viewDistance) =>
+        Mathf.Clamp(
             viewDistance ?? DefaultFogDistance,
             MinimumFogDistance,
             MaximumFogDistance);
+
+    private static float CalculateDepthCueDistance(float? shadeDistance, float visibilityDistance)
+    {
         var depthCueDistance = shadeDistance is > 0.0f
-            ? Mathf.Min(shadeDistance.Value, visibleDistance)
-            : visibleDistance;
+            ? Mathf.Min(shadeDistance.Value, visibilityDistance)
+            : visibilityDistance;
 
         // MW2 applies its palette depth cue from the viewer outward. The authored LITE shade
         // distance controls when terrain has fully converged on the horizon colour. Sky3D maps
-        // this range to its screen-space fog; VDIST remains the outer visibility limit.
+        // this range to its screen-space fog; VDIST remains the outer visibility limit and can
+        // provide a less aggressive endpoint for biomes without airborne sand.
         return depthCueDistance;
     }
 
@@ -3058,12 +3135,19 @@ public partial class Main : Node3D
             : TerrainSurfaceKind.RockyGround;
         var center = worldBounds.GetCenter();
         var size = new Vector2(worldBounds.Size.X + margin * 2.0f, worldBounds.Size.Z + margin * 2.0f);
+        var groundReliefKind = usesDesertTerrain
+            ? TerrainGroundReliefKind.Desert
+            : TerrainGroundReliefKind.Rocky;
+        Func<System.Numerics.Vector2, float> groundHeightAt = position =>
+            DerivedTerrainSurfaceBuilder.ImplicitGroundHeight +
+            TerrainGroundRelief.SampleOffset(position, groundReliefKind);
         var sparseGround = ImplicitGroundMeshBuilder.Build(
             size,
             center,
             DerivedTerrainSurfaceBuilder.ImplicitGroundHeight,
             groundColor,
-            terrainTriangles);
+            terrainTriangles,
+            groundHeightAt);
         var ground = new MeshInstance3D
         {
             Name = "ImplicitGround",
@@ -3102,27 +3186,14 @@ public partial class Main : Node3D
             center,
             DerivedTerrainSurfaceBuilder.ImplicitGroundHeight,
             rawGroundColor,
-            terrainTriangles);
+            terrainTriangles,
+            groundHeightAt);
         terrainDiagnostics.Register(
             ground,
             rawSparseGround.Mesh,
             sparseGround.Mesh);
 #endif
 
-        var minimum = new Vector3(
-            center.X - size.X / 2.0f,
-            DerivedTerrainSurfaceBuilder.ImplicitGroundHeight,
-            center.Z - size.Y / 2.0f);
-        var maximum = new Vector3(
-            center.X + size.X / 2.0f,
-            DerivedTerrainSurfaceBuilder.ImplicitGroundHeight,
-            center.Z + size.Y / 2.0f);
-        var cornerA = new Vector3(minimum.X, DerivedTerrainSurfaceBuilder.ImplicitGroundHeight, minimum.Z);
-        var cornerB = new Vector3(maximum.X, DerivedTerrainSurfaceBuilder.ImplicitGroundHeight, minimum.Z);
-        var cornerC = new Vector3(maximum.X, DerivedTerrainSurfaceBuilder.ImplicitGroundHeight, maximum.Z);
-        var cornerD = new Vector3(minimum.X, DerivedTerrainSurfaceBuilder.ImplicitGroundHeight, maximum.Z);
-        debugTriangles.Add(new DebugTriangle("IMPLICIT/GROUND", "IMPLICIT/GROUND", -1, 0, 0, cornerA, cornerB, cornerC));
-        debugTriangles.Add(new DebugTriangle("IMPLICIT/GROUND", "IMPLICIT/GROUND", -1, 0, 1, cornerA, cornerC, cornerD));
         var renderedGroundTriangles = sparseGround.WorldTriangles
             .Select((triangle, index) => new DebugTriangle(
                 "IMPLICIT/GROUND_RENDER",
@@ -3134,14 +3205,26 @@ public partial class Main : Node3D
                 new Vector3(triangle.B.X, triangle.B.Y, triangle.B.Z),
                 new Vector3(triangle.C.X, triangle.C.Y, triangle.C.Z)))
             .ToArray();
+        foreach (var (triangle, index) in renderedGroundTriangles.Select((triangle, index) => (triangle, index)))
+        {
+            debugTriangles.Add(triangle with
+            {
+                ResourcePath = "IMPLICIT/GROUND",
+                SourceResourcePath = "IMPLICIT/GROUND",
+                PolygonIndex = index
+            });
+        }
+
         GD.Print(
-            $"MechRewired: added sparse implicit ground plane at Y={DerivedTerrainSurfaceBuilder.ImplicitGroundHeight:F2} " +
+            $"MechRewired: added sparse implicit ground field centred at " +
+            $"Y={DerivedTerrainSurfaceBuilder.ImplicitGroundHeight:F2} " +
             $"({size.X:F0} × {size.Y:F0}; surface RGB " +
             $"({(usesDesertTerrain ? TerrainSurfaceMaterial.DesertBaseColor : groundColor).R8}, " +
             $"{(usesDesertTerrain ? TerrainSurfaceMaterial.DesertBaseColor : groundColor).G8}, " +
             $"{(usesDesertTerrain ? TerrainSurfaceMaterial.DesertBaseColor : groundColor).B8}); " +
             $"source palette diagnostic index " +
             $"{representativePaletteIndex}, RGB ({groundColor.R8}, {groundColor.G8}, {groundColor.B8}); " +
+            $"relief ±{TerrainGroundRelief.MaximumAmplitude(groundReliefKind):F2}m; " +
             $"removed {sparseGround.RemovedTriangleCount:N0} covered triangles, retained " +
             $"{sparseGround.TriangleCount:N0}).");
         return renderedGroundTriangles;
@@ -3154,6 +3237,7 @@ public partial class Main : Node3D
         ShaderMaterial terrainWireframeMaterial,
         TerrainDiagnostics terrainDiagnostics,
         bool useMacroRelief,
+        TerrainGroundReliefKind groundReliefKind,
         bool snapLowExteriorVertices,
         bool sealToImplicitGround)
     {
@@ -3161,6 +3245,7 @@ public partial class Main : Node3D
         var derived = DerivedTerrainSurfaceBuilder.Build(
             sceneTriangles,
             useMacroRelief,
+            groundReliefKind,
             snapLowExteriorVertices,
             sealToImplicitGround);
         if (derived.RenderMesh.GetSurfaceCount() == 0)

@@ -85,18 +85,30 @@ public static class TerrainSurfaceMaterial
         "res://Assets/Textures/Terrain/Rocks021/Rocks021_1K-PNG_Roughness.png";
     private const string StoneHeightPath =
         "res://Assets/Textures/Terrain/Rocks021/Rocks021_1K-PNG_Displacement.png";
-    private const string RockyGroundColorPath =
+    private const string RockyGroundPrimaryColorPath =
         "res://Assets/Textures/Terrain/Ground085/Ground085_1K-PNG_Color.png";
-    private const string RockyGroundNormalPath =
+    private const string RockyGroundPrimaryNormalPath =
         "res://Assets/Textures/Terrain/Ground085/Ground085_1K-PNG_NormalGL.png";
-    private const string RockyGroundRoughnessPath =
+    private const string RockyGroundPrimaryRoughnessPath =
         "res://Assets/Textures/Terrain/Ground085/Ground085_1K-PNG_Roughness.png";
-    private const string MountainRockColorPath =
-        "res://Assets/Textures/Terrain/Rock052/Rock052_1K-PNG_Color.png";
-    private const string MountainRockNormalPath =
-        "res://Assets/Textures/Terrain/Rock052/Rock052_1K-PNG_NormalGL.png";
-    private const string MountainRockRoughnessPath =
-        "res://Assets/Textures/Terrain/Rock052/Rock052_1K-PNG_Roughness.png";
+    private const string RockyGroundSecondaryColorPath =
+        "res://Assets/Textures/Terrain/Ground067/Ground067_1K-PNG_Color.png";
+    private const string RockyGroundSecondaryNormalPath =
+        "res://Assets/Textures/Terrain/Ground067/Ground067_1K-PNG_NormalGL.png";
+    private const string RockyGroundSecondaryRoughnessPath =
+        "res://Assets/Textures/Terrain/Ground067/Ground067_1K-PNG_Roughness.png";
+    private const string MountainRockPrimaryColorPath =
+        "res://Assets/Textures/Terrain/Rock050/Rock050_1K-PNG_Color.png";
+    private const string MountainRockPrimaryNormalPath =
+        "res://Assets/Textures/Terrain/Rock050/Rock050_1K-PNG_NormalGL.png";
+    private const string MountainRockPrimaryRoughnessPath =
+        "res://Assets/Textures/Terrain/Rock050/Rock050_1K-PNG_Roughness.png";
+    private const string MountainRockVerticalColorPath =
+        "res://Assets/Textures/Terrain/Rock030/Rock030_1K-PNG_Color.png";
+    private const string MountainRockVerticalNormalPath =
+        "res://Assets/Textures/Terrain/Rock030/Rock030_1K-PNG_NormalGL.png";
+    private const string MountainRockVerticalRoughnessPath =
+        "res://Assets/Textures/Terrain/Rock030/Rock030_1K-PNG_Roughness.png";
 
     /// <summary>
     /// Creates one terrain material using the remastered biome colour unless an explicit tint is supplied.
@@ -113,12 +125,42 @@ public static class TerrainSurfaceMaterial
         material.SetShaderParameter("albedo_tint", albedoTint ?? DesertBaseColor);
         if (!useDesertDetails)
         {
-            material.SetShaderParameter("ground_color", GD.Load<Texture2D>(RockyGroundColorPath));
-            material.SetShaderParameter("ground_normal", GD.Load<Texture2D>(RockyGroundNormalPath));
-            material.SetShaderParameter("ground_roughness", GD.Load<Texture2D>(RockyGroundRoughnessPath));
-            material.SetShaderParameter("mountain_color", GD.Load<Texture2D>(MountainRockColorPath));
-            material.SetShaderParameter("mountain_normal", GD.Load<Texture2D>(MountainRockNormalPath));
-            material.SetShaderParameter("mountain_roughness", GD.Load<Texture2D>(MountainRockRoughnessPath));
+            material.SetShaderParameter(
+                "ground_primary_color",
+                GD.Load<Texture2D>(RockyGroundPrimaryColorPath));
+            material.SetShaderParameter(
+                "ground_primary_normal",
+                GD.Load<Texture2D>(RockyGroundPrimaryNormalPath));
+            material.SetShaderParameter(
+                "ground_primary_roughness",
+                GD.Load<Texture2D>(RockyGroundPrimaryRoughnessPath));
+            material.SetShaderParameter(
+                "ground_secondary_color",
+                GD.Load<Texture2D>(RockyGroundSecondaryColorPath));
+            material.SetShaderParameter(
+                "ground_secondary_normal",
+                GD.Load<Texture2D>(RockyGroundSecondaryNormalPath));
+            material.SetShaderParameter(
+                "ground_secondary_roughness",
+                GD.Load<Texture2D>(RockyGroundSecondaryRoughnessPath));
+            material.SetShaderParameter(
+                "mountain_primary_color",
+                GD.Load<Texture2D>(MountainRockPrimaryColorPath));
+            material.SetShaderParameter(
+                "mountain_primary_normal",
+                GD.Load<Texture2D>(MountainRockPrimaryNormalPath));
+            material.SetShaderParameter(
+                "mountain_primary_roughness",
+                GD.Load<Texture2D>(MountainRockPrimaryRoughnessPath));
+            material.SetShaderParameter(
+                "mountain_vertical_color",
+                GD.Load<Texture2D>(MountainRockVerticalColorPath));
+            material.SetShaderParameter(
+                "mountain_vertical_normal",
+                GD.Load<Texture2D>(MountainRockVerticalNormalPath));
+            material.SetShaderParameter(
+                "mountain_vertical_roughness",
+                GD.Load<Texture2D>(MountainRockVerticalRoughnessPath));
             material.SetShaderParameter(
                 "mountain_surface",
                 surfaceKind == TerrainSurfaceKind.RockyMountain ? 1.0f : 0.0f);
@@ -195,16 +237,24 @@ public static class TerrainSurfaceMaterial
         // direction is not a reliable indication of which side a cockpit can approach from.
         render_mode cull_disabled;
 
-        uniform sampler2D ground_color : source_color, repeat_enable, filter_linear_mipmap_anisotropic;
-        uniform sampler2D ground_normal : hint_normal, repeat_enable, filter_linear_mipmap_anisotropic;
-        uniform sampler2D ground_roughness : repeat_enable, filter_linear_mipmap_anisotropic;
-        uniform sampler2D mountain_color : source_color, repeat_enable, filter_linear_mipmap_anisotropic;
-        uniform sampler2D mountain_normal : hint_normal, repeat_enable, filter_linear_mipmap_anisotropic;
-        uniform sampler2D mountain_roughness : repeat_enable, filter_linear_mipmap_anisotropic;
+        uniform sampler2D ground_primary_color : source_color, repeat_enable, filter_linear_mipmap_anisotropic;
+        uniform sampler2D ground_primary_normal : hint_normal, repeat_enable, filter_linear_mipmap_anisotropic;
+        uniform sampler2D ground_primary_roughness : repeat_enable, filter_linear_mipmap_anisotropic;
+        uniform sampler2D ground_secondary_color : source_color, repeat_enable, filter_linear_mipmap_anisotropic;
+        uniform sampler2D ground_secondary_normal : hint_normal, repeat_enable, filter_linear_mipmap_anisotropic;
+        uniform sampler2D ground_secondary_roughness : repeat_enable, filter_linear_mipmap_anisotropic;
+        uniform sampler2D mountain_primary_color : source_color, repeat_enable, filter_linear_mipmap_anisotropic;
+        uniform sampler2D mountain_primary_normal : hint_normal, repeat_enable, filter_linear_mipmap_anisotropic;
+        uniform sampler2D mountain_primary_roughness : repeat_enable, filter_linear_mipmap_anisotropic;
+        uniform sampler2D mountain_vertical_color : source_color, repeat_enable, filter_linear_mipmap_anisotropic;
+        uniform sampler2D mountain_vertical_normal : hint_normal, repeat_enable, filter_linear_mipmap_anisotropic;
+        uniform sampler2D mountain_vertical_roughness : repeat_enable, filter_linear_mipmap_anisotropic;
         uniform vec4 albedo_tint : source_color = vec4(1.0);
         uniform float mountain_surface = 0.0;
-        uniform float ground_texture_scale = 0.105;
-        uniform float mountain_texture_scale = 0.072;
+        uniform float ground_primary_texture_scale = 0.038;
+        uniform float ground_secondary_texture_scale = 0.030;
+        uniform float mountain_primary_texture_scale = 0.046;
+        uniform float mountain_vertical_texture_scale = 0.034;
         uniform float normal_strength = 0.20;
         uniform float macro_variation_strength = 0.065;
         uniform float upward_lighting_compensation = 0.48;
@@ -285,15 +335,80 @@ public static class TerrainSurfaceMaterial
         void fragment() {
             vec3 geometric_normal = normalize(world_geometric_normal);
             vec3 weights = triplanar_weights(geometric_normal);
-            vec3 ground_position = world_position * ground_texture_scale;
-            vec3 mountain_position = world_position * mountain_texture_scale;
+            vec3 ground_primary_position = world_position * ground_primary_texture_scale;
+            vec3 ground_secondary_position = world_position * ground_secondary_texture_scale;
+            vec3 mountain_primary_position = world_position * mountain_primary_texture_scale;
+            // Rock030's vertical coordinate is intentionally stretched. Its long strata read as
+            // one formation instead of repeating in square stamps on tall cliff faces.
+            vec3 mountain_vertical_position = world_position * vec3(
+                mountain_vertical_texture_scale,
+                mountain_vertical_texture_scale * 0.48,
+                mountain_vertical_texture_scale);
             float steepness = 1.0 - clamp(abs(geometric_normal.y), 0.0, 1.0);
             float rock_blend = mountain_surface * smoothstep(0.10, 0.58, steepness);
+            float ground_patch = smoothstep(
+                0.34,
+                0.70,
+                layered_noise(world_position.xz * 0.011 + vec2(-31.0, 47.0)));
+            float ground_secondary_blend = (0.16 + ground_patch * 0.48) *
+                (1.0 - smoothstep(0.16, 0.48, steepness));
+            float vertical_patch = smoothstep(
+                0.30,
+                0.68,
+                layered_noise(world_position.xz * 0.006 + vec2(73.0, -19.0)));
+            float vertical_rock_blend = smoothstep(0.38, 0.82, steepness) *
+                (0.18 + vertical_patch * 0.64);
 
-            vec3 ground = sample_triplanar(ground_color, ground_position, weights, 0.0).rgb;
-            vec3 rock = sample_triplanar(mountain_color, mountain_position, weights, 0.0).rgb;
-            vec3 broad_ground = sample_triplanar(ground_color, ground_position, weights, 6.0).rgb;
-            vec3 broad_rock = sample_triplanar(mountain_color, mountain_position, weights, 6.0).rgb;
+            vec3 ground_primary = sample_triplanar(
+                ground_primary_color,
+                ground_primary_position,
+                weights,
+                0.0).rgb;
+            vec3 ground_secondary = sample_triplanar(
+                ground_secondary_color,
+                ground_secondary_position,
+                weights,
+                0.0).rgb;
+            vec3 mountain_primary = sample_triplanar(
+                mountain_primary_color,
+                mountain_primary_position,
+                weights,
+                0.0).rgb;
+            vec3 mountain_vertical = sample_triplanar(
+                mountain_vertical_color,
+                mountain_vertical_position,
+                weights,
+                0.0).rgb;
+            vec3 broad_ground_primary = sample_triplanar(
+                ground_primary_color,
+                ground_primary_position,
+                weights,
+                6.0).rgb;
+            vec3 broad_ground_secondary = sample_triplanar(
+                ground_secondary_color,
+                ground_secondary_position,
+                weights,
+                6.0).rgb;
+            vec3 broad_mountain_primary = sample_triplanar(
+                mountain_primary_color,
+                mountain_primary_position,
+                weights,
+                6.0).rgb;
+            vec3 broad_mountain_vertical = sample_triplanar(
+                mountain_vertical_color,
+                mountain_vertical_position,
+                weights,
+                6.0).rgb;
+            vec3 ground = mix(ground_primary, ground_secondary, ground_secondary_blend);
+            vec3 rock = mix(mountain_primary, mountain_vertical, vertical_rock_blend);
+            vec3 broad_ground = mix(
+                broad_ground_primary,
+                broad_ground_secondary,
+                ground_secondary_blend);
+            vec3 broad_rock = mix(
+                broad_mountain_primary,
+                broad_mountain_vertical,
+                vertical_rock_blend);
             vec3 surface = mix(ground, rock, rock_blend);
             vec3 broad_surface = mix(broad_ground, broad_rock, rock_blend);
 
@@ -325,32 +440,68 @@ public static class TerrainSurfaceMaterial
             float upward_exposure = 1.0 - upward_face * upward_lighting_compensation;
             ALBEDO = albedo_tint.rgb * detail_color * (1.0 + variation) * upward_exposure;
 
-            vec3 ground_world_normal = sample_triplanar_normal(
-                ground_normal,
-                ground_position,
+            vec3 ground_primary_world_normal = sample_triplanar_normal(
+                ground_primary_normal,
+                ground_primary_position,
                 geometric_normal,
                 weights);
-            vec3 mountain_world_normal = sample_triplanar_normal(
-                mountain_normal,
-                mountain_position,
+            vec3 ground_secondary_world_normal = sample_triplanar_normal(
+                ground_secondary_normal,
+                ground_secondary_position,
                 geometric_normal,
                 weights);
+            vec3 mountain_primary_world_normal = sample_triplanar_normal(
+                mountain_primary_normal,
+                mountain_primary_position,
+                geometric_normal,
+                weights);
+            vec3 mountain_vertical_world_normal = sample_triplanar_normal(
+                mountain_vertical_normal,
+                mountain_vertical_position,
+                geometric_normal,
+                weights);
+            vec3 ground_world_normal = normalize(mix(
+                ground_primary_world_normal,
+                ground_secondary_world_normal,
+                ground_secondary_blend));
+            vec3 mountain_world_normal = normalize(mix(
+                mountain_primary_world_normal,
+                mountain_vertical_world_normal,
+                vertical_rock_blend));
             vec3 detail_world_normal = normalize(mix(
                 ground_world_normal,
                 mountain_world_normal,
                 rock_blend));
             NORMAL = normalize((VIEW_MATRIX * vec4(detail_world_normal, 0.0)).xyz);
 
-            float ground_surface_roughness = sample_triplanar(
-                ground_roughness,
-                ground_position,
+            float ground_primary_surface_roughness = sample_triplanar(
+                ground_primary_roughness,
+                ground_primary_position,
                 weights,
                 0.0).r;
-            float mountain_surface_roughness = sample_triplanar(
-                mountain_roughness,
-                mountain_position,
+            float ground_secondary_surface_roughness = sample_triplanar(
+                ground_secondary_roughness,
+                ground_secondary_position,
                 weights,
                 0.0).r;
+            float mountain_primary_surface_roughness = sample_triplanar(
+                mountain_primary_roughness,
+                mountain_primary_position,
+                weights,
+                0.0).r;
+            float mountain_vertical_surface_roughness = sample_triplanar(
+                mountain_vertical_roughness,
+                mountain_vertical_position,
+                weights,
+                0.0).r;
+            float ground_surface_roughness = mix(
+                ground_primary_surface_roughness,
+                ground_secondary_surface_roughness,
+                ground_secondary_blend);
+            float mountain_surface_roughness = mix(
+                mountain_primary_surface_roughness,
+                mountain_vertical_surface_roughness,
+                vertical_rock_blend);
             ROUGHNESS = clamp(
                 mix(ground_surface_roughness, mountain_surface_roughness, rock_blend),
                 0.88,
