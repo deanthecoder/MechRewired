@@ -36,6 +36,9 @@ public partial class PlayerMech : Node3D
     private const float CockpitRelativeVerticalGait = 0.055f;
     private const float CockpitRelativeLateralGait = 0.034f;
     private const float CockpitRelativeRollGait = 0.016f;
+    private const float AllowedFootTerrainPenetrationMeters = 0.04f;
+    private const float GroundClearanceRiseMetersPerSecond = 4.0f;
+    private const float GroundClearanceSettleMetersPerSecond = 1.0f;
     private const float CockpitTorsoYawFactor = 0.08f;
     private const float CockpitPitchDegrees = -19.0f;
     private const float MotorSettleSeconds = 0.15f;
@@ -73,6 +76,7 @@ public partial class PlayerMech : Node3D
     private bool m_displayZoomMoving;
     private float m_damageShudderRemaining;
     private float m_damageShudderStrength;
+    private float m_gaitGroundElevation;
     private int m_nextDamageImpact;
     private bool m_shutdown;
     private bool m_shutdownOverride;
@@ -512,6 +516,9 @@ public partial class PlayerMech : Node3D
     public bool RegisterGaitPart(Node3D node, string partName) =>
         m_mechRig.RegisterPart(node, partName);
 
+    public void RegisterGaitFootMesh(MeshInstance3D mesh, string partName) =>
+        m_mechRig.RegisterFootMesh(mesh, partName);
+
     public void RegisterDestructiblePart(MeshInstance3D mesh, string partName)
     {
         ArgumentNullException.ThrowIfNull(mesh);
@@ -542,6 +549,7 @@ public partial class PlayerMech : Node3D
         ArgumentNullException.ThrowIfNull(sceneryObstacleProvider);
         m_localBounds = modelBounds;
         m_modelBottomY = modelBounds.Position.Y;
+        m_gaitGroundElevation = 0.0f;
         m_footprintRadius = Mathf.Max(modelBounds.Size.X, modelBounds.Size.Z) * 0.35f;
         m_terrainSurface = terrainSurface;
         m_sceneryObstacleProvider = sceneryObstacleProvider;
@@ -1256,7 +1264,7 @@ public partial class PlayerMech : Node3D
     {
         if (CockpitCamera.Current)
         {
-            var center = ToGlobal(m_localBounds.GetCenter());
+            var center = GetStaticChassisCenter();
             m_externalCameraYaw = GlobalRotation.Y + m_torsoYaw;
             m_externalCameraDistance = 0.0f;
             m_externalCameraWorldHeight = center.Y;
@@ -1284,7 +1292,7 @@ public partial class PlayerMech : Node3D
             return;
         }
 
-        var center = ToGlobal(m_localBounds.GetCenter());
+        var center = GetStaticChassisCenter();
         var targetYaw = GlobalRotation.Y + m_torsoYaw;
         var orbitBlend = 1.0f - Mathf.Exp(-ExternalCameraOrbitResponse * delta);
         m_externalCameraYaw = Mathf.LerpAngle(m_externalCameraYaw, targetYaw, orbitBlend);
@@ -1307,6 +1315,9 @@ public partial class PlayerMech : Node3D
             center.Z + backwards.Z * m_externalCameraDistance);
         ExternalCamera.LookAt(center + Vector3.Up * 2.0f);
     }
+
+    private Vector3 GetStaticChassisCenter() =>
+        ToGlobal(m_localBounds.GetCenter()) - Vector3.Up * m_gaitGroundElevation;
 
     private void AlignLegsToTorso()
     {
@@ -1372,7 +1383,7 @@ public partial class PlayerMech : Node3D
             var depenetratedPosition = new Vector3(resolvedPosition.X, Position.Y, resolvedPosition.Y);
             if (TryGetSurface(depenetratedPosition, out var resolvedSurfaceHeight, out _))
             {
-                depenetratedPosition.Y = resolvedSurfaceHeight - m_modelBottomY;
+                depenetratedPosition.Y = resolvedSurfaceHeight - m_modelBottomY + m_gaitGroundElevation;
                 Position = depenetratedPosition;
                 GD.Print(
                     $"MechRewired: moved PlayerMech out of overlapping scenery " +
@@ -1439,7 +1450,7 @@ public partial class PlayerMech : Node3D
         m_slopeBlocked = false;
         m_sceneryBlocked = false;
         m_lastBlockingObstacle = null;
-        candidate.Y = surfaceHeight - m_modelBottomY;
+        candidate.Y = surfaceHeight - m_modelBottomY + m_gaitGroundElevation;
         Position = candidate;
         return appliedDistance;
     }
@@ -1475,6 +1486,7 @@ public partial class PlayerMech : Node3D
         {
             PlayFootfall();
         }
+        ApplyGaitGroundClearance(delta);
 
         var gaitPhase = m_mechRig.Phase;
         var gaitWeight = m_mechRig.Weight;
@@ -1498,6 +1510,28 @@ public partial class PlayerMech : Node3D
             m_torsoYaw * CockpitTorsoYawFactor,
             viewOffset + cockpitRelativeOffset,
             roll + cockpitRelativeRoll);
+    }
+
+    private void ApplyGaitGroundClearance(float delta)
+    {
+        if (m_terrainSurface == null)
+        {
+            return;
+        }
+
+        var targetElevation = m_mechRig.CalculateRequiredChassisElevation(
+            position => m_terrainSurface.TryGetHeight(position, out var height) ? height : null,
+            m_gaitGroundElevation,
+            AllowedFootTerrainPenetrationMeters);
+        var adjustmentRate = targetElevation > m_gaitGroundElevation
+            ? GroundClearanceRiseMetersPerSecond
+            : GroundClearanceSettleMetersPerSecond;
+        var adjustedElevation = Mathf.MoveToward(
+            m_gaitGroundElevation,
+            targetElevation,
+            adjustmentRate * delta);
+        Position += Vector3.Up * (adjustedElevation - m_gaitGroundElevation);
+        m_gaitGroundElevation = adjustedElevation;
     }
 
     private void ApplyDamageShudder(float delta)

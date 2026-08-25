@@ -40,9 +40,11 @@ public sealed class MechWarriorMechChassisTests
         Assert.That(chassis.Objects[0].Id, Is.EqualTo(0));
         Assert.That(chassis.Objects[0].ModelResourceIndex, Is.EqualTo(100));
         Assert.That(chassis.Objects[0].Transform.Translation, Is.EqualTo(new Vector3(10.0f, 0.0f, -5.0f)));
+        Assert.That(chassis.Objects[0].LocalTransform.Translation, Is.EqualTo(new Vector3(10.0f, 0.0f, -5.0f)));
         Assert.That(chassis.Objects[1].Id, Is.EqualTo(1));
         Assert.That(chassis.Objects[1].ModelResourceIndex, Is.EqualTo(101));
         Assert.That(chassis.Objects[1].Transform.Translation, Is.EqualTo(new Vector3(10.0f, 2.0f, -2.0f)));
+        Assert.That(chassis.Objects[1].LocalTransform.Translation, Is.EqualTo(new Vector3(0.0f, 2.0f, 3.0f)));
         Assert.That(chassis.Objects.Select(worldObject => worldObject.Id), Does.Not.Contain(2));
         Assert.That(chassis.ThingObjectIds, Is.EqualTo(new[] { 1 }));
         Assert.That(chassis.PointsOfFire, Is.EqualTo(new[] { new MechWarriorPointOfFire(1, 7) }));

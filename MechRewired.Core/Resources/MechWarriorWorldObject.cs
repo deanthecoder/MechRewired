@@ -22,4 +22,5 @@ public sealed record MechWarriorWorldObject(
     int CollisionType,
     int ObjectType,
     int ModelResourceIndex,
-    MechWarriorWorldTransform Transform);
+    MechWarriorWorldTransform Transform,
+    MechWarriorWorldTransform LocalTransform = null);

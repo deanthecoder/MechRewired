@@ -74,6 +74,7 @@ public partial class Main : Node3D
     ];
 
     private BattlefieldEffects m_battlefieldEffects;
+    private static ClanCampaignSelection s_pendingCampaignRestart;
 #if DEBUG
     private Node m_debugConsole;
     private PlayerHud m_debugHud;
@@ -95,6 +96,15 @@ public partial class Main : Node3D
 #endif
         if (!TryOpenGameArchive(out var archive))
         {
+            return;
+        }
+
+        if (s_pendingCampaignRestart != ClanCampaignSelection.None)
+        {
+            var restartCampaign = s_pendingCampaignRestart;
+            s_pendingCampaignRestart = ClanCampaignSelection.None;
+            GD.Print($"MechRewired: restarting {restartCampaign} campaign from the debug console.");
+            StartCampaign(archive, restartCampaign);
             return;
         }
 
@@ -270,7 +280,29 @@ public partial class Main : Node3D
             0,
             0,
             "Reports the MechRewired application version.");
+        m_debugConsole.Call(
+            "add_command",
+            "falcon",
+            Callable.From(() => RestartCampaign(ClanCampaignSelection.JadeFalcon)),
+            0,
+            0,
+            "Restarts directly into the Jade Falcon first mission.");
+        m_debugConsole.Call(
+            "add_command",
+            "wolf",
+            Callable.From(() => RestartCampaign(ClanCampaignSelection.Wolf)),
+            0,
+            0,
+            "Restarts directly into the Wolf first mission.");
     }
+
+    private void RestartCampaign(ClanCampaignSelection campaign)
+    {
+        s_pendingCampaignRestart = campaign;
+        CallDeferred(nameof(ReloadCurrentScene));
+    }
+
+    private void ReloadCurrentScene() => GetTree().ReloadCurrentScene();
 
     private void RegisterDebugConsoleHud(PlayerHud playerHud)
     {
@@ -1785,6 +1817,11 @@ public partial class Main : Node3D
                 playerObjectsById[playerTorsoObjectId].Transform.Translation)
             : Vector3.Zero;
         playerMech.Torso.Position = playerTorsoPivot;
+        var playerPartRoots = BuildChassisObjectHierarchy(
+            playerChassis,
+            playerMech.Legs,
+            playerMech.Torso,
+            playerTorsoObjectId);
         foreach (var chassisObject in playerChassis.Objects.Where(chassisObject =>
                      chassisObject.ModelResourceIndex >= 0))
         {
@@ -1806,15 +1843,7 @@ public partial class Main : Node3D
                 model.Polygons.Select(polygon => polygon.MaterialIndex),
                 playerUsesJadeFalconDecals,
                 isDecalModel);
-            var isTorsoPart = playerTorsoObjectId != 0 &&
-                              IsDescendantOf(chassisObject.Id, playerTorsoObjectId, playerObjectsById);
-            var partPosition = MechWarriorCoordinateSystem.ToGodotPosition(
-                chassisObject.Transform.Translation);
-            var localPosition = isTorsoPart ? partPosition - playerTorsoPivot : partPosition;
-            var partRotation = MechWarriorCoordinateSystem.ToGodotRotation(
-                chassisObject.Transform.RotationDegrees);
-            var partScale = MechWarriorCoordinateSystem.ToGodotScale(chassisObject.Transform.Scale);
-            var partParent = isTorsoPart ? playerMech.Torso : playerMech.Legs;
+            var partRoot = playerPartRoots[chassisObject.Id];
             var renderMesh = MechWarriorModelMeshBuilder.Build(
                 model,
                 palette,
@@ -1834,16 +1863,14 @@ public partial class Main : Node3D
             {
                 Name = modelEntry.Name,
                 Mesh = renderMesh,
-                Position = localPosition,
-                RotationDegrees = partRotation,
-                Scale = partScale,
                 Layers = PlayerMech.ExteriorRenderLayer,
                 CastShadow = isDecalModel
                     ? GeometryInstance3D.ShadowCastingSetting.Off
                     : GeometryInstance3D.ShadowCastingSetting.DoubleSided
             };
-            partParent.AddChild(modelInstance);
-            playerMech.RegisterGaitPart(modelInstance, modelEntry.Name);
+            partRoot.AddChild(modelInstance);
+            playerMech.RegisterGaitPart(partRoot, modelEntry.Name);
+            playerMech.RegisterGaitFootMesh(modelInstance, modelEntry.Name);
             playerMech.RegisterDestructiblePart(modelInstance, modelEntry.Name);
             modelInstance.AddToGroup(DebugCamera.SolidMeshGroup);
 
@@ -1851,19 +1878,13 @@ public partial class Main : Node3D
             {
                 Name = $"{modelEntry.Name}Wireframe",
                 Mesh = MechWarriorModelMeshBuilder.BuildWireframe(model),
-                Position = localPosition,
-                RotationDegrees = partRotation,
-                Scale = partScale,
                 Visible = false,
                 Layers = PlayerMech.ExteriorRenderLayer
             };
-            partParent.AddChild(wireframeInstance);
-            playerMech.RegisterGaitPart(wireframeInstance, modelEntry.Name);
+            partRoot.AddChild(wireframeInstance);
             wireframeInstance.AddToGroup(DebugCamera.WireframeMeshGroup);
 
-            var absoluteTransform = isTorsoPart
-                ? new Transform3D(Basis.Identity, playerTorsoPivot) * modelInstance.Transform
-                : modelInstance.Transform;
+            var absoluteTransform = BuildMechTransform(chassisObject.Transform);
             var partBounds = absoluteTransform * renderMesh.GetAabb();
             bounds = hasBounds ? bounds.Merge(partBounds) : partBounds;
             hasBounds = true;
@@ -2139,6 +2160,11 @@ public partial class Main : Node3D
             var torsoPivot = torsoObjectId != 0
                 ? MechWarriorCoordinateSystem.ToGodotPosition(objectsById[torsoObjectId].Transform.Translation)
                 : Vector3.Zero;
+            var partRoots = BuildChassisObjectHierarchy(
+                chassis,
+                enemy.Legs,
+                enemy.Torso,
+                torsoObjectId);
             var bounds = new Aabb();
             var hasBounds = false;
             var renderedParts = 0;
@@ -2181,24 +2207,17 @@ public partial class Main : Node3D
                 {
                     MechWarriorModelMeshBuilder.ApplyMechSurfaceFinish(mesh);
                 }
-                var absolutePosition = MechWarriorCoordinateSystem.ToGodotPosition(
-                    chassisObject.Transform.Translation);
-                var isTorsoPart = torsoObjectId != 0 &&
-                                  IsDescendantOf(chassisObject.Id, torsoObjectId, objectsById);
+                var partRoot = partRoots[chassisObject.Id];
                 var modelInstance = new MeshInstance3D
                 {
                     Name = modelEntry.Name,
                     Mesh = mesh,
-                    Position = isTorsoPart ? absolutePosition - torsoPivot : absolutePosition,
-                    RotationDegrees = MechWarriorCoordinateSystem.ToGodotRotation(
-                        chassisObject.Transform.RotationDegrees),
-                    Scale = MechWarriorCoordinateSystem.ToGodotScale(chassisObject.Transform.Scale),
                     CastShadow = isDecalModel
                         ? GeometryInstance3D.ShadowCastingSetting.Off
                         : GeometryInstance3D.ShadowCastingSetting.DoubleSided
                 };
-                (isTorsoPart ? enemy.Torso : enemy.Legs).AddChild(modelInstance);
-                if (enemy.RegisterGaitPart(modelInstance, modelEntry.Name))
+                partRoot.AddChild(modelInstance);
+                if (enemy.RegisterGaitPart(partRoot, modelEntry.Name))
                 {
                     animatedGaitParts++;
                 }
@@ -2209,18 +2228,12 @@ public partial class Main : Node3D
                 {
                     Name = $"{modelEntry.Name}Wireframe",
                     Mesh = MechWarriorModelMeshBuilder.BuildWireframe(model),
-                    Position = modelInstance.Position,
-                    RotationDegrees = modelInstance.RotationDegrees,
-                    Scale = modelInstance.Scale,
                     Visible = false
                 };
-                (isTorsoPart ? enemy.Torso : enemy.Legs).AddChild(wireframe);
-                enemy.RegisterGaitPart(wireframe, modelEntry.Name);
+                partRoot.AddChild(wireframe);
                 wireframe.AddToGroup(DebugCamera.WireframeMeshGroup);
 
-                var absoluteTransform = isTorsoPart
-                    ? new Transform3D(Basis.Identity, torsoPivot) * modelInstance.Transform
-                    : modelInstance.Transform;
+                var absoluteTransform = BuildMechTransform(chassisObject.Transform);
                 var partBounds = absoluteTransform * mesh.GetAabb();
                 bounds = hasBounds ? bounds.Merge(partBounds) : partBounds;
                 hasBounds = true;
@@ -2401,6 +2414,70 @@ public partial class Main : Node3D
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Rebuilds the original BWD object tree so that animated joint rotations propagate through
+    /// the chassis exactly as authored, including invisible DUMMY joint objects.
+    /// </summary>
+    private static IReadOnlyDictionary<int, Node3D> BuildChassisObjectHierarchy(
+        MechWarriorMechChassis chassis,
+        Node3D legs,
+        Node3D torso,
+        int torsoObjectId)
+    {
+        ArgumentNullException.ThrowIfNull(chassis);
+        ArgumentNullException.ThrowIfNull(legs);
+        ArgumentNullException.ThrowIfNull(torso);
+
+        var objectsById = chassis.Objects.ToDictionary(chassisObject => chassisObject.Id);
+        var torsoPivot = torsoObjectId != 0 && objectsById.TryGetValue(torsoObjectId, out var torsoObject)
+            ? MechWarriorCoordinateSystem.ToGodotPosition(torsoObject.Transform.Translation)
+            : Vector3.Zero;
+        var roots = new Dictionary<int, Node3D>(chassis.Objects.Count);
+        foreach (var chassisObject in chassis.Objects)
+        {
+            var isTorsoRoot = chassisObject.Id == torsoObjectId && torsoObjectId != 0;
+            var isTorsoPart = torsoObjectId != 0 &&
+                              IsDescendantOf(chassisObject.Id, torsoObjectId, objectsById);
+            var hasAuthoredParent = roots.TryGetValue(chassisObject.RelativeToId, out var authoredParent);
+            var parent = isTorsoRoot
+                ? torso
+                : hasAuthoredParent
+                    ? authoredParent
+                    : isTorsoPart
+                        ? torso
+                        : legs;
+            var sourceTransform = hasAuthoredParent && !isTorsoRoot
+                ? chassisObject.LocalTransform ?? chassisObject.Transform
+                : chassisObject.Transform;
+            var transform = BuildMechTransform(sourceTransform);
+            if (isTorsoRoot || (isTorsoPart && !hasAuthoredParent))
+            {
+                transform.Origin -= torsoPivot;
+            }
+
+            var root = new Node3D
+            {
+                Name = $"ChassisObject{chassisObject.Id}",
+                Transform = transform
+            };
+            parent.AddChild(root);
+            roots.Add(chassisObject.Id, root);
+        }
+
+        return roots;
+    }
+
+    private static Transform3D BuildMechTransform(MechWarriorWorldTransform source)
+    {
+        var rotation = MechWarriorCoordinateSystem.ToGodotRotation(source.RotationDegrees) *
+                       (Mathf.Pi / 180.0f);
+        var basis = Basis.FromEuler(rotation).Scaled(
+            MechWarriorCoordinateSystem.ToGodotScale(source.Scale));
+        return new Transform3D(
+            basis,
+            MechWarriorCoordinateSystem.ToGodotPosition(source.Translation));
     }
 
     private static IReadOnlyList<MissionDropShipSetPiece> LoadMissionDropShips(

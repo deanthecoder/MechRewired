@@ -99,7 +99,11 @@ public sealed class MechWarriorMechChassis
                                 $"Mech chassis object {id} refers to missing object {relativeTo}.");
                         }
 
-                        var transform = ReadTransform(data, offset + 14, baseTransform);
+                        var localTransform = ReadTransform(
+                            data,
+                            offset + 14,
+                            MechWarriorWorldTransform.Identity);
+                        var transform = MechWarriorWorldTransform.Combine(baseTransform, localTransform);
                         transformsById.Add(id, transform);
                         objects.Add(new MechWarriorWorldObject(
                             id,
@@ -107,7 +111,8 @@ public sealed class MechWarriorMechChassis
                             ReadUInt16(data, offset + 12),
                             ReadUInt16(data, offset + 52),
                             ReadInt16(data, offset + 56),
-                            transform));
+                            transform,
+                            localTransform));
                     }
 
                     break;
