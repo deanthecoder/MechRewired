@@ -189,7 +189,7 @@ public partial class BattlefieldEffects : Node3D
                     "ExplosionSound",
                     m_explosionSounds[0],
                     24.0f,
-                    700.0f,
+                    1000.0f,
                     1.0f);
                 effect.ExplosionAudio.Autoplay = false;
                 effect.AddChild(effect.ExplosionAudio);
