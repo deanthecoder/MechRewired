@@ -25,14 +25,14 @@ public enum TerrainSurfaceKind
 /// <remarks>
 /// World-space triplanar projection avoids inventing UVs for the original terrain. Pocketed sand
 /// is the base, wavy sand settles in low flats, hardpan gathers around exposed ground and
-/// sandstone is introduced by slope, while MW2's authored palette remains the dominant source of
-/// color.
+/// sandstone is introduced by slope. The physical texture albedo remains primary while MW2's
+/// authored palette provides a restrained biome grade.
 /// </remarks>
 public static class TerrainSurfaceMaterial
 {
     public const float Roughness = 0.9f;
     public const float TextureScale = 0.12f;
-    public const float DetailStrength = 0.072f;
+    public const float DetailStrength = 0.78f;
     public const float NormalStrength = 0.21f;
     public const float DunePatchCoverage = 0.25f;
     public const float HardpanPatchCoverage = 0.08f;
@@ -251,13 +251,18 @@ public static class TerrainSurfaceMaterial
         uniform sampler2D mountain_vertical_roughness : repeat_enable, filter_linear_mipmap_anisotropic;
         uniform vec4 albedo_tint : source_color = vec4(1.0);
         uniform float mountain_surface = 0.0;
-        uniform float ground_primary_texture_scale = 0.038;
-        uniform float ground_secondary_texture_scale = 0.030;
-        uniform float mountain_primary_texture_scale = 0.046;
-        uniform float mountain_vertical_texture_scale = 0.034;
+        uniform float ground_primary_texture_scale = 0.019;
+        uniform float ground_secondary_texture_scale = 0.015;
+        uniform float mountain_primary_texture_scale = 0.023;
+        uniform float mountain_vertical_texture_scale = 0.017;
+        // The rocky maps need a stronger response than the fine desert grain. The debug terrain
+        // control still supplies normal_strength; this multiplier keeps Jade's relief legible
+        // without changing the established desert tuning.
         uniform float normal_strength = 0.20;
+        uniform float rocky_normal_response = 1.85;
+        uniform float macro_normal_blend = 0.20;
         uniform float macro_variation_strength = 0.065;
-        uniform float upward_lighting_compensation = 0.48;
+        uniform float upward_lighting_compensation = 0.12;
 
         varying vec3 world_position;
         varying vec3 world_geometric_normal;
@@ -292,10 +297,10 @@ public static class TerrainSurfaceMaterial
             return weights / max(weights.x + weights.y + weights.z, 0.0001);
         }
 
-        vec4 sample_triplanar(sampler2D map, vec3 position, vec3 weights, float lod) {
-            vec4 x_projection = textureLod(map, position.zy, lod);
-            vec4 y_projection = textureLod(map, position.xz, lod);
-            vec4 z_projection = textureLod(map, position.xy, lod);
+        vec4 sample_triplanar(sampler2D map, vec3 position, vec3 weights) {
+            vec4 x_projection = texture(map, position.zy);
+            vec4 y_projection = texture(map, position.xz);
+            vec4 z_projection = texture(map, position.xy);
             return x_projection * weights.x + y_projection * weights.y + z_projection * weights.z;
         }
 
@@ -319,9 +324,9 @@ public static class TerrainSurfaceMaterial
             vec3 x_normal = texture(map, position.zy).xyz * 2.0 - 1.0;
             vec3 y_normal = texture(map, position.xz).xyz * 2.0 - 1.0;
             vec3 z_normal = texture(map, position.xy).xyz * 2.0 - 1.0;
-            x_normal.xy *= normal_strength;
-            y_normal.xy *= normal_strength;
-            z_normal.xy *= normal_strength;
+            x_normal.xy *= normal_strength * rocky_normal_response;
+            y_normal.xy *= normal_strength * rocky_normal_response;
+            z_normal.xy *= normal_strength * rocky_normal_response;
             return normalize(
                 axis_normal_x(normalize(x_normal), sign(geometric_normal.x)) * weights.x +
                 axis_normal_y(normalize(y_normal), sign(geometric_normal.y)) * weights.y +
@@ -330,6 +335,13 @@ public static class TerrainSurfaceMaterial
 
         float luminance(vec3 color) {
             return dot(color, vec3(0.2126, 0.7152, 0.0722));
+        }
+
+        vec3 palette_grade(vec3 palette) {
+            return clamp(
+                palette / max(luminance(palette), 0.02),
+                vec3(0.70),
+                vec3(1.30));
         }
 
         void fragment() {
@@ -344,14 +356,44 @@ public static class TerrainSurfaceMaterial
                 mountain_vertical_texture_scale,
                 mountain_vertical_texture_scale * 0.48,
                 mountain_vertical_texture_scale);
+            // Repeat the primary maps at formation scale, offset from the detail projection. The
+            // different scale prevents their features from lining up while preserving the normal
+            // maps' world-space orientation. This fills the gap between the 40-65m surface tiles
+            // and the procedural 150-190m variation.
+            vec3 ground_macro_position = (
+                world_position + vec3(137.0, 41.0, 79.0)) * 0.00525;
+            vec3 mountain_macro_position = (
+                world_position + vec3(53.0, -67.0, 181.0)) * vec3(0.00675, 0.00486, 0.00675);
             float steepness = 1.0 - clamp(abs(geometric_normal.y), 0.0, 1.0);
             float rock_blend = mountain_surface * smoothstep(0.10, 0.58, steepness);
+            // Derived landforms use a vertical sealing skirt where their open boundary meets the
+            // implicit floor. Its vertex alpha rises toward the floor, feathering that lower band
+            // into the exact same world-space ground material instead of drawing a hard rock/soil line.
+            float skirt_blend_variation =
+                (layered_noise(world_position.xz * 0.075 + vec2(19.0, -43.0)) - 0.5) * 0.18;
+            float skirt_ground_blend = smoothstep(
+                0.08,
+                0.96,
+                COLOR.a + skirt_blend_variation);
+            // A large proportion of PINK's authored boundary already reaches the implicit floor,
+            // so it never receives a sealing skirt. Feather the lowest eight metres of every
+            // mountain into the ground material as well. World-space noise avoids replacing the
+            // old straight material seam with a new perfectly level band.
+            float base_blend_variation =
+                (layered_noise(world_position.xz * 0.052 + vec2(-71.0, 13.0)) - 0.5) * 2.2;
+            float landform_ground_blend = mountain_surface * (1.0 - smoothstep(
+                0.10 + base_blend_variation,
+                8.20 + base_blend_variation,
+                world_position.y));
+            float ground_transition_blend = max(skirt_ground_blend, landform_ground_blend);
+            rock_blend *= 1.0 - ground_transition_blend;
             float ground_patch = smoothstep(
                 0.34,
                 0.70,
                 layered_noise(world_position.xz * 0.011 + vec2(-31.0, 47.0)));
             float ground_secondary_blend = (0.16 + ground_patch * 0.48) *
                 (1.0 - smoothstep(0.16, 0.48, steepness));
+            float floor_ground_secondary_blend = 0.16 + ground_patch * 0.48;
             float vertical_patch = smoothstep(
                 0.30,
                 0.68,
@@ -362,64 +404,52 @@ public static class TerrainSurfaceMaterial
             vec3 ground_primary = sample_triplanar(
                 ground_primary_color,
                 ground_primary_position,
-                weights,
-                0.0).rgb;
+                weights).rgb;
             vec3 ground_secondary = sample_triplanar(
                 ground_secondary_color,
                 ground_secondary_position,
-                weights,
-                0.0).rgb;
+                weights).rgb;
             vec3 mountain_primary = sample_triplanar(
                 mountain_primary_color,
                 mountain_primary_position,
-                weights,
-                0.0).rgb;
+                weights).rgb;
             vec3 mountain_vertical = sample_triplanar(
                 mountain_vertical_color,
                 mountain_vertical_position,
-                weights,
-                0.0).rgb;
-            vec3 broad_ground_primary = sample_triplanar(
+                weights).rgb;
+            vec3 ground_macro = sample_triplanar(
                 ground_primary_color,
-                ground_primary_position,
-                weights,
-                6.0).rgb;
-            vec3 broad_ground_secondary = sample_triplanar(
-                ground_secondary_color,
-                ground_secondary_position,
-                weights,
-                6.0).rgb;
-            vec3 broad_mountain_primary = sample_triplanar(
+                ground_macro_position,
+                weights).rgb;
+            vec3 mountain_macro = sample_triplanar(
                 mountain_primary_color,
-                mountain_primary_position,
-                weights,
-                6.0).rgb;
-            vec3 broad_mountain_vertical = sample_triplanar(
-                mountain_vertical_color,
-                mountain_vertical_position,
-                weights,
-                6.0).rgb;
+                mountain_macro_position,
+                weights).rgb;
             vec3 ground = mix(ground_primary, ground_secondary, ground_secondary_blend);
             vec3 rock = mix(mountain_primary, mountain_vertical, vertical_rock_blend);
-            vec3 broad_ground = mix(
-                broad_ground_primary,
-                broad_ground_secondary,
-                ground_secondary_blend);
-            vec3 broad_rock = mix(
-                broad_mountain_primary,
-                broad_mountain_vertical,
-                vertical_rock_blend);
             vec3 surface = mix(ground, rock, rock_blend);
-            vec3 broad_surface = mix(broad_ground, broad_rock, rock_blend);
-
-            float local_contrast = clamp(
-                luminance(surface) / max(luminance(broad_surface), 0.02),
-                0.72,
-                1.18);
-            vec3 texture_chroma = clamp(
-                surface / max(vec3(luminance(surface)), vec3(0.02)),
-                vec3(0.88),
-                vec3(1.12));
+            vec3 macro_surface = mix(ground_macro, mountain_macro, rock_blend);
+            if (ground_transition_blend > 0.0001) {
+                vec3 floor_weights = vec3(0.0, 1.0, 0.0);
+                vec3 floor_ground_primary = sample_triplanar(
+                    ground_primary_color,
+                    ground_primary_position,
+                    floor_weights).rgb;
+                vec3 floor_ground_secondary = sample_triplanar(
+                    ground_secondary_color,
+                    ground_secondary_position,
+                    floor_weights).rgb;
+                vec3 floor_ground = mix(
+                    floor_ground_primary,
+                    floor_ground_secondary,
+                    floor_ground_secondary_blend);
+                vec3 floor_macro = sample_triplanar(
+                    ground_primary_color,
+                    ground_macro_position,
+                    floor_weights).rgb;
+                surface = mix(surface, floor_ground, ground_transition_blend);
+                macro_surface = mix(macro_surface, floor_macro, ground_transition_blend);
+            }
             float broad = layered_noise(world_position.xz * 0.008);
             float medium = layered_noise(world_position.xz * 0.035 + vec2(41.0, -23.0));
             float variation = (broad - 0.5) * 2.0 * macro_variation_strength;
@@ -427,18 +457,26 @@ public static class TerrainSurfaceMaterial
             float strata = 0.5 + 0.5 * sin(world_position.y * 0.34 + broad * 4.0);
             variation -= smoothstep(0.68, 0.96, strata) * rock_blend * 0.045;
 
-            vec3 detail_color = mix(vec3(1.0), texture_chroma, mix(0.08, 0.12, rock_blend));
-            detail_color *= mix(1.0, local_contrast, mix(0.24, 0.34, rock_blend));
-            // PINK's very broad summit triangles can align almost perfectly with Sky3D's sun and
-            // become pale orange slabs. The original palette already encodes a restrained tonal
-            // range, so compensate only upward-facing mountain facets while leaving cliff faces,
-            // ground, silhouettes and the authored sun direction untouched.
+            // Keep the photographed surfaces primary. A little desaturation suppresses isolated
+            // terrestrial leaves and moss, while the normalized mission palette shifts hue
+            // without replacing texture brightness or baking the old software lighting into PBR.
+            vec3 textured_albedo = mix(surface, macro_surface, mix(0.14, 0.20, rock_blend));
+            textured_albedo = mix(
+                textured_albedo,
+                vec3(luminance(textured_albedo)),
+                mix(0.16, 0.24, rock_blend));
+            textured_albedo *= mix(vec3(1.0), palette_grade(albedo_tint.rgb), 0.22);
+            // Retain only a small guard against the unusually broad PINK summit facets clipping
+            // under direct sun. Surface colour and the level-authored atmosphere now do the work.
             float upward_face = mountain_surface * smoothstep(
                 0.45,
                 0.88,
                 max(geometric_normal.y, 0.0));
             float upward_exposure = 1.0 - upward_face * upward_lighting_compensation;
-            ALBEDO = albedo_tint.rgb * detail_color * (1.0 + variation) * upward_exposure;
+            ALBEDO = clamp(
+                textured_albedo * (1.0 + variation) * upward_exposure,
+                vec3(0.0),
+                vec3(1.0));
 
             vec3 ground_primary_world_normal = sample_triplanar_normal(
                 ground_primary_normal,
@@ -472,28 +510,63 @@ public static class TerrainSurfaceMaterial
                 ground_world_normal,
                 mountain_world_normal,
                 rock_blend));
+            vec3 ground_macro_world_normal = sample_triplanar_normal(
+                ground_primary_normal,
+                ground_macro_position,
+                geometric_normal,
+                weights);
+            vec3 mountain_macro_world_normal = sample_triplanar_normal(
+                mountain_primary_normal,
+                mountain_macro_position,
+                geometric_normal,
+                weights);
+            vec3 macro_world_normal = normalize(mix(
+                ground_macro_world_normal,
+                mountain_macro_world_normal,
+                rock_blend));
+            detail_world_normal = normalize(mix(
+                detail_world_normal,
+                macro_world_normal,
+                macro_normal_blend));
+            if (ground_transition_blend > 0.0001) {
+                vec3 floor_weights = vec3(0.0, 1.0, 0.0);
+                vec3 floor_primary_world_normal = sample_triplanar_normal(
+                    ground_primary_normal,
+                    ground_primary_position,
+                    vec3(0.0, 1.0, 0.0),
+                    floor_weights);
+                vec3 floor_secondary_world_normal = sample_triplanar_normal(
+                    ground_secondary_normal,
+                    ground_secondary_position,
+                    vec3(0.0, 1.0, 0.0),
+                    floor_weights);
+                vec3 floor_world_normal = normalize(mix(
+                    floor_primary_world_normal,
+                    floor_secondary_world_normal,
+                    floor_ground_secondary_blend));
+                detail_world_normal = normalize(mix(
+                    detail_world_normal,
+                    floor_world_normal,
+                    ground_transition_blend));
+            }
             NORMAL = normalize((VIEW_MATRIX * vec4(detail_world_normal, 0.0)).xyz);
 
             float ground_primary_surface_roughness = sample_triplanar(
                 ground_primary_roughness,
                 ground_primary_position,
-                weights,
-                0.0).r;
+                weights).r;
             float ground_secondary_surface_roughness = sample_triplanar(
                 ground_secondary_roughness,
                 ground_secondary_position,
-                weights,
-                0.0).r;
+                weights).r;
             float mountain_primary_surface_roughness = sample_triplanar(
                 mountain_primary_roughness,
                 mountain_primary_position,
-                weights,
-                0.0).r;
+                weights).r;
             float mountain_vertical_surface_roughness = sample_triplanar(
                 mountain_vertical_roughness,
                 mountain_vertical_position,
-                weights,
-                0.0).r;
+                weights).r;
             float ground_surface_roughness = mix(
                 ground_primary_surface_roughness,
                 ground_secondary_surface_roughness,
@@ -502,11 +575,34 @@ public static class TerrainSurfaceMaterial
                 mountain_primary_surface_roughness,
                 mountain_vertical_surface_roughness,
                 vertical_rock_blend);
+            float surface_roughness = mix(
+                ground_surface_roughness,
+                mountain_surface_roughness,
+                rock_blend);
+            if (ground_transition_blend > 0.0001) {
+                vec3 floor_weights = vec3(0.0, 1.0, 0.0);
+                float floor_primary_roughness = sample_triplanar(
+                    ground_primary_roughness,
+                    ground_primary_position,
+                    floor_weights).r;
+                float floor_secondary_roughness = sample_triplanar(
+                    ground_secondary_roughness,
+                    ground_secondary_position,
+                    floor_weights).r;
+                float floor_roughness = mix(
+                    floor_primary_roughness,
+                    floor_secondary_roughness,
+                    floor_ground_secondary_blend);
+                surface_roughness = mix(
+                    surface_roughness,
+                    floor_roughness,
+                    ground_transition_blend);
+            }
             ROUGHNESS = clamp(
-                mix(ground_surface_roughness, mountain_surface_roughness, rock_blend),
-                0.88,
-                0.98);
-            SPECULAR = 0.15;
+                surface_roughness,
+                0.78,
+                0.95);
+            SPECULAR = 0.20;
             METALLIC = 0.0;
         }
         """;
@@ -541,9 +637,10 @@ public static class TerrainSurfaceMaterial
         // The source tiles are 3.5m square, but MW2's decoded world scale looks most convincing
         // with a broader visual footprint. This remains live-tunable in debug builds.
         uniform float texture_scale = 0.06;
-        uniform float detail_strength = 0.24;
-        uniform float texture_color_strength = 0.024;
+        uniform float detail_strength = 0.78;
         uniform float normal_strength = 0.42;
+        // Ground088 appears only on slopes and uses four times the base material footprint.
+        uniform float rock_texture_scale = 0.25;
         uniform float dune_patch_coverage = 0.25;
         uniform float hardpan_patch_coverage = 0.08;
         uniform float stone_patch_coverage = 0.10;
@@ -615,6 +712,13 @@ public static class TerrainSurfaceMaterial
             vec4 x_projection = textureLod(map, position.zy, lod);
             vec4 y_projection = textureLod(map, position.xz, lod);
             vec4 z_projection = textureLod(map, position.xy, lod);
+            return x_projection * weights.x + y_projection * weights.y + z_projection * weights.z;
+        }
+
+        vec4 sample_triplanar_auto(sampler2D map, vec3 position, vec3 weights) {
+            vec4 x_projection = texture(map, position.zy);
+            vec4 y_projection = texture(map, position.xz);
+            vec4 z_projection = texture(map, position.xy);
             return x_projection * weights.x + y_projection * weights.y + z_projection * weights.z;
         }
 
@@ -719,6 +823,13 @@ public static class TerrainSurfaceMaterial
             return dot(color, vec3(0.2126, 0.7152, 0.0722));
         }
 
+        vec3 palette_grade(vec3 palette) {
+            return clamp(
+                palette / max(luminance(palette), 0.02),
+                vec3(0.75),
+                vec3(1.25));
+        }
+
         void fragment() {
             vec3 displaced_face_normal = normalize(cross(dFdx(world_position), dFdy(world_position)));
             if (dot(displaced_face_normal, world_geometric_normal) < 0.0) {
@@ -760,10 +871,10 @@ public static class TerrainSurfaceMaterial
                 visible_parallax_depth * texture_scale * 0.30);
             vec3 rock_sample_position = parallax_position(
                 rock_height,
-                sample_position,
+                sample_position * rock_texture_scale,
                 geometric_normal,
                 world_view,
-                visible_parallax_depth * texture_scale * 0.55);
+                visible_parallax_depth * texture_scale * rock_texture_scale * 0.55);
             stone_sample_position = parallax_position(
                 stone_height,
                 stone_sample_position,
@@ -772,6 +883,20 @@ public static class TerrainSurfaceMaterial
                 visible_parallax_depth * texture_scale * stone_texture_scale);
             float steepness = 1.0 - abs(geometric_normal.y);
             float rock_blend = smoothstep(slope_blend_start, slope_blend_end, steepness);
+            // Derived landforms carry alpha zero, their sealing skirts ramp toward one, and the
+            // implicit floor is alpha one. Use that shared mask plus world height to let sand climb
+            // irregularly over the lowest part of Wolf's hills, matching Jade's ground-contact
+            // treatment while leaving the open desert floor unchanged.
+            float base_blend_variation =
+                (layered_noise(world_position.xz * 0.052 + vec2(-71.0, 13.0)) - 0.5) * 2.2;
+            float derived_landform = 1.0 - smoothstep(0.98, 1.0, COLOR.a);
+            float landform_sand_blend = derived_landform * (1.0 - smoothstep(
+                0.10 + base_blend_variation,
+                8.20 + base_blend_variation,
+                world_position.y));
+            float skirt_sand_blend = smoothstep(0.08, 0.96, COLOR.a);
+            float ground_transition_blend = max(landform_sand_blend, skirt_sand_blend);
+            rock_blend *= 1.0 - ground_transition_blend;
 
             float flatness = 1.0 - smoothstep(0.018, 0.060, steepness);
             float lowland = 1.0 - smoothstep(4.0, 18.0, max(world_position.y, 0.0));
@@ -787,19 +912,17 @@ public static class TerrainSurfaceMaterial
             float stone_patch = stone_patch_at(world_position.xz) *
                 (1.0 - rock_blend) * (1.0 - dune_patch * 0.85);
 
-            vec3 sand = sample_triplanar(sand_color, sand_sample_position, weights, 0.0).rgb;
-            vec3 dunes = sample_triplanar(dune_color, dune_sample_position, weights, 0.0).rgb;
-            vec3 hardpan = sample_triplanar(
+            vec3 sand = sample_triplanar_auto(sand_color, sand_sample_position, weights).rgb;
+            vec3 dunes = sample_triplanar_auto(dune_color, dune_sample_position, weights).rgb;
+            vec3 hardpan = sample_triplanar_auto(
                 hardpan_color,
                 hardpan_sample_position,
-                weights,
-                0.0).rgb;
-            vec3 rock = sample_triplanar(rock_color, rock_sample_position, weights, 0.0).rgb;
-            vec3 stones = sample_triplanar(
+                weights).rgb;
+            vec3 rock = sample_triplanar_auto(rock_color, rock_sample_position, weights).rgb;
+            vec3 stones = sample_triplanar_auto(
                 stone_color,
                 stone_sample_position,
-                weights,
-                0.0).rgb;
+                weights).rgb;
             vec3 broad_sand = sample_triplanar(sand_color, sand_sample_position, weights, 6.0).rgb;
             vec3 broad_dunes = sample_triplanar(
                 dune_color,
@@ -826,40 +949,19 @@ public static class TerrainSurfaceMaterial
             vec3 surface_color = mix(flat_surface_color, rock, rock_blend);
             vec3 broad_color = mix(flat_broad_color, broad_rock, rock_blend);
 
-            // Remove the material's average brightness before applying it. The texture supplies
-            // grain and restrained hue variation, but the MW2 vertex palette still chooses the land color.
-            float local_contrast = clamp(
-                luminance(surface_color) / max(luminance(broad_color), 0.02),
-                0.45,
-                1.35);
-            vec3 texture_chroma = clamp(
-                surface_color / max(vec3(luminance(surface_color)), vec3(0.02)),
-                vec3(0.82),
-                vec3(1.18));
-            float surface_color_strength = mix(
-                texture_color_strength,
-                texture_color_strength * 2.0,
-                rock_blend);
-            float surface_detail_strength = mix(
-                detail_strength,
-                min(detail_strength * 1.55, 1.0),
-                rock_blend);
-            surface_detail_strength = max(surface_detail_strength, stone_patch * 0.225);
-            vec3 detail_color = mix(vec3(1.0), texture_chroma, surface_color_strength);
-            detail_color *= mix(1.0, local_contrast, surface_detail_strength);
-
             float macro = value_noise(world_position.xz * 0.006);
             float macro_multiplier = 1.0 + (macro - 0.5) * 2.0 * macro_variation_strength;
-            // MW2's terrain polygons carry baked face-to-face shading intended for its software
-            // renderer. A remastered terrain uses one biome colour and lets Godot's directional
-            // sun, sky fill, shadows and PBR detail perform all illumination consistently.
-            vec3 palette_albedo = albedo_tint.rgb * detail_color * macro_multiplier;
-
-            // Rocks021 already contains sand that agrees with the mission surface and authored
-            // charcoal stones. Ground051 likewise needs a restrained direct colour contribution
-            // so its compacted brown soil stays distinct from the pale surrounding sand.
-            vec3 hardpan_albedo = mix(palette_albedo, hardpan, hardpan_patch * 0.114);
-            ALBEDO = mix(hardpan_albedo, stones, stone_patch * 0.30);
+            // Use the photographed material as albedo, including its hardpan and charcoal-stone
+            // colour relationships. The broad mip remains a stable distance-scale base while the
+            // live detail control chooses how much fine texture survives. The old palette now
+            // supplies only a normalized biome grade; coloured sun and sky perform illumination.
+            vec3 textured_albedo = mix(broad_color, surface_color, detail_strength);
+            textured_albedo = mix(vec3(luminance(textured_albedo)), textured_albedo, 0.92);
+            textured_albedo *= mix(vec3(1.0), palette_grade(albedo_tint.rgb), 0.16);
+            ALBEDO = clamp(
+                textured_albedo * macro_multiplier,
+                vec3(0.0),
+                vec3(1.0));
 
             vec3 sand_world_normal = sample_triplanar_normal(
                 sand_normal,
@@ -895,31 +997,26 @@ public static class TerrainSurfaceMaterial
                 rock_blend));
             NORMAL = normalize((VIEW_MATRIX * vec4(detail_world_normal, 0.0)).xyz);
 
-            float sand_surface_roughness = sample_triplanar(
+            float sand_surface_roughness = sample_triplanar_auto(
                 sand_roughness,
                 sand_sample_position,
-                weights,
-                0.0).r;
-            float dune_surface_roughness = sample_triplanar(
+                weights).r;
+            float dune_surface_roughness = sample_triplanar_auto(
                 dune_roughness,
                 dune_sample_position,
-                weights,
-                0.0).r;
-            float hardpan_surface_roughness = sample_triplanar(
+                weights).r;
+            float hardpan_surface_roughness = sample_triplanar_auto(
                 hardpan_roughness,
                 hardpan_sample_position,
-                weights,
-                0.0).r;
-            float rock_surface_roughness = sample_triplanar(
+                weights).r;
+            float rock_surface_roughness = sample_triplanar_auto(
                 rock_roughness,
                 rock_sample_position,
-                weights,
-                0.0).r;
-            float stone_surface_roughness = sample_triplanar(
+                weights).r;
+            float stone_surface_roughness = sample_triplanar_auto(
                 stone_roughness,
                 stone_sample_position,
-                weights,
-                0.0).r;
+                weights).r;
             float flat_surface_roughness = mix(
                 sand_surface_roughness,
                 dune_surface_roughness,

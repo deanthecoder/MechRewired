@@ -299,20 +299,20 @@ public sealed class MissionSkyController
         m_sky3D.Set("sky_enabled", true);
         m_sky3D.Set("clouds_enabled", true);
         m_sky3D.Set("lights_enabled", true);
-        // Warm-palette rocky worlds still need enough fill to read their source palette, but must
-        // not inherit the desert world's high-key sunlight. Retain the authored ambient level as
-        // the input while applying only restrained compensation for Sky3D's double attenuation.
+        // Warm-palette rocky worlds need enough indirect light for their surface normals to read,
+        // but must not inherit the desert world's high-key sunlight. Retain the authored ambient
+        // level as the input while compensating for Sky3D's double attenuation.
         var usesWarmAtmosphere = m_profile.UsesWarmPaletteAtmosphere;
         var usesRockyMountainTerrain = m_profile.TerrainBiome == MechWarriorTerrainBiome.RockyMountain;
         var ambientEnergy = DefaultAmbientLightEnergy +
-                            m_profile.AuthoredAmbientLevel * (usesRockyMountainTerrain ? 0.16f : 0.10f);
+                            m_profile.AuthoredAmbientLevel * (usesRockyMountainTerrain ? 0.24f : 0.10f);
         m_sky3D.Set(
             "sky_contribution",
-            usesRockyMountainTerrain ? 0.24f : DefaultSkyFillLightEnergy);
+            usesRockyMountainTerrain ? 0.31f : DefaultSkyFillLightEnergy);
         m_sky3D.Set("ambient_energy", ambientEnergy);
         m_sky3D.Set(
             "sun_energy",
-            usesRockyMountainTerrain ? 0.56f : DefaultSunLightEnergy);
+            usesRockyMountainTerrain ? 0.65f : DefaultSunLightEnergy);
         ConfigureSunShadows();
         m_sky3D.Set("cloud_intensity", DefaultCloudDensity);
         m_sky3D.Set("tonemap_exposure", 1.0f);
@@ -382,8 +382,8 @@ public sealed class MissionSkyController
         m_environment.FogDensity = 1.0f;
         m_environment.FogDepthCurve = 1.0f;
         m_environment.FogSkyAffect = 0.0f;
-        FogAerialPerspective = usesRockyMountainTerrain ? 0.0f : DefaultFogAerialPerspective;
-        FogSunScatter = usesRockyMountainTerrain ? 0.0f : DefaultFogSunScatter;
+        FogAerialPerspective = usesRockyMountainTerrain ? 0.05f : DefaultFogAerialPerspective;
+        FogSunScatter = usesRockyMountainTerrain ? 0.01f : DefaultFogSunScatter;
 
         TimeOfDay = m_profile.TimeOfDay;
         m_sky3D.Call("resume");

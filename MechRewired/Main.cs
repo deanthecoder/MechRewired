@@ -501,7 +501,7 @@ public partial class Main : Node3D
             "add_cvar",
             "terrain.detail",
             terrain.DetailStrength,
-            "Controls terrain colour-detail strength from 0 to 1 (default 0.072).");
+            "Controls fine terrain texture detail from 0 to 1 (default 0.78).");
         m_debugConsole.Call(
             "add_cvar",
             "terrain.normal",
@@ -1736,8 +1736,8 @@ public partial class Main : Node3D
               $"stone coverage {TerrainSurfaceMaterial.StonePatchCoverage:F2}; " +
               $"parallax {TerrainSurfaceMaterial.ParallaxDepthMetres:F2}m; " +
               $"roughness {TerrainSurfaceMaterial.Roughness:F2})."
-            : "MechRewired: applied the original mountain-world palette to authored terrain and " +
-              "dedicated rocky ground and cliff detail; desert dunes, scatter rocks and sand layers are disabled.");
+            : "MechRewired: applied dedicated physical rocky-ground and cliff albedo with a " +
+              "restrained mountain-world palette grade; desert dunes, scatter rocks and sand layers are disabled.");
 #if DEBUG
         GD.Print(
             $"MechRewired: terrain diagnostics registered {terrainDiagnostics.RegisteredMeshCount} " +

@@ -138,7 +138,11 @@ public static class DerivedTerrainSurfaceBuilder
         var vertices = derived.Vertices.ToList();
         var normals = derived.Normals.ToList();
         var indices = derived.Indices.ToList();
-        foreach (var skirt in skirts)
+        // Alpha is unused by the terrain colour but gives the rocky shader a render-only mask:
+        // restrained at the authored landform edge and one where its sealing skirt enters the ground.
+        // Collision retains the original closed skirt triangles below.
+        var skirtGroundBlend = Enumerable.Repeat(0.0f, vertices.Count).ToList();
+        foreach (var (skirt, skirtIndex) in skirts.Select((triangle, index) => (triangle, index)))
         {
             var normal = NumericsVector3.Cross(skirt.B - skirt.A, skirt.C - skirt.A);
             if (normal.LengthSquared() <= 0.000001f)
@@ -154,6 +158,23 @@ public static class DerivedTerrainSurfaceBuilder
             normals.Add(normal);
             normals.Add(normal);
             normals.Add(normal);
+            // BuildSkirts emits two triangles per edge: top/bottom/top followed by
+            // top/bottom/bottom. Begin the ground influence at the authored edge rather than
+            // waiting until halfway down the face; the shader adds a little spatial variation so
+            // this reads as an irregular dusty foot instead of another ruler-straight boundary.
+            const float skirtTopGroundInfluence = 0.24f;
+            if (skirtIndex % 2 == 0)
+            {
+                skirtGroundBlend.Add(skirtTopGroundInfluence);
+                skirtGroundBlend.Add(1.0f);
+                skirtGroundBlend.Add(skirtTopGroundInfluence);
+            }
+            else
+            {
+                skirtGroundBlend.Add(skirtTopGroundInfluence);
+                skirtGroundBlend.Add(1.0f);
+                skirtGroundBlend.Add(1.0f);
+            }
             indices.Add(first);
             indices.Add(first + 1);
             indices.Add(first + 2);
@@ -164,7 +185,9 @@ public static class DerivedTerrainSurfaceBuilder
         for (var index = 0; index < vertices.Count; index++)
         {
             surfaceTool.SetNormal(ToGodot(normals[index]));
-            surfaceTool.SetColor(TerrainSurfaceMaterial.DesertBaseColor);
+            var color = TerrainSurfaceMaterial.DesertBaseColor;
+            color.A = skirtGroundBlend[index];
+            surfaceTool.SetColor(color);
             surfaceTool.AddVertex(ToGodot(vertices[index]));
         }
 
