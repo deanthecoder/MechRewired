@@ -496,7 +496,7 @@ public partial class Main : Node3D
             "add_cvar",
             "terrain.texture_scale",
             terrain.TextureScale,
-            "Controls terrain texture repetitions per rendered metre (default 0.12).");
+            "Controls terrain texture repetitions per rendered metre (default 0.05).");
         m_debugConsole.Call(
             "add_cvar",
             "terrain.detail",
@@ -506,7 +506,7 @@ public partial class Main : Node3D
             "add_cvar",
             "terrain.normal",
             terrain.NormalStrength,
-            "Controls terrain normal-map strength from 0 to 2 (default 0.21).");
+            "Controls terrain normal-map strength from 0 to 2 (default 1.0).");
         m_debugConsole.Call(
             "add_cvar",
             "terrain.dunes",

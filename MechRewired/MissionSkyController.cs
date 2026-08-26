@@ -26,6 +26,10 @@ public sealed class MissionSkyController
     private const float DefaultSkyFillLightEnergy = 0.25f;
     private const float DefaultSunShadowOpacity = 0.90f;
     private const float SolarAngularDiameterDegrees = 0.25f;
+    private const float DefaultSunShadowBlur = 1.0f;
+    private const float WarmMountainSolarAngularDiameterDegrees = 0.90f;
+    private const float WarmMountainSunShadowBlur = 1.50f;
+    private const float WarmMountainSunShadowOpacity = 0.85f;
     private const float DefaultCloudCoverage = 0.40f;
     private const float DefaultCloudDensity = 1.00f;
     private const float DefaultCloudHeight = 1.8f;
@@ -287,7 +291,8 @@ public sealed class MissionSkyController
         $"aerial {FogAerialPerspective:F2}, sun scatter {FogSunScatter:F2}; " +
         $"cirrus coverage {CloudCoverage:F2}, density {CloudDensity:F2}, scale {CloudHeight:F2}; " +
         $"sun azimuth offset {SunAzimuthOffsetDegrees:F1} degrees; shadow distance " +
-        $"{SunShadowDistance:F0}m, opacity {SunShadowOpacity:F2}; exposure {Exposure:F2}.";
+        $"{SunShadowDistance:F0}m, opacity {SunShadowOpacity:F2}, angular distance " +
+        $"{m_sunLight.LightAngularDistance:F2} degrees; exposure {Exposure:F2}.";
 
     private void ApplyProfile()
     {
@@ -313,7 +318,6 @@ public sealed class MissionSkyController
         m_sky3D.Set(
             "sun_energy",
             usesRockyMountainTerrain ? 0.65f : DefaultSunLightEnergy);
-        ConfigureSunShadows();
         m_sky3D.Set("cloud_intensity", DefaultCloudDensity);
         m_sky3D.Set("tonemap_exposure", 1.0f);
         m_sky3D.Set("auto_exposure", false);
@@ -386,6 +390,7 @@ public sealed class MissionSkyController
         FogSunScatter = usesRockyMountainTerrain ? 0.01f : DefaultFogSunScatter;
 
         TimeOfDay = m_profile.TimeOfDay;
+        ConfigureSunShadows();
         m_sky3D.Call("resume");
         ApplyFog();
     }
@@ -419,14 +424,23 @@ public sealed class MissionSkyController
         m_sunLight.DirectionalShadowBlendSplits = true;
         m_sunLight.DirectionalShadowFadeStart = 0.90f;
         SunShadowDistance = Mathf.Clamp(m_profile.DepthCueDistance * 2.0f, 1800.0f, 4000.0f);
-        // Keep a restrained penumbra, but use a smaller apparent disk than the physical sun so
-        // nearby mech shadows remain readable over the terrain's high-frequency surface detail.
-        m_sunLight.LightAngularDistance = SolarAngularDiameterDegrees;
-        m_sunLight.ShadowBlur = 1.0f;
+        // Jade Falcon's warm mountain level is authored close to noon, which produces a tight
+        // ground-space PCSS penumbra. Its muted sun reads as a broad, hazy source instead, so
+        // give the mountain and external-mech shadows a deliberately softer, lighter transition.
+        var softenWarmMountainShadows =
+            m_profile.TerrainBiome == MechWarriorTerrainBiome.RockyMountain &&
+            m_profile.UsesWarmPaletteAtmosphere;
+        m_sunLight.LightAngularDistance = softenWarmMountainShadows
+            ? WarmMountainSolarAngularDiameterDegrees
+            : SolarAngularDiameterDegrees;
+        m_sunLight.ShadowBlur = softenWarmMountainShadows
+            ? WarmMountainSunShadowBlur
+            : DefaultSunShadowBlur;
 
-        // A bright desert sky scatters substantial light into nominally shadowed surfaces. This
-        // inexpensive approximation retains readable terrain without changing direct sunlight.
-        SunShadowOpacity = DefaultSunShadowOpacity;
+        // The warm mountain sky contributes more diffuse fill than Wolf's bright desert view.
+        SunShadowOpacity = softenWarmMountainShadows
+            ? WarmMountainSunShadowOpacity
+            : DefaultSunShadowOpacity;
     }
 
     private void ApplyFog()

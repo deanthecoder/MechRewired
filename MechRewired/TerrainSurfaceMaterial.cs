@@ -31,9 +31,9 @@ public enum TerrainSurfaceKind
 public static class TerrainSurfaceMaterial
 {
     public const float Roughness = 0.9f;
-    public const float TextureScale = 0.12f;
+    public const float TextureScale = 0.05f;
     public const float DetailStrength = 0.78f;
-    public const float NormalStrength = 0.21f;
+    public const float NormalStrength = 1.0f;
     public const float DunePatchCoverage = 0.25f;
     public const float HardpanPatchCoverage = 0.08f;
     public const float StonePatchCoverage = 0.10f;
@@ -123,6 +123,7 @@ public static class TerrainSurfaceMaterial
             Shader = new Shader { Code = useDesertDetails ? ShaderCode : RockyPlainsShaderCode }
         };
         material.SetShaderParameter("albedo_tint", albedoTint ?? DesertBaseColor);
+        material.SetShaderParameter("normal_strength", NormalStrength);
         if (!useDesertDetails)
         {
             material.SetShaderParameter(
@@ -190,7 +191,6 @@ public static class TerrainSurfaceMaterial
         material.SetShaderParameter("stone_height", GD.Load<Texture2D>(StoneHeightPath));
         material.SetShaderParameter("texture_scale", TextureScale);
         material.SetShaderParameter("detail_strength", DetailStrength);
-        material.SetShaderParameter("normal_strength", NormalStrength);
         material.SetShaderParameter("dune_patch_coverage", DunePatchCoverage);
         material.SetShaderParameter("hardpan_patch_coverage", HardpanPatchCoverage);
         material.SetShaderParameter("stone_patch_coverage", StonePatchCoverage);
@@ -258,7 +258,7 @@ public static class TerrainSurfaceMaterial
         // The rocky maps need a stronger response than the fine desert grain. The debug terrain
         // control still supplies normal_strength; this multiplier keeps Jade's relief legible
         // without changing the established desert tuning.
-        uniform float normal_strength = 0.20;
+        uniform float normal_strength = 1.0;
         uniform float rocky_normal_response = 1.85;
         uniform float macro_normal_blend = 0.20;
         uniform float macro_variation_strength = 0.065;
@@ -636,9 +636,9 @@ public static class TerrainSurfaceMaterial
 
         // The source tiles are 3.5m square, but MW2's decoded world scale looks most convincing
         // with a broader visual footprint. This remains live-tunable in debug builds.
-        uniform float texture_scale = 0.06;
+        uniform float texture_scale = 0.05;
         uniform float detail_strength = 0.78;
-        uniform float normal_strength = 0.42;
+        uniform float normal_strength = 1.0;
         // Ground088 appears only on slopes and uses four times the base material footprint.
         uniform float rock_texture_scale = 0.25;
         uniform float dune_patch_coverage = 0.25;
