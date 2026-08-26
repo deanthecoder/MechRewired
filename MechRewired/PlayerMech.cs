@@ -413,6 +413,16 @@ public partial class PlayerMech : Node3D
     /// </summary>
     public bool TryFindAutopilotHeading(float desiredHeadingRadians, float targetDistance, out float headingRadians)
     {
+        return TryFindAutopilotHeading(Position, desiredHeadingRadians, targetDistance, out headingRadians);
+    }
+
+    /// <summary>Selects a traversable heading from an arbitrary point while planning an autopilot route.</summary>
+    public bool TryFindAutopilotHeading(
+        Vector3 startPosition,
+        float desiredHeadingRadians,
+        float targetDistance,
+        out float headingRadians)
+    {
         var probeDistance = Mathf.Clamp(
             targetDistance * 0.35f,
             AutopilotProbeMinimumDistance,
@@ -424,7 +434,7 @@ public partial class PlayerMech : Node3D
         {
             var candidateHeading = desiredHeadingRadians + Mathf.DegToRad(offsetDegrees);
             var forward = new Vector3(-Mathf.Sin(candidateHeading), 0.0f, -Mathf.Cos(candidateHeading));
-            if (!TryGetAutopilotCourseSlope(forward, probeDistance, out var maximumSlope))
+            if (!TryGetAutopilotCourseSlope(startPosition, forward, probeDistance, out var maximumSlope))
             {
                 continue;
             }
@@ -446,14 +456,54 @@ public partial class PlayerMech : Node3D
         return hasCourse;
     }
 
-    private bool TryGetAutopilotCourseSlope(Vector3 forward, float probeDistance, out float maximumSlope)
+    /// <summary>Checks a pre-planned local course segment against the terrain and static scenery.</summary>
+    public bool IsAutopilotCourseTraversable(Vector3 start, Vector3 end)
+    {
+        var offset = end - start;
+        offset.Y = 0.0f;
+        var distance = offset.Length();
+        if (distance <= 0.01f)
+        {
+            return true;
+        }
+
+        var obstacles = m_sceneryObstacleProvider();
+        if (SceneryCollision.TryFindBlockingObstacle(
+                new System.Numerics.Vector2(start.X, start.Z),
+                new System.Numerics.Vector2(end.X, end.Z),
+                m_footprintRadius,
+                obstacles,
+                out _))
+        {
+            return false;
+        }
+
+        var sampleCount = Mathf.CeilToInt(distance / AutopilotProbeMinimumDistance);
+        for (var sample = 1; sample <= sampleCount; sample++)
+        {
+            var candidate = start + offset * ((float)sample / sampleCount);
+            if (!TryGetSurface(candidate, out _, out var slopeDegrees) ||
+                slopeDegrees > AutopilotMaximumSlopeDegrees)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private bool TryGetAutopilotCourseSlope(
+        Vector3 startPosition,
+        Vector3 forward,
+        float probeDistance,
+        out float maximumSlope)
     {
         maximumSlope = 0.0f;
-        var start = new System.Numerics.Vector2(Position.X, Position.Z);
+        var start = new System.Numerics.Vector2(startPosition.X, startPosition.Z);
         var obstacles = m_sceneryObstacleProvider();
         foreach (var fraction in AutopilotProbeFractions)
         {
-            var candidate = Position + forward * (probeDistance * fraction);
+            var candidate = startPosition + forward * (probeDistance * fraction);
             if (!TryGetSurface(candidate, out _, out var slopeDegrees) ||
                 slopeDegrees > AutopilotMaximumSlopeDegrees ||
                 SceneryCollision.TryFindBlockingObstacle(
