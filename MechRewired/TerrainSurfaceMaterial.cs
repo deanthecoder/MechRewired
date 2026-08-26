@@ -251,10 +251,10 @@ public static class TerrainSurfaceMaterial
         uniform sampler2D mountain_vertical_roughness : repeat_enable, filter_linear_mipmap_anisotropic;
         uniform vec4 albedo_tint : source_color = vec4(1.0);
         uniform float mountain_surface = 0.0;
-        uniform float ground_primary_texture_scale = 0.019;
-        uniform float ground_secondary_texture_scale = 0.015;
-        uniform float mountain_primary_texture_scale = 0.023;
-        uniform float mountain_vertical_texture_scale = 0.017;
+        uniform float ground_primary_texture_scale = 0.0095;
+        uniform float ground_secondary_texture_scale = 0.0075;
+        uniform float mountain_primary_texture_scale = 0.0115;
+        uniform float mountain_vertical_texture_scale = 0.0085;
         // The rocky maps need a stronger response than the fine desert grain. The debug terrain
         // control still supplies normal_strength; this multiplier keeps Jade's relief legible
         // without changing the established desert tuning.

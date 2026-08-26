@@ -157,6 +157,12 @@ public sealed class TerrainMeshDeriverTests
                         vertex.Y + TerrainMeshBoundarySealer.GroundOverlapMetres) < 0.0001f),
                 Is.True,
                 "Each elevated exterior edge should overlap below the ground plane.");
+            Assert.That(
+                skirts.Any(triangle =>
+                    HorizontalDistance(triangle.A, triangle.B) > 3.99f ||
+                    HorizontalDistance(triangle.B, triangle.C) > 3.99f),
+                Is.True,
+                "The seal should be a sloped apron, not a vertical wall below the hill edge.");
         });
     }
 
@@ -173,19 +179,28 @@ public sealed class TerrainMeshDeriverTests
             derived,
             position => position.X * 0.25f);
 
+        var groundVertices = skirts
+            .SelectMany(triangle => new[] { triangle.A, triangle.B, triangle.C })
+            .Where(vertex => vertex.Y < 1.5f)
+            .Distinct()
+            .ToArray();
+
         Assert.Multiple(() =>
         {
             Assert.That(skirts, Has.Count.EqualTo(6));
             Assert.That(
-                skirts.SelectMany(triangle => new[] { triangle.A, triangle.B, triangle.C })
-                    .Any(vertex => Math.Abs(vertex.Y - (-1.0f)) < 0.0001f),
-                Is.True,
-                "The low-X skirt endpoint should follow its local ground height and overlap it.");
+                groundVertices,
+                Has.All.Matches<Vector3>(vertex =>
+                    Math.Abs(vertex.Y - (vertex.X * 0.25f - TerrainMeshBoundarySealer.GroundOverlapMetres)) < 0.0001f),
+                "Every apron endpoint should overlap its ground height at the outward landing point.");
             Assert.That(
-                skirts.SelectMany(triangle => new[] { triangle.A, triangle.B, triangle.C })
-                    .Any(vertex => Math.Abs(vertex.Y) < 0.0001f),
+                groundVertices.Select(vertex => vertex.Y).Distinct().Count(),
+                Is.GreaterThan(1),
+                "The outward apron endpoints should sample their local, varying ground height.");
+            Assert.That(
+                groundVertices.Any(vertex => Math.Abs(vertex.X) > 2.0f),
                 Is.True,
-                "The high-X skirt endpoint should follow its different local ground height.");
+                "The apron should reach outward from the original hill boundary.");
         });
     }
 
@@ -234,4 +249,7 @@ public sealed class TerrainMeshDeriverTests
             Assert.That(snapped.Vertices.Any(vertex => Math.Abs(vertex.Y - 0.5f) < 0.0001f), Is.True);
         });
     }
+
+    private static float HorizontalDistance(Vector3 first, Vector3 second) =>
+        new Vector2(first.X - second.X, first.Z - second.Z).Length();
 }

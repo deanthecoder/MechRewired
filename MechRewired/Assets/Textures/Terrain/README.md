@@ -39,7 +39,7 @@ irregular patches on flatter terrain. Mountain surfaces blend toward Rock050 on 
 Rock030 is stretched vertically and introduced most strongly on long, near-vertical faces. The
 cliff maps tile across larger areas than the previous rocky pass. An offset second projection of
 the same primary ground and rock maps spans roughly 150-190m, adding formation-scale colour and
-normal variation without lining up with the main 40-65m tiles. The physical texture colour remains
+normal variation without lining up with the main 80-130m tiles. The physical texture colour remains
 primary; slight desaturation suppresses terrestrial moss and leaves, while a normalized 22% palette
 grade preserves the mission's broad brown/red art direction. No material height-map displacement is
 used. Instead, one
