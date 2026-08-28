@@ -32,7 +32,8 @@ public partial class MechWreckage : Node3D
         string actorName,
         IReadOnlyList<(MeshInstance3D Mesh, string PartName)> sourceParts,
         Vector3 hitPosition,
-        int randomSeed)
+        int randomSeed,
+        bool splitIndividualParts = false)
     {
         ArgumentNullException.ThrowIfNull(parent);
         ArgumentNullException.ThrowIfNull(sourceParts);
@@ -42,7 +43,7 @@ public partial class MechWreckage : Node3D
             m_observer = observer
         };
         parent.AddChild(wreckage);
-        wreckage.Build(sourceParts, hitPosition, randomSeed);
+        wreckage.Build(sourceParts, hitPosition, randomSeed, splitIndividualParts);
         return wreckage;
     }
 
@@ -63,7 +64,8 @@ public partial class MechWreckage : Node3D
     private void Build(
         IReadOnlyList<(MeshInstance3D Mesh, string PartName)> sourceParts,
         Vector3 hitPosition,
-        int randomSeed)
+        int randomSeed,
+        bool splitIndividualParts)
     {
         var validParts = sourceParts
             .Where(part => GodotObject.IsInstanceValid(part.Mesh) && part.Mesh.Mesh != null)
@@ -76,14 +78,21 @@ public partial class MechWreckage : Node3D
         m_origin = validParts.Select(part => part.Mesh.GlobalPosition)
             .Aggregate(Vector3.Zero, (sum, value) => sum + value) / validParts.Length;
         var random = new RandomNumberGenerator { Seed = unchecked((ulong)randomSeed) };
-        foreach (var group in validParts.GroupBy(part => MechBodySectionClassifier.Classify(part.PartName)))
+        var partGroups = splitIndividualParts
+            ? validParts.Select(part => new[] { part })
+            : validParts
+                .GroupBy(part => MechBodySectionClassifier.Classify(part.PartName))
+                .Select(group => group.ToArray());
+        var groupIndex = 0;
+        foreach (var group in partGroups)
         {
+            var bodySection = MechBodySectionClassifier.Classify(group[0].PartName);
             var sourceMeshes = group.Select(part => part.Mesh).ToArray();
             var bounds = GetCombinedBounds(sourceMeshes);
             var center = bounds.GetCenter();
             var body = new RigidBody3D
             {
-                Name = group.Key.ToString(),
+                Name = splitIndividualParts ? $"{bodySection}-{++groupIndex}" : bodySection.ToString(),
                 GravityScale = WreckageGravityScale,
                 Mass = Mathf.Clamp(
                     bounds.Size.X * bounds.Size.Y * bounds.Size.Z * 0.08f,
@@ -104,7 +113,7 @@ public partial class MechWreckage : Node3D
             {
                 body.AddChild(new CollisionShape3D
                 {
-                    Name = $"{group.Key}ConvexHull",
+                    Name = $"{body.Name}ConvexHull",
                     Shape = new ConvexPolygonShape3D { Points = colliderPoints }
                 });
             }
@@ -118,7 +127,8 @@ public partial class MechWreckage : Node3D
             var outward = new Vector3(center.X - hitPosition.X, 0.0f, center.Z - hitPosition.Z);
             if (outward.LengthSquared() < 0.04f)
             {
-                var angle = Mathf.Tau * (int)group.Key / Enum.GetValues<MechBodySection>().Length;
+                var angle = Mathf.Tau * (splitIndividualParts ? groupIndex : (int)bodySection) /
+                            (splitIndividualParts ? validParts.Length : Enum.GetValues<MechBodySection>().Length);
                 outward = new Vector3(Mathf.Cos(angle), 0.0f, Mathf.Sin(angle));
             }
 

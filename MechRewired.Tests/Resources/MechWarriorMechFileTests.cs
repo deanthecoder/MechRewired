@@ -35,6 +35,36 @@ public sealed class MechWarriorMechFileTests
     }
 
     [Test]
+    public void LoadAllowsZeroMovementForFixedEmplacements()
+    {
+        var data = CreateMechData();
+        BitConverter.GetBytes(25).CopyTo(data, 0);
+        BitConverter.GetBytes(0).CopyTo(data, 4);
+
+        var emplacement = MechWarriorMechFile.Load(data);
+
+        Assert.That(emplacement.WalkingMovementPoints, Is.Zero);
+        Assert.That(emplacement.CruisingSpeedKph, Is.Zero);
+        Assert.That(emplacement.MaximumSpeedKph, Is.Zero);
+    }
+
+    [Test]
+    public void LoadAllowsInactiveDamageSectionsForFixedEmplacements()
+    {
+        var data = CreateMechData();
+        BitConverter.GetBytes(25).CopyTo(data, 0);
+        BitConverter.GetBytes(0).CopyTo(data, 4);
+        BitConverter.GetBytes(0).CopyTo(data, 0x090);
+        BitConverter.GetBytes(0).CopyTo(data, 0x094);
+        BitConverter.GetBytes(0).CopyTo(data, 0x098);
+
+        var emplacement = MechWarriorMechFile.Load(data);
+
+        Assert.That(emplacement.Sections[MechDamageSection.LeftTorso],
+            Is.EqualTo(new MechSectionArmor(0, 0, 0)));
+    }
+
+    [Test]
     public void LoadRejectsATruncatedGeneralHeader()
     {
         var exception = Assert.Throws<InvalidDataException>(() => MechWarriorMechFile.Load(new byte[0x157]));

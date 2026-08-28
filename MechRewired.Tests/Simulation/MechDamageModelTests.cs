@@ -70,6 +70,22 @@ public sealed class MechDamageModelTests
         Assert.That(result.MechDestroyed, Is.True);
     }
 
+    [Test]
+    public void InactiveLegSectionsDoNotStartFixedEmplacementDestroyed()
+    {
+        var sections = Enum.GetValues<MechDamageSection>().ToDictionary(
+            section => section,
+            section => section is MechDamageSection.LeftLeg or MechDamageSection.RightLeg or
+                MechDamageSection.LeftTorso or MechDamageSection.RightTorso
+                ? new MechSectionArmor(0, 0, 0)
+                : new MechSectionArmor(10, 0, 5));
+
+        var model = new MechDamageModel(sections);
+
+        Assert.That(model.IsDestroyed, Is.False);
+        Assert.That(model.ApplyDamage(MechDamageSection.CenterTorso, 15).MechDestroyed, Is.True);
+    }
+
     private static MechDamageModel CreateModel() => new(
         Enum.GetValues<MechDamageSection>().ToDictionary(
             section => section,

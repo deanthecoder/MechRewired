@@ -61,9 +61,12 @@ public sealed class MechDamageModel
     public int Health => m_sections.Values.Sum(section => section.Health);
 
     public bool IsDestroyed =>
-        IsSectionDestroyed(MechDamageSection.Head) ||
-        IsSectionDestroyed(MechDamageSection.CenterTorso) ||
-        IsSectionDestroyed(MechDamageSection.LeftLeg) && IsSectionDestroyed(MechDamageSection.RightLeg);
+        (HasSection(MechDamageSection.Head) && IsSectionDestroyed(MechDamageSection.Head)) ||
+        (HasSection(MechDamageSection.CenterTorso) && IsSectionDestroyed(MechDamageSection.CenterTorso)) ||
+        (HasSection(MechDamageSection.LeftLeg) &&
+         HasSection(MechDamageSection.RightLeg) &&
+         IsSectionDestroyed(MechDamageSection.LeftLeg) &&
+         IsSectionDestroyed(MechDamageSection.RightLeg));
 
     public bool IsSectionDestroyed(MechDamageSection section) =>
         m_sections[section].InternalStructure == 0;
@@ -81,6 +84,9 @@ public sealed class MechDamageModel
         var state = m_sections[section];
         return state.MaximumHealth == 0 ? 0.0f : (float)state.Health / state.MaximumHealth;
     }
+
+    private bool HasSection(MechDamageSection section) =>
+        m_sections[section].Maximum.InternalStructure > 0;
 
     public MechDamageResult ApplyDamage(MechDamageSection section, int damage, bool fromRear = false)
     {

@@ -542,21 +542,36 @@ public partial class PlayerHud : Control
         float panelWidth,
         float panelHeight)
     {
-        DrawDamageSilhouette(
-            enemyMech.DamageSilhouette,
-            panelLeft,
-            panelTop,
-            panelWidth,
-            panelHeight,
-            enemyMech.Damage,
-            10.0f);
+        if (enemyMech.DamageSilhouette != null)
+        {
+            DrawDamageSilhouette(
+                enemyMech.DamageSilhouette,
+                panelLeft,
+                panelTop,
+                panelWidth,
+                panelHeight,
+                enemyMech.Damage,
+                10.0f);
+        }
+        else
+        {
+            var iconCenter = Point(panelLeft + panelWidth * 0.5f, panelTop + panelHeight * 0.5f);
+            DrawDiamond(iconCenter, 24.0f, 3.0f, GaugeRed);
+            DrawDiamond(iconCenter, 12.0f, 2.0f, GaugeRed);
+        }
 
         var distanceMeters = enemyMech.TargetPosition.DistanceTo(m_playerMech.GlobalPosition);
         var distanceText = distanceMeters >= 1000.0f
             ? $"{distanceMeters / 1000.0f:F2}Km"
             : $"{distanceMeters:F0}m";
         DrawText(new Vector2(panelLeft, 675.0f), enemyMech.Description, RadarAmber, 25);
-        DrawText(new Vector2(panelLeft, 706.0f), distanceText, HudGreen, 25);
+        DrawText(
+            new Vector2(panelLeft, 706.0f),
+            enemyMech.DamageSilhouette == null
+                ? $"{distanceText}  {enemyMech.Health}/{enemyMech.MaximumHealth}"
+                : distanceText,
+            HudGreen,
+            25);
     }
 
     private void DrawHostileActorTargetPanel(

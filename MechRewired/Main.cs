@@ -2162,18 +2162,29 @@ public partial class Main : Node3D
         AddChild(enemyRoot);
         var enemies = new List<EnemyMech>();
         var damageSilhouettes = new Dictionary<string, MechDamageSilhouette>(StringComparer.OrdinalIgnoreCase);
+        var chassisWithoutDamageSilhouettes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var gamePiece in missionGamePieces.Where(gamePiece =>
                      gamePiece.Star.Disposition == MechWarriorMissionDisposition.Hostile))
         {
             var chassis = MechWarriorMechChassis.Load(archive.ReadEntry(gamePiece.ChassisEntry));
             var mechDefinition = MechWarriorMechFile.Load(archive.ReadEntry(gamePiece.ConfigurationEntry));
-            if (!damageSilhouettes.TryGetValue(gamePiece.Specification.ChassisName, out var damageSilhouette))
+            MechDamageSilhouette damageSilhouette = null;
+            var normalizedChassisName = gamePiece.Specification.ChassisName.Replace(" ", string.Empty);
+            if (DamageShapePrefixes.ContainsKey(normalizedChassisName) &&
+                !damageSilhouettes.TryGetValue(gamePiece.Specification.ChassisName, out damageSilhouette))
             {
                 damageSilhouette = LoadDamageSilhouette(
                     archive,
                     gamePiece.Specification.ChassisName,
                     chassis);
                 damageSilhouettes.Add(gamePiece.Specification.ChassisName, damageSilhouette);
+            }
+            else if (!DamageShapePrefixes.ContainsKey(normalizedChassisName) &&
+                     chassisWithoutDamageSilhouettes.Add(gamePiece.Specification.ChassisName))
+            {
+                GD.Print(
+                    $"MechRewired: {gamePiece.Specification.ChassisName} has no original HUD damage silhouette; " +
+                    "using the hostile emplacement target display.");
             }
 
             var enemy = new EnemyMech(
@@ -2199,6 +2210,12 @@ public partial class Main : Node3D
                 enemy.Legs,
                 enemy.Torso,
                 torsoObjectId);
+            if (enemy.IsStationaryEmplacement &&
+                chassis.ThingObjectIds.Count > 1 &&
+                partRoots.TryGetValue(chassis.ThingObjectIds[1], out var pitchPivot))
+            {
+                enemy.ConfigureAimPitchPivot(pitchPivot);
+            }
             var bounds = new Aabb();
             var hasBounds = false;
             var renderedParts = 0;
@@ -2301,7 +2318,7 @@ public partial class Main : Node3D
             enemy.RotationDegrees = MechWarriorCoordinateSystem.ToGodotRotation(
                 new System.Numerics.Vector3(0.0f, gamePiece.SpawnPoint.StartingAngle, 0.0f));
             enemies.Add(enemy);
-            if (animatedGaitParts == 0)
+            if (animatedGaitParts == 0 && !enemy.IsStationaryEmplacement)
             {
                 GD.PushWarning(
                     $"MechRewired: {enemy.Description} has no recognized gait parts among " +
@@ -2313,14 +2330,16 @@ public partial class Main : Node3D
                 $"{gamePiece.ConfigurationEntry.Name} at rendered ({enemy.Position.X:F2}, {enemy.Position.Y:F2}, " +
                 $"{enemy.Position.Z:F2}); {renderedParts} parts, {renderedPolygons} polygons, " +
                 $"{animatedGaitParts} articulated gait parts, {weaponMounts.Length} firing points, " +
-                $"weapons [{enemy.WeaponLoadout}], {enemy.Health} whole-mech health, " +
+                $"weapons [{enemy.WeaponLoadout}], {enemy.Health} " +
+                $"{(enemy.IsStationaryEmplacement ? "emplacement" : "whole-mech")} health, " +
                 $"{mechDefinition.CruisingSpeedKph:F1} km/h tactical speed.");
         }
 
+        var emplacementCount = enemies.Count(enemy => enemy.IsStationaryEmplacement);
         GD.Print(
-            $"MechRewired: hostile force deployed dormant ({enemies.Count} data-driven mechs; " +
-            "GPS acquire ranges, sensor cone/line of sight, chassis/torso tracking, MEK movement and weapons; " +
-            "shared procedural gait).");
+            $"MechRewired: hostile force deployed dormant ({enemies.Count - emplacementCount} data-driven mechs, " +
+            $"{emplacementCount} fixed emplacements; GPS acquire ranges, sensor cone/line of sight, " +
+            "chassis/torso tracking and MEK weapons; shared procedural mech gait).");
         return enemies.AsReadOnly();
     }
 

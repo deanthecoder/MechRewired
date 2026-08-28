@@ -121,10 +121,10 @@ public sealed class MechWarriorMechFile
             throw new InvalidDataException($"The MEK tonnage must be positive; found {tonnage}.");
         }
 
-        if (walkingMovementPoints <= 0)
+        if (walkingMovementPoints < 0)
         {
             throw new InvalidDataException(
-                $"The MEK walking movement points must be positive; found {walkingMovementPoints}.");
+                $"The MEK walking movement points cannot be negative; found {walkingMovementPoints}.");
         }
 
         if (heatSinkCount <= 0)
@@ -139,9 +139,13 @@ public sealed class MechWarriorMechFile
                 BitConverter.ToInt32(data, entry.Value),
                 BitConverter.ToInt32(data, entry.Value + 4),
                 BitConverter.ToInt32(data, entry.Value + 8)));
+        var allowsInactiveSections = walkingMovementPoints == 0;
         foreach (var (section, armor) in sections)
         {
-            if (armor.FrontArmor < 0 || armor.RearArmor < 0 || armor.InternalStructure <= 0)
+            if (armor.FrontArmor < 0 ||
+                armor.RearArmor < 0 ||
+                armor.InternalStructure < 0 ||
+                (!allowsInactiveSections && armor.InternalStructure == 0))
             {
                 throw new InvalidDataException(
                     $"The MEK {section} values are invalid: front {armor.FrontArmor}, rear " +

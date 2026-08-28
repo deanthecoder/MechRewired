@@ -15,11 +15,12 @@ using MechRewired.Simulation;
 namespace MechRewired;
 
 /// <summary>
-/// Runs a data-driven hostile mech using its authored MEK weapons, ammunition, and armour sections.
+/// Runs a data-driven hostile combatant using its authored MEK weapons, ammunition, and armour sections.
 /// </summary>
 /// <remarks>
 /// Original GPS ranges, spawn data, chassis hierarchy, weapon loadout, ammunition and MEK movement data drive
-/// the actor. Detailed formations and navigation can be layered on without changing mission spawning.
+/// the actor. Zero-movement MEKs retain the same combat pipeline as fixed emplacements while keeping
+/// their authored yaw/pitch joints stationary at the deployment point.
 /// </remarks>
 public partial class EnemyMech : Node3D
 {
@@ -73,6 +74,8 @@ public partial class EnemyMech : Node3D
     private int m_footfallCount;
     private Vector3 m_lastKnownTargetPosition;
     private EnemyCombatMovementMode? m_movementMode;
+    private Node3D m_aimPitchPivot;
+    private Vector3 m_aimPitchRestRotation;
 
     public EnemyMech(
         MechWarriorMissionGamePiece definition,
@@ -91,7 +94,6 @@ public partial class EnemyMech : Node3D
         ArgumentNullException.ThrowIfNull(playerMech);
         ArgumentNullException.ThrowIfNull(battlefieldEffects);
         ArgumentNullException.ThrowIfNull(weaponSounds);
-        ArgumentNullException.ThrowIfNull(damageSilhouette);
         ArgumentNullException.ThrowIfNull(surfaceHeightProvider);
         ArgumentNullException.ThrowIfNull(sceneryObstacleProvider);
         ArgumentNullException.ThrowIfNull(sceneTriangles);
@@ -167,9 +169,12 @@ public partial class EnemyMech : Node3D
 
     public bool IsDestroyed { get; private set; }
 
+    public bool IsStationaryEmplacement => MechDefinition.WalkingMovementPoints == 0;
+
     public MechDamageModel Damage => m_damageModel;
 
     public bool IsImmobilized =>
+        IsStationaryEmplacement ||
         m_damageModel.IsSectionDestroyed(MechDamageSection.LeftLeg) ||
         m_damageModel.IsSectionDestroyed(MechDamageSection.RightLeg);
 
@@ -200,6 +205,13 @@ public partial class EnemyMech : Node3D
         ArgumentNullException.ThrowIfNull(mesh);
         ArgumentException.ThrowIfNullOrWhiteSpace(partName);
         m_destructibleParts.Add((mesh, partName));
+    }
+
+    public void ConfigureAimPitchPivot(Node3D pivot)
+    {
+        ArgumentNullException.ThrowIfNull(pivot);
+        m_aimPitchPivot = pivot;
+        m_aimPitchRestRotation = pivot.Rotation;
     }
 
     public bool TryRaycastSections(
@@ -314,7 +326,10 @@ public partial class EnemyMech : Node3D
         }
 
         var elapsed = (float)delta;
-        UpdateGait(elapsed);
+        if (!IsStationaryEmplacement)
+        {
+            UpdateGait(elapsed);
+        }
         m_heat.Advance(elapsed);
         m_fireDecisionCooldown = Math.Max(0.0f, m_fireDecisionCooldown - elapsed);
         m_sensorCooldown = Math.Max(0.0f, m_sensorCooldown - elapsed);
@@ -400,32 +415,53 @@ public partial class EnemyMech : Node3D
 
         var desiredYaw = Mathf.Atan2(-planarOffset.X, -planarOffset.Z);
         var relativeYaw = Mathf.AngleDifference(Rotation.Y, desiredYaw);
-        var desiredTorsoYaw = Mathf.Clamp(relativeYaw, -MaximumTorsoYawRadians, MaximumTorsoYawRadians);
-        Torso.Rotation = new Vector3(
-            Mathf.MoveToward(
-                Torso.Rotation.X,
-                Mathf.Clamp(Mathf.Atan2(targetOffset.Y, Math.Max(distance, 0.01f)), -MaximumTorsoPitchRadians, MaximumTorsoPitchRadians),
-                Mathf.DegToRad(TorsoTurnDegreesPerSecond) * elapsed),
-            MoveTowardAngle(
-                Torso.Rotation.Y,
-                desiredTorsoYaw,
-                Mathf.DegToRad(TorsoTurnDegreesPerSecond) * elapsed),
-            0.0f);
-
-        var movement = m_combatMovement.Advance(
-            elapsed,
-            distance,
-            m_hasLineOfSight,
-            (double)m_playerMech.Health / m_playerMech.MaximumHealth);
-        if (m_movementMode != movement.Mode)
+        var desiredTorsoYaw = IsStationaryEmplacement
+            ? relativeYaw
+            : Mathf.Clamp(relativeYaw, -MaximumTorsoYawRadians, MaximumTorsoYawRadians);
+        var desiredPitch = Mathf.Clamp(
+            Mathf.Atan2(targetOffset.Y, Math.Max(distance, 0.01f)),
+            -MaximumTorsoPitchRadians,
+            MaximumTorsoPitchRadians);
+        var turnStep = Mathf.DegToRad(TorsoTurnDegreesPerSecond) * elapsed;
+        if (IsStationaryEmplacement && m_aimPitchPivot != null)
         {
-            m_movementMode = movement.Mode;
-            GD.Print(
-                $"MechRewired: {Description} combat movement {movement.Mode} at {playerDistance:F0}m " +
-                $"({Health}/{MaximumHealth} health).");
+            Torso.Rotation = new Vector3(
+                0.0f,
+                MoveTowardAngle(Torso.Rotation.Y, desiredTorsoYaw, turnStep),
+                0.0f);
+            m_aimPitchPivot.Rotation = new Vector3(
+                Mathf.MoveToward(
+                    m_aimPitchPivot.Rotation.X,
+                    m_aimPitchRestRotation.X + desiredPitch,
+                    turnStep),
+                m_aimPitchRestRotation.Y,
+                m_aimPitchRestRotation.Z);
+        }
+        else
+        {
+            Torso.Rotation = new Vector3(
+                Mathf.MoveToward(Torso.Rotation.X, desiredPitch, turnStep),
+                MoveTowardAngle(Torso.Rotation.Y, desiredTorsoYaw, turnStep),
+                0.0f);
         }
 
-        ApplyCombatMovement(movement, planarOffset, elapsed);
+        if (!IsStationaryEmplacement)
+        {
+            var movement = m_combatMovement.Advance(
+                elapsed,
+                distance,
+                m_hasLineOfSight,
+                (double)m_playerMech.Health / m_playerMech.MaximumHealth);
+            if (m_movementMode != movement.Mode)
+            {
+                m_movementMode = movement.Mode;
+                GD.Print(
+                    $"MechRewired: {Description} combat movement {movement.Mode} at {playerDistance:F0}m " +
+                    $"({Health}/{MaximumHealth} health).");
+            }
+
+            ApplyCombatMovement(movement, planarOffset, elapsed);
+        }
 
         var playerYaw = Mathf.Atan2(-playerPlanarOffset.X, -playerPlanarOffset.Z);
         var aimYaw = Mathf.Abs(Mathf.AngleDifference(Torso.GlobalRotation.Y, playerYaw));
@@ -447,6 +483,12 @@ public partial class EnemyMech : Node3D
         if (IsDestroyed || damage <= 0)
         {
             return;
+        }
+
+        if (IsStationaryEmplacement &&
+            m_damageModel.GetMaximum(section).InternalStructure == 0)
+        {
+            section = MechDamageSection.CenterTorso;
         }
 
         var result = m_damageModel.ApplyDamage(section, damage, fromRear);
@@ -918,7 +960,8 @@ public partial class EnemyMech : Node3D
                 Name,
                 remaining,
                 hitPosition,
-                Definition.Specification.GroupId * 7919 + 104729);
+                Definition.Specification.GroupId * 7919 + 104729,
+                splitIndividualParts: IsStationaryEmplacement);
         }
     }
 
@@ -960,6 +1003,11 @@ public partial class EnemyMech : Node3D
 
     private float GetInitialSensorAlignment(Vector3 planarOffset)
     {
+        if (IsStationaryEmplacement)
+        {
+            return 1.0f;
+        }
+
         if (planarOffset.LengthSquared() <= 0.0001f)
         {
             return 1.0f;

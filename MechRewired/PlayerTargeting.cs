@@ -262,7 +262,7 @@ public partial class PlayerTargeting : Node
             .Select(weapon => $"{weapon.SourceId}:{weapon.Specification.HudName} {GetWeaponAmmo(weapon)}"));
         GD.Print(
             $"MechRewired: targeting online ({m_actors.Count} battlefield actors, " +
-            $"{m_enemyMechs.Count} hostile mechs, {m_hostileActors.Count} hostile actors; " +
+            $"{m_enemyMechs.Count} hostile combatants, {m_hostileActors.Count} hostile actors; " +
             $"authored player loadout {loadout}; mounts [{mounts}]; " +
             (string.IsNullOrWhiteSpace(ammunition) ? string.Empty : $"ammo [{ammunition}]; ") +
             $"cooling {m_heat.CoolingPerSecond:F1} heat/s; " +
@@ -1257,7 +1257,14 @@ public partial class PlayerTargeting : Node
 
     private void OnEnemyDestroyed(EnemyMech enemyMech)
     {
-        m_enemyMechDestroyedSound.Play();
+        if (!enemyMech.IsStationaryEmplacement)
+        {
+            m_enemyMechDestroyedSound.Play();
+        }
+
+        m_playerMission.Apply(new MissionEvent(
+            MissionEventKind.TargetDestroyed,
+            Path.GetFileNameWithoutExtension(enemyMech.Definition.SourceEntry.Name)));
         if (ReferenceEquals(SelectedEnemy, enemyMech))
         {
             SelectedEnemy = null;
@@ -1320,7 +1327,8 @@ public partial class PlayerTargeting : Node
         SelectedEnemy = enemyMech;
         GD.Print(
             $"MechRewired: targeted hostile {enemyMech.Description} " +
-            $"({enemyMech.Health}/{enemyMech.MaximumHealth} whole-mech health).");
+            $"({enemyMech.Health}/{enemyMech.MaximumHealth} " +
+            $"{(enemyMech.IsStationaryEmplacement ? "emplacement" : "whole-mech")} health).");
     }
 
     private void SelectHostileActor(BattlefieldActor actor)

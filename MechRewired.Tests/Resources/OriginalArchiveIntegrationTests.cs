@@ -9,6 +9,7 @@
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
 using MechRewired.Resources;
+using MechRewired.Simulation;
 using NUnit.Framework;
 
 namespace MechRewired.Tests.Resources;
@@ -148,6 +149,85 @@ public sealed class OriginalArchiveIntegrationTests
             Assert.That(level.StaticObjects, Does.Not.Contain(betaFireControl),
                 "Type 0x10 effect controls must not leak into opaque scenery, collision, or targeting.");
         });
+    }
+
+    [Test]
+    public void SilentThunderDeploysTwoAuthoredPulseLaserTurrets()
+    {
+        var archive = OpenOriginalArchive();
+        var mission = MechWarriorMissionResources.Load(archive, "BWD/PINKSCN1.BWD");
+        var gamePieces = MechWarriorMissionGamePieceLoader.Load(archive, mission.Scenario);
+        var turrets = gamePieces
+            .Where(gamePiece => gamePiece.SourceEntry.Name is "PINKENT1.BWD" or "PINKENT2.BWD")
+            .OrderBy(gamePiece => gamePiece.SourceEntry.Name)
+            .ToArray();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(gamePieces, Has.Count.EqualTo(5),
+                "Silent Thunder deploys three Kit Foxes and two fixed turrets.");
+            Assert.That(turrets, Has.Length.EqualTo(2));
+            Assert.That(turrets.Select(turret => turret.Star.Disposition),
+                Is.All.EqualTo(MechWarriorMissionDisposition.Hostile));
+            Assert.That(turrets.Select(turret => turret.Specification.ChassisName),
+                Is.All.EqualTo("turretg"));
+            Assert.That(turrets.Select(turret => turret.Specification.ConfigurationName),
+                Is.All.EqualTo("tur00mpl"));
+            Assert.That(turrets.Select(turret => turret.Specification.DisplayName),
+                Is.All.EqualTo("Turret"));
+            Assert.That(turrets.Select(turret => turret.SpawnPoint.GroupId), Is.All.Zero,
+                "The turret NAVPs are linked by MTBL index rather than their local group field.");
+            Assert.That(System.Numerics.Vector3.Distance(
+                turrets[0].SpawnPoint.Position,
+                new System.Numerics.Vector3(928.45f, 0.0f, -1447.01f)), Is.LessThan(0.01f));
+            Assert.That(System.Numerics.Vector3.Distance(
+                turrets[1].SpawnPoint.Position,
+                new System.Numerics.Vector3(1060.83f, 0.0f, -1428.30f)), Is.LessThan(0.01f));
+        });
+
+        foreach (var turret in turrets)
+        {
+            var chassis = MechWarriorMechChassis.Load(archive.ReadEntry(turret.ChassisEntry));
+            var configuration = MechWarriorMechFile.Load(archive.ReadEntry(turret.ConfigurationEntry));
+            var objectsById = chassis.Objects.ToDictionary(chassisObject => chassisObject.Id);
+            Assert.Multiple(() =>
+            {
+                Assert.That(chassis.Objects, Is.Not.Empty);
+                Assert.That(chassis.ThingObjectIds, Is.EqualTo(new[] { 6, 7 }),
+                    "The original turret supplies separate yaw and pitch joints.");
+                Assert.That(objectsById[7].RelativeToId, Is.EqualTo(6));
+                Assert.That(chassis.PointsOfFire.Select(point => point.ObjectId),
+                    Is.EquivalentTo(new[] { 9, 15, 11, 13 }));
+                Assert.That(chassis.PointsOfFire.All(point =>
+                    IsDescendantOf(point.ObjectId, 7, objectsById)), Is.True);
+                Assert.That(configuration.WalkingMovementPoints, Is.Zero);
+                Assert.That(configuration.Weapons.Select(weapon => weapon.SourceId),
+                    Is.EqualTo(new ushort[] { 2601, 2602, 2603, 2604 }));
+                Assert.That(configuration.Weapons.Select(weapon => weapon.Specification.Kind),
+                    Is.All.EqualTo(MechWeaponKind.PulseLaser));
+            });
+        }
+    }
+
+    private static bool IsDescendantOf(
+        int objectId,
+        int ancestorId,
+        IReadOnlyDictionary<int, MechWarriorWorldObject> objectsById)
+    {
+        for (var currentId = objectId; objectsById.TryGetValue(currentId, out var current); currentId = current.RelativeToId)
+        {
+            if (currentId == ancestorId)
+            {
+                return true;
+            }
+
+            if (current.RelativeToId < 0)
+            {
+                return false;
+            }
+        }
+
+        return false;
     }
 
     private static IReadOnlySet<MechWarriorLevelActor> GetCascade(

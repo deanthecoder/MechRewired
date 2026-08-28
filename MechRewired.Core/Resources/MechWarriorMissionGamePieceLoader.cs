@@ -14,7 +14,8 @@ namespace MechRewired.Resources;
 /// Resolves authored scenario game pieces across included BWD resources.
 /// </summary>
 /// <remarks>
-/// MW2 stores GPS definitions and their NAVP deployments separately; this loader joins them without mission-name conventions.
+/// MW2 stores GPS definitions separately from deployments. Mission tables provide the authoritative
+/// group-to-NAVP link where the NAVP's local group is not the deployed STAR group.
 /// </remarks>
 public static class MechWarriorMissionGamePieceLoader
 {
@@ -25,24 +26,64 @@ public static class MechWarriorMissionGamePieceLoader
         ArgumentNullException.ThrowIfNull(archive);
         ArgumentNullException.ThrowIfNull(scenario);
 
-        var specifications = new List<(MechWarriorProjectEntry SourceEntry, MechWarriorGamePieceSpecification Specification)>();
-        var includedWorlds = new List<MechWarriorWorldFile>();
-        foreach (var include in scenario.Includes.Where(include => include.ResourceIndex >= 0))
+        var specifications = new List<(
+            MechWarriorProjectEntry SourceEntry,
+            MechWarriorWorldInclude Include,
+            MechWarriorGamePieceSpecification Specification)>();
+        var includedWorlds = new List<(
+            MechWarriorProjectEntry Entry,
+            MechWarriorWorldFile World)>();
+        foreach (var include in scenario.Includes)
         {
-            var entry = archive.GetEntry("BWD", include.ResourceIndex);
+            var entry = ResolveIncludeEntry(archive, include);
+            if (entry == null)
+            {
+                continue;
+            }
+
             var world = MechWarriorWorldFile.Load(archive.ReadEntry(entry), include.Transform);
-            includedWorlds.Add(world);
-            specifications.AddRange(world.GamePieceSpecifications.Select(specification => (entry, specification)));
+            includedWorlds.Add((entry, world));
+            specifications.AddRange(world.GamePieceSpecifications.Select(specification => (entry, include, specification)));
         }
 
         var specificationGroups = specifications
             .Select(item => item.Specification.GroupId)
             .ToHashSet();
         var spawnPointsByGroup = new Dictionary<int, MechWarriorWorldNavPoint>();
+        foreach (var groupId in specificationGroups)
+        {
+            var deploymentTargets = scenario.MissionTables
+                .Where(table => table.Index == groupId)
+                .SelectMany(table => table.Entries)
+                .Select(entry => entry.Target.Name)
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var authoredDeployments = includedWorlds
+                .Where(item => deploymentTargets.Contains(Path.GetFileNameWithoutExtension(item.Entry.Name)))
+                .SelectMany(item => item.World.NavPoints)
+                .ToArray();
+            if (authoredDeployments.Length > 1)
+            {
+                throw new InvalidDataException(
+                    $"Scenario mission table {groupId} resolves multiple deployment points.");
+            }
+
+            if (authoredDeployments.Length == 1)
+            {
+                spawnPointsByGroup.Add(groupId, authoredDeployments[0]);
+            }
+        }
+
         foreach (var spawnPoint in includedWorlds
-                     .SelectMany(world => world.NavPoints)
+                     .SelectMany(item => item.World.NavPoints)
                      .Where(point => specificationGroups.Contains(point.GroupId)))
         {
+            if (spawnPointsByGroup.ContainsKey(spawnPoint.GroupId))
+            {
+                continue;
+            }
+
             if (!spawnPointsByGroup.TryAdd(spawnPoint.GroupId, spawnPoint))
             {
                 throw new InvalidDataException(
@@ -52,7 +93,7 @@ public static class MechWarriorMissionGamePieceLoader
 
         var starsByGroup = scenario.Stars.ToDictionary(star => star.GroupId);
         var gamePieces = new List<MechWarriorMissionGamePiece>();
-        foreach (var (sourceEntry, specification) in specifications)
+        foreach (var (sourceEntry, include, specification) in specifications)
         {
             if (!starsByGroup.TryGetValue(specification.GroupId, out var star))
             {
@@ -60,12 +101,12 @@ public static class MechWarriorMissionGamePieceLoader
                     $"{sourceEntry.Path} GPS group {specification.GroupId} has no STAR definition.");
             }
 
-            if (!spawnPointsByGroup.TryGetValue(specification.GroupId, out var spawnPoint))
+            if (!spawnPointsByGroup.TryGetValue(specification.GroupId, out var spawnPoint) &&
+                !TryCreateIncludeDeployment(include, specification, out spawnPoint))
             {
-                // Some campaign includes define non-deployed pieces (for example, scenario-only
-                // entries in the Jade Falcon campaign). They have no world position and must not
-                // be turned into runtime actors.
-                continue;
+                throw new InvalidDataException(
+                    $"{sourceEntry.Path} GPS group {specification.GroupId} has no deployment linked " +
+                    "through its mission table, group NAVP, or authored INCL transform.");
             }
 
             gamePieces.Add(new MechWarriorMissionGamePiece(
@@ -80,6 +121,32 @@ public static class MechWarriorMissionGamePieceLoader
         return gamePieces.AsReadOnly();
     }
 
+    private static bool TryCreateIncludeDeployment(
+        MechWarriorWorldInclude include,
+        MechWarriorGamePieceSpecification specification,
+        out MechWarriorWorldNavPoint spawnPoint)
+    {
+        var transform = include.Transform;
+        if (transform.Translation == System.Numerics.Vector3.Zero &&
+            transform.RotationDegrees == System.Numerics.Vector3.Zero)
+        {
+            spawnPoint = null;
+            return false;
+        }
+
+        // Some fixed mission game pieces are authored directly at their scenario INCL transform
+        // instead of being joined to a separate NAVP.
+        spawnPoint = new MechWarriorWorldNavPoint(
+            transform.Translation,
+            (int)MathF.Round(transform.RotationDegrees.Y),
+            true,
+            specification.GroupId,
+            0,
+            specification.ActionFlags,
+            specification.DisplayName);
+        return true;
+    }
+
     private static MechWarriorProjectEntry ResolveEntry(
         MechWarriorProjectArchive archive,
         string directory,
@@ -88,4 +155,13 @@ public static class MechWarriorMissionGamePieceLoader
         resourceIndex >= 0
             ? archive.GetEntry(directory, resourceIndex)
             : archive.GetEntry($"{directory}/{resourceName}.{directory}");
+
+    private static MechWarriorProjectEntry ResolveIncludeEntry(
+        MechWarriorProjectArchive archive,
+        MechWarriorWorldInclude include) =>
+        include.ResourceIndex >= 0
+            ? archive.GetEntry("BWD", include.ResourceIndex)
+            : archive.Entries.FirstOrDefault(entry => entry.Path.Equals(
+                $"BWD/{include.Name}.BWD",
+                StringComparison.OrdinalIgnoreCase));
 }
