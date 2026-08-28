@@ -10,16 +10,7 @@
 
 namespace MechRewired.Resources;
 
-/// <summary>
-/// Describes gameplay metadata attached to an object assembly by a BWD GT tag.
-/// </summary>
-/// <remarks>
-/// Destroyed object IDs identify an alternative representation within the same BWD resource.
-/// </remarks>
-public sealed record MechWarriorWorldEntity(
-    int ObjectId,
-    int? DestroyedObjectId,
-    int Health,
-    string Description,
-    string DetailDescription,
-    ushort ActionFlags);
+/// <summary>Describes a named PTBL path embedded in an MW2 BWD resource.</summary>
+public sealed record MechWarriorWorldPathTable(
+    string Name,
+    IReadOnlyList<MechWarriorWorldPathPoint> Points);

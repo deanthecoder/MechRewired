@@ -1122,7 +1122,7 @@ public partial class Main : Node3D
                 });
             foreach (var source in level.Sources)
             {
-                GD.Print($"MechRewired: loaded {source.Entry.Path} ({source.ObjectCount} objects).");
+                GD.Print($"MechRewired: loaded {source.Entry.Path} ({source.World.Objects.Count} objects).");
             }
 
             foreach (var actor in level.Actors)
@@ -1144,7 +1144,8 @@ public partial class Main : Node3D
             GD.Print(
                 $"MechRewired: assembled {missionResources.MissionPrefix} mission world ({level.Sources.Count} BWD resources, " +
                 $"{level.TerrainObjects.Count} terrain objects, {level.SceneryObjects.Count} scenery objects, " +
-                $"{level.DebrisObjects.Count} debris objects, {level.Actors.Count} actors).");
+                $"{level.DebrisObjects.Count} debris objects, {level.EffectObjects.Count} effect controls, " +
+                $"{level.Actors.Count} actors).");
             return true;
         }
         catch (Exception exception)
@@ -1352,6 +1353,22 @@ public partial class Main : Node3D
                     (battlefieldActor, true));
             }
         }
+        var destructionLinks = MechWarriorActorDestructionLinkResolver.Resolve(level);
+        var linkedActors = destructionLinks
+            .Select(link => (
+                Parent: battlefieldActors.Single(actor => ReferenceEquals(actor.Definition, link.Parent)),
+                Child: battlefieldActors.Single(actor => ReferenceEquals(actor.Definition, link.Child))))
+            .GroupBy(link => link.Parent)
+            .ToDictionary(
+                group => group.Key,
+                group => (IReadOnlyList<BattlefieldActor>)group.Select(link => link.Child).ToArray());
+        if (linkedActors.Count > 0)
+        {
+            actorRoot.AddChild(new AuthoredActorDestructionController(linkedActors));
+            GD.Print(
+                $"MechRewired: linked {destructionLinks.Count} nested actor destruction relationships " +
+                $"across {linkedActors.Count} parent actors.");
+        }
 
         var meshCache = new Dictionary<string, IReadOnlyList<ArrayMesh>>(StringComparer.OrdinalIgnoreCase);
         var wireframeCache = new Dictionary<string, IReadOnlyList<ArrayMesh>>(StringComparer.OrdinalIgnoreCase);
@@ -1374,16 +1391,18 @@ public partial class Main : Node3D
             (string SourcePath, int ObjectId),
             IReadOnlyList<SceneryWallTriangle>>();
         var renderedBoundsByObject = new Dictionary<(string SourcePath, int ObjectId), Aabb>();
-        var authoredColorTasks = LoadAuthoredColorTasks(archive, level.Sources, palette);
+        var renderedRootsByObject = new Dictionary<(string SourcePath, int ObjectId), Node3D>();
+        var authoredColorTasks = LoadAuthoredColorTasks(level.Sources, palette);
         var airborneSetPieceSources = level.Sources
             .Where(source => WorldHasTaskArgument(
-                MechWarriorWorldFile.Load(archive.ReadEntry(source.Entry)),
+                source.World,
                 "recon"))
             .Select(source => source.Entry.Path)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var renderedObjects = level.StaticObjects
             .Concat(level.Actors.SelectMany(actor => actor.Components))
-            .Concat(level.Actors.SelectMany(actor => actor.DestroyedComponents));
+            .Concat(level.Actors.SelectMany(actor => actor.DestroyedComponents))
+            .Where(levelObject => levelObject.Kind != MechWarriorLevelObjectKind.Effect);
         foreach (var levelObject in renderedObjects)
         {
             if (!meshCache.TryGetValue(levelObject.ModelEntry.Path, out var meshes))
@@ -1505,6 +1524,7 @@ public partial class Main : Node3D
                 RotationDegrees = MechWarriorCoordinateSystem.ToGodotRotation(levelObject.Transform.RotationDegrees),
                 Scale = MechWarriorCoordinateSystem.ToGodotScale(levelObject.Transform.Scale)
             };
+            renderedRootsByObject[(levelObject.SourceEntry.Path, levelObject.Id)] = objectRoot;
             var isDestroyedRepresentation = false;
             BattlefieldActor battlefieldActor = null;
             if (levelObject.Kind == MechWarriorLevelObjectKind.Actor &&
@@ -1624,6 +1644,12 @@ public partial class Main : Node3D
 
         foreach (var battlefieldActor in battlefieldActors)
         {
+            if (airborneSetPieceSources.Contains(battlefieldActor.Definition.SourceEntry.Path))
+            {
+                battlefieldActor.ConfigureSceneryObstacles(null, null);
+                continue;
+            }
+
             var activeWalls = battlefieldActor.Definition.Components
                 .SelectMany(component => collisionWallsByObject.GetValueOrDefault(
                     (component.SourceEntry.Path, component.Id),
@@ -1749,6 +1775,13 @@ public partial class Main : Node3D
         {
             battlefieldActor.ConfigureTerrain(terrainSurface);
         }
+        var hostileAircraft = LoadAuthoredAircraft(
+            archive,
+            level,
+            battlefieldActors,
+            renderedRootsByObject,
+            debugTriangles,
+            terrainSurface);
         LoadAmbientEffects(
             archive,
             missionResources.Level.Entry.Path,
@@ -1997,6 +2030,7 @@ public partial class Main : Node3D
             playerMission,
             debugTriangles.AsReadOnly(),
             battlefieldActors,
+            hostileAircraft,
             enemyMechs,
             playerMechDefinition,
             playerMechSounds,
@@ -2618,6 +2652,56 @@ public partial class Main : Node3D
             task.Command.Split([';', ','], StringSplitOptions.TrimEntries)
                 .Any(candidate => candidate.Equals(argument, StringComparison.OrdinalIgnoreCase)));
 
+    private static IReadOnlyList<BattlefieldActor> LoadAuthoredAircraft(
+        MechWarriorProjectArchive archive,
+        MechWarriorLevel level,
+        IReadOnlyList<BattlefieldActor> actors,
+        IReadOnlyDictionary<(string SourcePath, int ObjectId), Node3D> renderedRootsByObject,
+        IList<DebugTriangle> sceneTriangles,
+        TerrainSurfaceIndex terrainSurface)
+    {
+        var hostileAircraft = new List<BattlefieldActor>();
+        foreach (var plan in MechWarriorAuthoredAircraftResolver.Resolve(level))
+        {
+            AudioStreamWav engineSound = null;
+            var soundPath = $"SNDS/{plan.SoundResourceName}.WAV";
+            if (archive.Entries.Any(entry => entry.Path.Equals(soundPath, StringComparison.OrdinalIgnoreCase)))
+            {
+                engineSound = PlayerMechSounds.LoadWaveResource(
+                    archive,
+                    soundPath,
+                    plan.LoopSound,
+                    $"{plan.Source.Entry.Name} authored aircraft engine");
+            }
+
+            var actor = actors.FirstOrDefault(candidate => ReferenceEquals(candidate.Definition, plan.Actor)) ??
+                        throw new InvalidDataException(
+                            $"{plan.Source.Entry.Path} resolved aircraft actor {plan.Actor.ObjectId} was not rendered.");
+            var rotor = renderedRootsByObject.GetValueOrDefault(
+                            (plan.Source.Entry.Path, plan.RotorComponent.Id)) ??
+                        throw new InvalidDataException(
+                            $"{plan.Source.Entry.Path} recon actor {actor.Definition.ObjectId} has no rendered rotor component.");
+            actor.AddChild(new AuthoredAircraftController(
+                actor,
+                plan.MotionObject.Transform,
+                plan.Path.Points,
+                plan.RotateWithPath,
+                sceneTriangles,
+                rotor,
+                engineSound,
+                plan.MaximumSoundDistance,
+                terrainSurface));
+            hostileAircraft.Add(actor);
+            GD.Print(
+                $"MechRewired: activated {actor.Description} from {plan.Source.Entry.Path} on authored " +
+                $"'{plan.Path.Name}' path ({plan.Path.Points.Count} points, {plan.PathTask.Command}; " +
+                $"sound {(engineSound == null ? "none" : plan.SoundResourceName)})."
+            );
+        }
+
+        return hostileAircraft.AsReadOnly();
+    }
+
     private static void MakeMeshDoubleSided(ArrayMesh mesh)
     {
         for (var surfaceIndex = 0; surfaceIndex < mesh.GetSurfaceCount(); surfaceIndex++)
@@ -2690,15 +2774,13 @@ public partial class Main : Node3D
     /// Reads original BWD palette-cycle tasks, including locator-only DUMMY objects.
     /// </summary>
     private static IReadOnlyDictionary<(string SourcePath, int ObjectId), Color[]> LoadAuthoredColorTasks(
-        MechWarriorProjectArchive archive,
         IReadOnlyList<MechWarriorLevelSource> sources,
         MechWarriorPalette palette)
     {
         var animations = new Dictionary<(string SourcePath, int ObjectId), Color[]>();
         foreach (var source in sources)
         {
-            var world = MechWarriorWorldFile.Load(archive.ReadEntry(source.Entry));
-            foreach (var (objectId, colors) in LoadDropShipColorTasks(world, palette))
+            foreach (var (objectId, colors) in LoadDropShipColorTasks(source.World, palette))
             {
                 animations[(source.Entry.Path, objectId)] = colors;
             }
@@ -2708,7 +2790,7 @@ public partial class Main : Node3D
     }
 
     private static bool IsColorAnimationTask(MechWarriorWorldTask task) =>
-        (task.Type & 0xffff) == 1;
+        task.Type == 1;
 
     private static AnimatedLocatorLight CreateAnimatedLocatorLight(Color[] colors)
     {

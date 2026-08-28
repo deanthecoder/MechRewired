@@ -1003,7 +1003,7 @@ public partial class PlayerMech : Node3D
             Key.Key6 or Key.Key7 or Key.Key8 or Key.Key9 or
             Key.Equal or Key.Plus or Key.Minus or Key.Backspace or Key.Quoteleft or
             Key.Left or Key.Right or
-            Key.S or Key.O or Key.Slash or Key.M or
+            Key.S or Key.O or Key.M or
             Key.Enter or Key.Backslash or Key.Apostrophe or Key.Semicolon or
             Key.T or Key.R or Key.E or Key.Q or Key.I or Key.Space),
         _ => false

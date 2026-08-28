@@ -36,6 +36,7 @@ public partial class PlayerTargeting : Node
     private readonly PlayerMission m_playerMission;
     private readonly IReadOnlyList<DebugTriangle> m_sceneTriangles;
     private readonly IReadOnlyList<BattlefieldActor> m_actors;
+    private readonly IReadOnlyList<BattlefieldActor> m_hostileActors;
     private readonly IReadOnlyList<EnemyMech> m_enemyMechs;
     private readonly IReadOnlyDictionary<(string SourcePath, int ObjectId), BattlefieldActor> m_actorsByObject;
     private readonly AudioStreamPlayer m_weaponSound;
@@ -66,6 +67,7 @@ public partial class PlayerTargeting : Node
         PlayerMission playerMission,
         IReadOnlyList<DebugTriangle> sceneTriangles,
         IReadOnlyList<BattlefieldActor> actors,
+        IReadOnlyList<BattlefieldActor> hostileActors,
         IReadOnlyList<EnemyMech> enemyMechs,
         MechWarriorMechFile playerDefinition,
         PlayerMechSounds sounds,
@@ -75,6 +77,7 @@ public partial class PlayerTargeting : Node
         ArgumentNullException.ThrowIfNull(playerMission);
         ArgumentNullException.ThrowIfNull(sceneTriangles);
         ArgumentNullException.ThrowIfNull(actors);
+        ArgumentNullException.ThrowIfNull(hostileActors);
         ArgumentNullException.ThrowIfNull(enemyMechs);
         ArgumentNullException.ThrowIfNull(playerDefinition);
         ArgumentNullException.ThrowIfNull(sounds);
@@ -89,6 +92,7 @@ public partial class PlayerTargeting : Node
         m_playerMechSounds = sounds;
         m_playerMission = playerMission;
         m_actors = actors;
+        m_hostileActors = hostileActors;
         m_enemyMechs = enemyMechs;
         var actorsByObject = new Dictionary<(string SourcePath, int ObjectId), BattlefieldActor>();
         foreach (var actor in actors)
@@ -236,7 +240,11 @@ public partial class PlayerTargeting : Node
 
     public IReadOnlyList<BattlefieldActor> Actors => m_actors;
 
+    public IReadOnlyList<BattlefieldActor> HostileActors => m_hostileActors;
+
     public IReadOnlyList<EnemyMech> EnemyMechs => m_enemyMechs;
+
+    public bool IsHostile(BattlefieldActor actor) => m_hostileActors.Contains(actor);
 
     public BattlefieldActor ObjectiveActor { get; private set; }
 
@@ -254,7 +262,7 @@ public partial class PlayerTargeting : Node
             .Select(weapon => $"{weapon.SourceId}:{weapon.Specification.HudName} {GetWeaponAmmo(weapon)}"));
         GD.Print(
             $"MechRewired: targeting online ({m_actors.Count} battlefield actors, " +
-            $"{m_enemyMechs.Count} hostile mechs; " +
+            $"{m_enemyMechs.Count} hostile mechs, {m_hostileActors.Count} hostile actors; " +
             $"authored player loadout {loadout}; mounts [{mounts}]; " +
             (string.IsNullOrWhiteSpace(ammunition) ? string.Empty : $"ammo [{ammunition}]; ") +
             $"cooling {m_heat.CoolingPerSecond:F1} heat/s; " +
@@ -300,11 +308,18 @@ public partial class PlayerTargeting : Node
             return;
         }
 
-        SelectedActor = actor;
-        SelectedEnemy = null;
-        GD.Print(
-            $"MechRewired: targeted {actor.Description} in BWD/{actor.SourceResourceName}.BWD " +
-            $"({actor.Health}/{actor.MaximumHealth} health).");
+        if (IsHostile(actor))
+        {
+            SelectHostileActor(actor);
+        }
+        else
+        {
+            SelectedActor = actor;
+            SelectedEnemy = null;
+            GD.Print(
+                $"MechRewired: targeted {actor.Description} in BWD/{actor.SourceResourceName}.BWD " +
+                $"({actor.Health}/{actor.MaximumHealth} health).");
+        }
     }
 
     public void SelectNextEnemy() => CycleEnemy(1);
@@ -317,10 +332,23 @@ public partial class PlayerTargeting : Node
             .Where(IsTargetableEnemy)
             .OrderBy(candidate => candidate.TargetPosition.DistanceSquaredTo(m_playerMech.GlobalPosition))
             .FirstOrDefault();
-        if (enemyMech == null)
+        var hostileActor = m_hostileActors
+            .Where(IsTargetableHostileActor)
+            .OrderBy(candidate => candidate.TargetPosition.DistanceSquaredTo(m_playerMech.GlobalPosition))
+            .FirstOrDefault();
+        if (enemyMech == null && hostileActor == null)
         {
             ClearTarget();
-            GD.Print($"MechRewired: no powered hostile mechs are within {TargetingRange:F0}m targeting range.");
+            GD.Print($"MechRewired: no hostile contacts are within {TargetingRange:F0}m targeting range.");
+            return;
+        }
+
+        if (hostileActor != null &&
+            (enemyMech == null ||
+             hostileActor.TargetPosition.DistanceSquaredTo(m_playerMech.GlobalPosition) <
+             enemyMech.TargetPosition.DistanceSquaredTo(m_playerMech.GlobalPosition)))
+        {
+            SelectHostileActor(hostileActor);
             return;
         }
 
@@ -1200,6 +1228,11 @@ public partial class PlayerTargeting : Node
 
     private void OnActorDestroyed(BattlefieldActor actor, Vector3 hitPosition)
     {
+        if (ReferenceEquals(SelectedActor, actor))
+        {
+            SelectedActor = null;
+        }
+
         if (ReferenceEquals(ObjectiveActor, actor))
         {
             ObjectiveActor = null;
@@ -1250,19 +1283,35 @@ public partial class PlayerTargeting : Node
 
     private void CycleEnemy(int direction)
     {
-        var liveEnemies = m_enemyMechs.Where(IsTargetableEnemy).ToArray();
-        if (liveEnemies.Length == 0)
+        var liveEnemies = new List<(EnemyMech EnemyMech, BattlefieldActor Actor)>();
+        liveEnemies.AddRange(m_enemyMechs
+            .Where(IsTargetableEnemy)
+            .Select(enemyMech => (enemyMech, (BattlefieldActor)null)));
+        liveEnemies.AddRange(m_hostileActors
+            .Where(IsTargetableHostileActor)
+            .Select(actor => ((EnemyMech)null, actor)));
+        if (liveEnemies.Count == 0)
         {
             ClearTarget();
-            GD.Print($"MechRewired: no powered hostile mechs are within {TargetingRange:F0}m targeting range.");
+            GD.Print($"MechRewired: no hostile contacts are within {TargetingRange:F0}m targeting range.");
             return;
         }
 
-        var selectedIndex = Array.IndexOf(liveEnemies, SelectedEnemy);
+        var selectedIndex = liveEnemies.FindIndex(candidate =>
+            ReferenceEquals(candidate.EnemyMech, SelectedEnemy) &&
+            ReferenceEquals(candidate.Actor, SelectedActor));
         var nextIndex = selectedIndex < 0
-            ? direction > 0 ? 0 : liveEnemies.Length - 1
-            : (selectedIndex + direction + liveEnemies.Length) % liveEnemies.Length;
-        SelectEnemy(liveEnemies[nextIndex]);
+            ? direction > 0 ? 0 : liveEnemies.Count - 1
+            : (selectedIndex + direction + liveEnemies.Count) % liveEnemies.Count;
+        var next = liveEnemies[nextIndex];
+        if (next.EnemyMech != null)
+        {
+            SelectEnemy(next.EnemyMech);
+        }
+        else
+        {
+            SelectHostileActor(next.Actor);
+        }
     }
 
     private void SelectEnemy(EnemyMech enemyMech)
@@ -1274,10 +1323,25 @@ public partial class PlayerTargeting : Node
             $"({enemyMech.Health}/{enemyMech.MaximumHealth} whole-mech health).");
     }
 
+    private void SelectHostileActor(BattlefieldActor actor)
+    {
+        SelectedActor = actor;
+        SelectedEnemy = null;
+        GD.Print(
+            $"MechRewired: targeted hostile {actor.Description} " +
+            $"({actor.Health}/{actor.MaximumHealth} health).");
+    }
+
     private bool IsTargetableEnemy(EnemyMech enemyMech) =>
         !enemyMech.IsDestroyed &&
         !enemyMech.IsPoweredDown &&
         enemyMech.TargetPosition.DistanceSquaredTo(m_playerMech.GlobalPosition) <=
+        TargetingRange * TargetingRange;
+
+    private bool IsTargetableHostileActor(BattlefieldActor actor) =>
+        !actor.IsDestroyed &&
+        actor.IsDamageable &&
+        actor.TargetPosition.DistanceSquaredTo(m_playerMech.GlobalPosition) <=
         TargetingRange * TargetingRange;
 
     private static string DescribeActor(BattlefieldActor actor)

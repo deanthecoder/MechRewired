@@ -40,6 +40,7 @@ public partial class PlayerHud : Control
     private const float AltimeterPixelsPerMeter = 14.0f;
     private const float MaximumTargetFrameSize = 160.0f;
     private const float ObjectiveTargetFrameSize = 48.0f;
+    private const float TargetFrameResponsePerSecond = 18.0f;
     private const float PlayerDamageRight = 1225.0f;
     private const float PlayerDamageSize = 130.5f;
     private const float PlayerDamageCenterX = PlayerDamageRight - PlayerDamageSize * 0.5f;
@@ -70,6 +71,9 @@ public partial class PlayerHud : Control
     private float m_displayedTargetSpeedKph;
     private float m_hudGlow = DefaultHudGlow;
     private float m_hudGlowRadius = DefaultHudGlowRadius;
+    private float m_targetFrameBlend = 1.0f;
+    private Node3D m_smoothedTarget;
+    private Rect2 m_smoothedTargetRect;
     private Font m_hudFont;
 
     /// <summary>
@@ -182,6 +186,7 @@ public partial class PlayerHud : Control
             m_displayedTargetSpeedKph,
             (float)m_playerMech.Drive.TargetSpeedKph,
             SpeedGaugeResponseKphPerSecond * (float)delta);
+        m_targetFrameBlend = 1.0f - MathF.Exp(-TargetFrameResponsePerSecond * (float)delta);
         SelfModulate = new Color(1.0f, 1.0f, 1.0f, m_hudPower);
 
         if (Visible)
@@ -293,42 +298,66 @@ public partial class PlayerHud : Control
             DrawNavigationPoint(center, playerPosition, index);
         }
 
-        DrawEnemyMechs(center, playerPosition);
+        DrawHostileContacts(center, playerPosition);
     }
 
-    private void DrawEnemyMechs(Vector2 center, Vector2 playerPosition)
+    private void DrawHostileContacts(Vector2 center, Vector2 playerPosition)
     {
         var radarRange = RadarRanges[m_radarRangeIndex];
         foreach (var enemyMech in m_targeting.EnemyMechs.Where(enemyMech =>
                      !enemyMech.IsDestroyed && !enemyMech.IsPoweredDown))
         {
-            var localPosition = m_playerMech.ToLocal(enemyMech.TargetPosition);
-            var point = playerPosition + new Vector2(
-                localPosition.X / radarRange * RadarRadius,
-                localPosition.Z / radarRange * RadarRadius) * m_scale;
-            var fromCenter = point - center;
-            if (fromCenter.Length() > RadarRadius * m_scale)
-            {
-                continue;
-            }
+            DrawHostileContact(
+                center,
+                playerPosition,
+                radarRange,
+                enemyMech.TargetPosition,
+                ReferenceEquals(enemyMech, m_targeting.SelectedEnemy));
+        }
 
-            var markerRadius = ReferenceEquals(enemyMech, m_targeting.SelectedEnemy) ? 5.0f : 3.0f;
-            markerRadius *= m_scale;
-            Vector2[] marker =
-            {
-                point + Vector2.Up * markerRadius,
-                point + Vector2.Right * markerRadius,
-                point + Vector2.Down * markerRadius,
-                point + Vector2.Left * markerRadius
-            };
-            if (ReferenceEquals(enemyMech, m_targeting.SelectedEnemy))
-            {
-                DrawColoredPolygon(marker, GaugeRed);
-            }
-            else
-            {
-                DrawPolyline([.. marker, marker[0]], GaugeRed, LineWidth(1.0f));
-            }
+        foreach (var actor in m_targeting.HostileActors.Where(actor => !actor.IsDestroyed))
+        {
+            DrawHostileContact(
+                center,
+                playerPosition,
+                radarRange,
+                actor.TargetPosition,
+                ReferenceEquals(actor, m_targeting.SelectedActor));
+        }
+    }
+
+    private void DrawHostileContact(
+        Vector2 center,
+        Vector2 playerPosition,
+        float radarRange,
+        Vector3 targetPosition,
+        bool selected)
+    {
+        var localPosition = m_playerMech.ToLocal(targetPosition);
+        var point = playerPosition + new Vector2(
+            localPosition.X / radarRange * RadarRadius,
+            localPosition.Z / radarRange * RadarRadius) * m_scale;
+        var fromCenter = point - center;
+        if (fromCenter.Length() > RadarRadius * m_scale)
+        {
+            return;
+        }
+
+        var markerRadius = (selected ? 5.0f : 3.0f) * m_scale;
+        Vector2[] marker =
+        {
+            point + Vector2.Up * markerRadius,
+            point + Vector2.Right * markerRadius,
+            point + Vector2.Down * markerRadius,
+            point + Vector2.Left * markerRadius
+        };
+        if (selected)
+        {
+            DrawColoredPolygon(marker, GaugeRed);
+        }
+        else
+        {
+            DrawPolyline([.. marker, marker[0]], GaugeRed, LineWidth(1.0f));
         }
     }
 
@@ -484,6 +513,13 @@ public partial class PlayerHud : Control
             return;
         }
 
+        var actor = m_targeting.SelectedActor;
+        if (actor != null && m_targeting.IsHostile(actor))
+        {
+            DrawHostileActorTargetPanel(actor, panelLeft, panelTop, panelWidth, panelHeight);
+            return;
+        }
+
         var iconCenter = Point(panelLeft + panelWidth * 0.5f, panelTop + panelHeight * 0.5f);
         var navigation = SelectedNavigationPoint;
         var navigationColor = m_navigation.IsReached(m_navigation.SelectedIndex)
@@ -521,6 +557,29 @@ public partial class PlayerHud : Control
             : $"{distanceMeters:F0}m";
         DrawText(new Vector2(panelLeft, 675.0f), enemyMech.Description, RadarAmber, 25);
         DrawText(new Vector2(panelLeft, 706.0f), distanceText, HudGreen, 25);
+    }
+
+    private void DrawHostileActorTargetPanel(
+        BattlefieldActor actor,
+        float panelLeft,
+        float panelTop,
+        float panelWidth,
+        float panelHeight)
+    {
+        var iconCenter = Point(panelLeft + panelWidth * 0.5f, panelTop + panelHeight * 0.5f);
+        DrawDiamond(iconCenter, 24.0f, 3.0f, GaugeRed);
+        DrawDiamond(iconCenter, 12.0f, 2.0f, GaugeRed);
+
+        var distanceMeters = actor.TargetPosition.DistanceTo(m_playerMech.GlobalPosition);
+        var distanceText = distanceMeters >= 1000.0f
+            ? $"{distanceMeters / 1000.0f:F2}Km"
+            : $"{distanceMeters:F0}m";
+        DrawText(new Vector2(panelLeft, 675.0f), actor.Description, RadarAmber, 25);
+        DrawText(
+            new Vector2(panelLeft, 706.0f),
+            $"{distanceText}  {actor.Health}/{actor.MaximumHealth}",
+            HudGreen,
+            25);
     }
 
     private void DrawDiamond(Vector2 center, float radius, float width, Color? color = null)
@@ -799,6 +858,7 @@ public partial class PlayerHud : Control
             (actor != null && ReferenceEquals(actor, m_targeting.ObjectiveActor)) ||
             camera == null)
         {
+            m_smoothedTarget = null;
             return;
         }
 
@@ -806,7 +866,22 @@ public partial class PlayerHud : Control
         var targetRect = camera.IsPositionBehind(targetPosition)
             ? GetOffscreenTargetRect(camera, targetPosition)
             : ClampTargetRect(GetScreenRect(camera, bounds).Grow(5.0f * m_scale));
-        DrawTargetCorners(targetRect, enemyMech == null ? RadarAmber : GaugeRed);
+        var targetNode = (Node3D)enemyMech ?? actor;
+        if (!ReferenceEquals(targetNode, m_smoothedTarget))
+        {
+            m_smoothedTarget = targetNode;
+            m_smoothedTargetRect = targetRect;
+        }
+        else
+        {
+            m_smoothedTargetRect = new Rect2(
+                m_smoothedTargetRect.Position.Lerp(targetRect.Position, m_targetFrameBlend),
+                m_smoothedTargetRect.Size.Lerp(targetRect.Size, m_targetFrameBlend));
+        }
+
+        targetRect = m_smoothedTargetRect;
+        var isHostile = enemyMech != null || actor != null && m_targeting.IsHostile(actor);
+        DrawTargetCorners(targetRect, isHostile ? GaugeRed : RadarAmber);
         if (enemyMech != null)
         {
             return;
@@ -828,7 +903,7 @@ public partial class PlayerHud : Control
             HorizontalAlignment.Left,
             -1.0f,
             fontSize,
-            RadarAmber);
+            isHostile ? GaugeRed : RadarAmber);
     }
 
     private Rect2 GetOffscreenTargetRect(Camera3D camera, Vector3 targetPosition)

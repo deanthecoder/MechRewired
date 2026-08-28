@@ -14,6 +14,8 @@ namespace MechRewired.Resources;
 /// Describes one BWD resource visited while loading a level.
 /// </summary>
 /// <remarks>
-/// Object count refers only to objects declared directly by this source file.
+/// The decoded world retains the tasks and paths declared directly by this source file.
 /// </remarks>
-public sealed record MechWarriorLevelSource(MechWarriorProjectEntry Entry, int ObjectCount);
+public sealed record MechWarriorLevelSource(
+    MechWarriorProjectEntry Entry,
+    MechWarriorWorldFile World);

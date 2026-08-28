@@ -8,18 +8,18 @@
 //
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
+using System.Numerics;
+
 namespace MechRewired.Resources;
 
-/// <summary>
-/// Describes gameplay metadata attached to an object assembly by a BWD GT tag.
-/// </summary>
-/// <remarks>
-/// Destroyed object IDs identify an alternative representation within the same BWD resource.
-/// </remarks>
-public sealed record MechWarriorWorldEntity(
-    int ObjectId,
-    int? DestroyedObjectId,
-    int Health,
-    string Description,
-    string DetailDescription,
-    ushort ActionFlags);
+/// <summary>Describes one point in an authored MW2 world path.</summary>
+public sealed record MechWarriorWorldPathPoint(
+    Vector3 Position,
+    Vector3 RotationDegrees,
+    int TravelTicks)
+{
+    /// <summary>The original simulation advances authored path timing at 182 ticks per second.</summary>
+    public const float SourceTicksPerSecond = 182.0f;
+
+    public float TravelSeconds => TravelTicks / SourceTicksPerSecond;
+}

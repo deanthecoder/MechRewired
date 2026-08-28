@@ -8,18 +8,9 @@
 //
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
+using System.Numerics;
+
 namespace MechRewired.Resources;
 
-/// <summary>
-/// Describes gameplay metadata attached to an object assembly by a BWD GT tag.
-/// </summary>
-/// <remarks>
-/// Destroyed object IDs identify an alternative representation within the same BWD resource.
-/// </remarks>
-public sealed record MechWarriorWorldEntity(
-    int ObjectId,
-    int? DestroyedObjectId,
-    int Health,
-    string Description,
-    string DetailDescription,
-    ushort ActionFlags);
+/// <summary>Position and instantaneous velocity sampled from an authored world path.</summary>
+public sealed record MechWarriorWorldPathSample(Vector3 Position, Vector3 Velocity);

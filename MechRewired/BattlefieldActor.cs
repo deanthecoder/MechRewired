@@ -185,6 +185,20 @@ public partial class BattlefieldActor : Node3D
         (destroyed ? m_destroyedRepresentations : m_activeRepresentations).Add(representation);
     }
 
+    /// <summary>
+    /// Rebases the authored world-space representations beneath a movable assembly transform.
+    /// </summary>
+    public void SetMotionAnchor(Transform3D anchor)
+    {
+        var representations = m_activeRepresentations.Concat(m_destroyedRepresentations).ToArray();
+        var worldTransforms = representations.Select(representation => representation.GlobalTransform).ToArray();
+        GlobalTransform = anchor;
+        for (var index = 0; index < representations.Length; index++)
+        {
+            representations[index].GlobalTransform = worldTransforms[index];
+        }
+    }
+
     public void ConfigureSceneryObstacles(
         SceneryObstacle activeObstacle,
         SceneryObstacle destroyedObstacle)

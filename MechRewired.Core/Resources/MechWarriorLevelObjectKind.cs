@@ -18,5 +18,6 @@ public enum MechWarriorLevelObjectKind
     Terrain,
     Scenery,
     Debris,
+    Effect,
     Actor
 }

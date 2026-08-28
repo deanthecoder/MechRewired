@@ -88,7 +88,7 @@ public sealed class MechWarriorWorldFileTests
         var data = WriteWorld(writer =>
         {
             WriteObjectTag(writer, 7, -2, 101, Vector3.Zero);
-            WriteEntityTag(writer, 7, 12, 250, "Dire Wolf");
+            WriteEntityTag(writer, 7, 12, 250, "Dire Wolf", "Star Captain", 0x0400);
         });
 
         var world = MechWarriorWorldFile.Load(data);
@@ -98,6 +98,8 @@ public sealed class MechWarriorWorldFileTests
         Assert.That(world.Entities[0].DestroyedObjectId, Is.EqualTo(12));
         Assert.That(world.Entities[0].Health, Is.EqualTo(250));
         Assert.That(world.Entities[0].Description, Is.EqualTo("Dire Wolf"));
+        Assert.That(world.Entities[0].DetailDescription, Is.EqualTo("Star Captain"));
+        Assert.That(world.Entities[0].ActionFlags, Is.EqualTo(0x0400));
     }
 
     [Test]
@@ -156,8 +158,58 @@ public sealed class MechWarriorWorldFileTests
 
         Assert.That(world.Tasks, Has.Count.EqualTo(1));
         Assert.That(world.Tasks[0].Type, Is.EqualTo(4));
-        Assert.That(world.Tasks[0].Flags, Is.EqualTo(0x20));
+        Assert.That(world.Tasks[0].UpdatePeriod, Is.EqualTo(0x20));
         Assert.That(world.Tasks[0].Command, Is.EqualTo("4;400,mecfire1,1"));
+    }
+
+    [Test]
+    public void LoadReadsAuthoredPathTable()
+    {
+        var data = WriteWorld(writer => WritePathTableTag(
+            writer,
+            "recon",
+            (new Vector3(1102.31f, 10.0f, 462.52f), new Vector3(0.0f, 90.0f, 0.0f), 1820),
+            (new Vector3(626.05f, 21.84f, 225.41f), new Vector3(0.0f, 90.0f, 0.0f), 728)));
+
+        var world = MechWarriorWorldFile.Load(data);
+
+        Assert.That(world.PathTables, Has.Count.EqualTo(1));
+        Assert.That(world.PathTables[0].Name, Is.EqualTo("recon"));
+        Assert.That(world.PathTables[0].Points, Has.Count.EqualTo(2));
+        Assert.That(world.PathTables[0].Points[0].Position.X, Is.EqualTo(1102.31f).Within(0.001f));
+        Assert.That(world.PathTables[0].Points[0].Position.Y, Is.EqualTo(10.0f).Within(0.001f));
+        Assert.That(world.PathTables[0].Points[0].Position.Z, Is.EqualTo(462.52f).Within(0.001f));
+        Assert.That(world.PathTables[0].Points[0].RotationDegrees, Is.EqualTo(new Vector3(0.0f, 90.0f, 0.0f)));
+        Assert.That(world.PathTables[0].Points[0].TravelTicks, Is.EqualTo(1820));
+    }
+
+    [Test]
+    public void PathInterpolationStartsAndStopsSmoothlyWithoutMissingAuthoredPoints()
+    {
+        MechWarriorWorldPathPoint[] points =
+        [
+            new(new Vector3(0.0f, 0.0f, 0.0f), Vector3.Zero, 182),
+            new(new Vector3(10.0f, 2.0f, 0.0f), Vector3.Zero, 364),
+            new(new Vector3(20.0f, 2.0f, 10.0f), Vector3.Zero, 182)
+        ];
+
+        var start = MechWarriorWorldPathInterpolator.Sample(points, 0, 0.0f);
+        var firstArrival = MechWarriorWorldPathInterpolator.Sample(points, 0, 1.0f);
+        var secondDeparture = MechWarriorWorldPathInterpolator.Sample(points, 1, 0.0f);
+        var finish = MechWarriorWorldPathInterpolator.Sample(points, 1, 2.0f);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(start.Position, Is.EqualTo(points[0].Position));
+            Assert.That(start.Velocity, Is.EqualTo(Vector3.Zero));
+            Assert.That(firstArrival.Position, Is.EqualTo(points[1].Position));
+            Assert.That(secondDeparture.Position, Is.EqualTo(points[1].Position));
+            Assert.That(firstArrival.Velocity.X, Is.EqualTo(secondDeparture.Velocity.X).Within(0.0001f));
+            Assert.That(firstArrival.Velocity.Y, Is.EqualTo(secondDeparture.Velocity.Y).Within(0.0001f));
+            Assert.That(firstArrival.Velocity.Z, Is.EqualTo(secondDeparture.Velocity.Z).Within(0.0001f));
+            Assert.That(finish.Position, Is.EqualTo(points[2].Position));
+            Assert.That(finish.Velocity, Is.EqualTo(Vector3.Zero));
+        });
     }
 
     [Test]
@@ -302,18 +354,21 @@ public sealed class MechWarriorWorldFileTests
         short objectId,
         short destroyedObjectId,
         ushort health,
-        string description)
+        string description,
+        string detailDescription,
+        ushort actionFlags)
     {
-        var descriptionBytes = Encoding.ASCII.GetBytes(description);
         WriteFixedAscii(writer, "GT", 4);
-        writer.Write(33 + descriptionBytes.Length);
+        writer.Write(76);
         writer.Write(objectId);
         writer.Write(destroyedObjectId);
         writer.Write(new byte[12]);
         writer.Write(health);
-        writer.Write(new byte[6]);
-        writer.Write(descriptionBytes);
-        writer.Write((byte)0);
+        writer.Write((ushort)0);
+        writer.Write(actionFlags);
+        writer.Write((ushort)0);
+        WriteFixedAscii(writer, description, 22);
+        WriteFixedAscii(writer, detailDescription, 22);
     }
 
     private static void WriteTimeOfDayTag(BinaryWriter writer, int timeOfDay)
@@ -383,15 +438,31 @@ public sealed class MechWarriorWorldFileTests
         writer.Write(new byte[23]);
     }
 
-    private static void WriteTaskTag(BinaryWriter writer, int type, ushort flags, string command)
+    private static void WriteTaskTag(BinaryWriter writer, ushort type, int updatePeriod, string command)
     {
         var commandBytes = Encoding.ASCII.GetBytes(command);
         WriteFixedAscii(writer, "TSK", 4);
         writer.Write(15 + commandBytes.Length);
         writer.Write(type);
-        writer.Write(flags);
+        writer.Write(updatePeriod);
         writer.Write(commandBytes);
         writer.Write((byte)0);
+    }
+
+    private static void WritePathTableTag(
+        BinaryWriter writer,
+        string name,
+        params (Vector3 Position, Vector3 Rotation, int TravelTicks)[] points)
+    {
+        WriteFixedAscii(writer, "PTBL", 4);
+        writer.Write(8 + 64 + points.Length * 28);
+        WriteFixedAscii(writer, name, 64);
+        foreach (var point in points)
+        {
+            WriteVector(writer, point.Position, 100.0f);
+            WriteVector(writer, point.Rotation, 1.0f);
+            writer.Write(point.TravelTicks);
+        }
     }
 
     private static void WriteGamePieceSpecificationTag(

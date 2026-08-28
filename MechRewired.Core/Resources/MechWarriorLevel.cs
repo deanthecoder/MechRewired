@@ -28,7 +28,9 @@ public sealed class MechWarriorLevel
         TerrainObjects = objects.Where(levelObject => levelObject.Kind == MechWarriorLevelObjectKind.Terrain).ToArray();
         SceneryObjects = objects.Where(levelObject => levelObject.Kind == MechWarriorLevelObjectKind.Scenery).ToArray();
         DebrisObjects = objects.Where(levelObject => levelObject.Kind == MechWarriorLevelObjectKind.Debris).ToArray();
-        StaticObjects = objects.Where(levelObject => levelObject.Kind != MechWarriorLevelObjectKind.Actor).ToArray();
+        EffectObjects = objects.Where(levelObject => levelObject.Kind == MechWarriorLevelObjectKind.Effect).ToArray();
+        StaticObjects = objects.Where(levelObject =>
+            levelObject.Kind is not MechWarriorLevelObjectKind.Actor and not MechWarriorLevelObjectKind.Effect).ToArray();
         Actors = actors;
         TerrainBiome = MechWarriorTerrainBiomeResolver.Resolve(sources.Select(source => source.Entry.Name));
     }
@@ -42,6 +44,8 @@ public sealed class MechWarriorLevel
     public IReadOnlyList<MechWarriorLevelObject> SceneryObjects { get; }
 
     public IReadOnlyList<MechWarriorLevelObject> DebrisObjects { get; }
+
+    public IReadOnlyList<MechWarriorLevelObject> EffectObjects { get; }
 
     public IReadOnlyList<MechWarriorLevelObject> StaticObjects { get; }
 
@@ -94,7 +98,7 @@ public sealed class MechWarriorLevel
         try
         {
             var world = MechWarriorWorldFile.Load(archive.ReadEntry(entry), parentTransform);
-            sources.Add(new MechWarriorLevelSource(entry, world.Objects.Count));
+            sources.Add(new MechWarriorLevelSource(entry, world));
             var worldObjectsById = world.Objects.ToDictionary(worldObject => worldObject.Id);
             var isTerrainSource = Path.GetFileNameWithoutExtension(entry.Name)
                 .Contains("MTN", StringComparison.OrdinalIgnoreCase);
@@ -102,7 +106,41 @@ public sealed class MechWarriorLevel
             var destroyedActorObjectIds = new Dictionary<int, IReadOnlySet<int>>();
             var claimedObjectIds = new HashSet<int>();
             var entityRootIds = world.Entities.Select(entity => entity.ObjectId).ToHashSet();
-            foreach (var entity in world.Entities)
+            var primaryEntities = world.Entities.Where(entity => entity.Health > 0).ToArray();
+            var primaryAssemblyBoundaries = primaryEntities
+                .SelectMany(entity => entity.DestroyedObjectId.HasValue
+                    ? new[] { entity.ObjectId, entity.DestroyedObjectId.Value }
+                    : new[] { entity.ObjectId })
+                .ToHashSet();
+            var consumedEntityRootIds = new HashSet<int>();
+            foreach (var entity in primaryEntities)
+            {
+                var activeIds = FindAssemblyObjectIds(
+                    entity.ObjectId,
+                    worldObjectsById,
+                    primaryAssemblyBoundaries);
+                activeActorObjectIds.Add(entity.ObjectId, activeIds);
+                claimedObjectIds.UnionWith(activeIds);
+
+                IReadOnlySet<int> destroyedIds = new HashSet<int>();
+                if (entity.DestroyedObjectId.HasValue)
+                {
+                    destroyedIds = FindAssemblyObjectIds(
+                        entity.DestroyedObjectId.Value,
+                        worldObjectsById,
+                        primaryAssemblyBoundaries);
+                    claimedObjectIds.UnionWith(destroyedIds);
+                }
+
+                destroyedActorObjectIds.Add(entity.ObjectId, destroyedIds);
+                consumedEntityRootIds.UnionWith(activeIds.Where(id =>
+                    id != entity.ObjectId && entityRootIds.Contains(id)));
+                consumedEntityRootIds.UnionWith(destroyedIds.Where(id =>
+                    id != entity.DestroyedObjectId && entityRootIds.Contains(id)));
+            }
+
+            foreach (var entity in world.Entities.Where(entity =>
+                         entity.Health <= 0 && !consumedEntityRootIds.Contains(entity.ObjectId)))
             {
                 var activeIds = FindAssemblyObjectIds(entity.ObjectId, worldObjectsById, entityRootIds);
                 activeActorObjectIds.Add(entity.ObjectId, activeIds);
@@ -125,13 +163,15 @@ public sealed class MechWarriorLevel
             foreach (var worldObject in world.Objects)
             {
                 var modelEntry = archive.GetEntry("POLY", worldObject.ModelResourceIndex);
-                var kind = claimedObjectIds.Contains(worldObject.Id)
-                    ? MechWarriorLevelObjectKind.Actor
-                    : worldObject.RelativeToId == -1
-                        ? MechWarriorLevelObjectKind.Debris
-                        : isTerrainSource || modelEntry.Name.StartsWith("T_", StringComparison.OrdinalIgnoreCase)
-                            ? MechWarriorLevelObjectKind.Terrain
-                            : MechWarriorLevelObjectKind.Scenery;
+                var kind = worldObject.ObjectType == 0x10
+                    ? MechWarriorLevelObjectKind.Effect
+                    : claimedObjectIds.Contains(worldObject.Id)
+                        ? MechWarriorLevelObjectKind.Actor
+                        : worldObject.RelativeToId == -1
+                            ? MechWarriorLevelObjectKind.Debris
+                            : isTerrainSource || modelEntry.Name.StartsWith("T_", StringComparison.OrdinalIgnoreCase)
+                                ? MechWarriorLevelObjectKind.Terrain
+                                : MechWarriorLevelObjectKind.Scenery;
                 var levelObject = new MechWarriorLevelObject(
                     worldObject.Id,
                     worldObject.RelativeToId,
@@ -145,7 +185,8 @@ public sealed class MechWarriorLevel
                 resolvedObjectsById.Add(levelObject.Id, levelObject);
             }
 
-            foreach (var entity in world.Entities)
+            foreach (var entity in world.Entities.Where(entity =>
+                         !consumedEntityRootIds.Contains(entity.ObjectId)))
             {
                 actors.Add(new MechWarriorLevelActor(
                     entry,
@@ -153,6 +194,7 @@ public sealed class MechWarriorLevel
                     entity.DestroyedObjectId,
                     entity.Health,
                     entity.Description,
+                    entity.DetailDescription,
                     ResolveObjects(activeActorObjectIds[entity.ObjectId], resolvedObjectsById),
                     ResolveObjects(destroyedActorObjectIds[entity.ObjectId], resolvedObjectsById)));
             }

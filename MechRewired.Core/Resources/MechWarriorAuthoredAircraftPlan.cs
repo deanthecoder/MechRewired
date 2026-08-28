@@ -10,16 +10,16 @@
 
 namespace MechRewired.Resources;
 
-/// <summary>
-/// Describes gameplay metadata attached to an object assembly by a BWD GT tag.
-/// </summary>
-/// <remarks>
-/// Destroyed object IDs identify an alternative representation within the same BWD resource.
-/// </remarks>
-public sealed record MechWarriorWorldEntity(
-    int ObjectId,
-    int? DestroyedObjectId,
-    int Health,
-    string Description,
-    string DetailDescription,
-    ushort ActionFlags);
+/// <summary>Resolved original-data inputs for one scripted aircraft actor.</summary>
+public sealed record MechWarriorAuthoredAircraftPlan(
+    MechWarriorLevelSource Source,
+    MechWarriorLevelActor Actor,
+    MechWarriorWorldObject MotionObject,
+    MechWarriorWorldPathTable Path,
+    MechWarriorWorldTask PathTask,
+    bool RotateWithPath,
+    int SoundObjectId,
+    float MaximumSoundDistance,
+    string SoundResourceName,
+    bool LoopSound,
+    MechWarriorLevelObject RotorComponent);

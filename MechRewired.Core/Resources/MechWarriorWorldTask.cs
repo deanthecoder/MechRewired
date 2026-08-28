@@ -13,4 +13,4 @@ namespace MechRewired.Resources;
 /// <summary>
 /// Describes one scripted task attached to objects in a BWD resource.
 /// </summary>
-public sealed record MechWarriorWorldTask(int Type, ushort Flags, string Command);
+public sealed record MechWarriorWorldTask(ushort Type, int UpdatePeriod, string Command);

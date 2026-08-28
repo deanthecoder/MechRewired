@@ -22,5 +22,6 @@ public sealed record MechWarriorLevelActor(
     int? DestroyedObjectId,
     int Health,
     string Description,
+    string DetailDescription,
     IReadOnlyList<MechWarriorLevelObject> Components,
     IReadOnlyList<MechWarriorLevelObject> DestroyedComponents);

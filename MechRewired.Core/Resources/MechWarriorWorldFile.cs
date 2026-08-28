@@ -32,6 +32,7 @@ public sealed class MechWarriorWorldFile
         IReadOnlyList<MechWarriorWorldEntity> entities,
         IReadOnlyList<MechWarriorWorldNavPoint> navPoints,
         IReadOnlyList<MechWarriorMissionTable> missionTables,
+        IReadOnlyList<MechWarriorWorldPathTable> pathTables,
         IReadOnlyList<MechWarriorWorldTask> tasks,
         IReadOnlyList<MechWarriorGamePieceSpecification> gamePieceSpecifications,
         IReadOnlyList<MechWarriorMissionStar> stars,
@@ -45,6 +46,7 @@ public sealed class MechWarriorWorldFile
         Entities = entities;
         NavPoints = navPoints;
         MissionTables = missionTables;
+        PathTables = pathTables;
         Tasks = tasks;
         GamePieceSpecifications = gamePieceSpecifications;
         Stars = stars;
@@ -63,6 +65,8 @@ public sealed class MechWarriorWorldFile
     public IReadOnlyList<MechWarriorWorldNavPoint> NavPoints { get; }
 
     public IReadOnlyList<MechWarriorMissionTable> MissionTables { get; }
+
+    public IReadOnlyList<MechWarriorWorldPathTable> PathTables { get; }
 
     public IReadOnlyList<MechWarriorWorldTask> Tasks { get; }
 
@@ -95,6 +99,7 @@ public sealed class MechWarriorWorldFile
         var entities = new List<MechWarriorWorldEntity>();
         var navPoints = new List<MechWarriorWorldNavPoint>();
         var missionTables = new List<MechWarriorMissionTable>();
+        var pathTables = new List<MechWarriorWorldPathTable>();
         var tasks = new List<MechWarriorWorldTask>();
         var gamePieceSpecifications = new List<MechWarriorGamePieceSpecification>();
         var stars = new List<MechWarriorMissionStar>();
@@ -155,11 +160,14 @@ public sealed class MechWarriorWorldFile
                 case "GT":
                     EnsureTagSize(tagName, tagSize, 32);
                     var destroyedObjectId = ReadInt16(data, offset + 10);
+                    var hasFixedDescriptions = tagSize >= 76;
                     entities.Add(new MechWarriorWorldEntity(
                         ReadInt16(data, offset + 8),
                         destroyedObjectId < 0 ? null : destroyedObjectId,
                         ReadUInt16(data, offset + 24),
-                        ReadAscii(data, offset + 32, tagSize - 32)));
+                        ReadAscii(data, offset + 32, hasFixedDescriptions ? 22 : tagSize - 32).TrimEnd(),
+                        hasFixedDescriptions ? ReadAscii(data, offset + 54, 22).TrimEnd() : string.Empty,
+                        ReadUInt16(data, offset + 28)));
                     break;
 
                 case "INIT":
@@ -213,11 +221,44 @@ public sealed class MechWarriorWorldFile
                     missionTables.Add(MechWarriorMissionTable.Load(data.Slice(offset + 8, tagSize - 8)));
                     break;
 
+                case "PTBL":
+                    const int pathNameSize = 64;
+                    const int pathPointSize = 28;
+                    EnsureTagSize(tagName, tagSize, 8 + pathNameSize + pathPointSize);
+                    var pathPayloadSize = tagSize - 8 - pathNameSize;
+                    if (pathPayloadSize % pathPointSize != 0)
+                    {
+                        throw new InvalidDataException(
+                            $"BWD PTBL tag has {pathPayloadSize} point bytes; expected 28-byte records.");
+                    }
+
+                    var pathPoints = new List<MechWarriorWorldPathPoint>(pathPayloadSize / pathPointSize);
+                    for (var pointOffset = offset + 8 + pathNameSize;
+                         pointOffset < offset + tagSize;
+                         pointOffset += pathPointSize)
+                    {
+                        pathPoints.Add(new MechWarriorWorldPathPoint(
+                            new Vector3(
+                                ReadInt32(data, pointOffset) * TranslationScale,
+                                ReadInt32(data, pointOffset + 4) * TranslationScale,
+                                ReadInt32(data, pointOffset + 8) * TranslationScale),
+                            new Vector3(
+                                ReadInt32(data, pointOffset + 12),
+                                ReadInt32(data, pointOffset + 16),
+                                ReadInt32(data, pointOffset + 20)),
+                            ReadInt32(data, pointOffset + 24)));
+                    }
+
+                    pathTables.Add(new MechWarriorWorldPathTable(
+                        ReadAscii(data, offset + 8, pathNameSize),
+                        pathPoints.AsReadOnly()));
+                    break;
+
                 case "TSK":
                     EnsureTagSize(tagName, tagSize, 15);
                     tasks.Add(new MechWarriorWorldTask(
-                        ReadInt32(data, offset + 8),
-                        ReadUInt16(data, offset + 12),
+                        ReadUInt16(data, offset + 8),
+                        ReadInt32(data, offset + 10),
                         ReadAscii(data, offset + 14, tagSize - 14)));
                     break;
 
@@ -281,6 +322,7 @@ public sealed class MechWarriorWorldFile
             entities.AsReadOnly(),
             navPoints.AsReadOnly(),
             missionTables.AsReadOnly(),
+            pathTables.AsReadOnly(),
             tasks.AsReadOnly(),
             gamePieceSpecifications.AsReadOnly(),
             stars.AsReadOnly(),
