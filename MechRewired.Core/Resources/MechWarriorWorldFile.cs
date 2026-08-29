@@ -18,7 +18,8 @@ namespace MechRewired.Resources;
 /// Decodes the world includes and positioned objects in an MW2 BWD resource.
 /// </summary>
 /// <remarks>
-/// Unknown tags are deliberately skipped so support can grow alongside the playable level slice.
+/// Unknown tags are retained as structured diagnostics so support can grow without silently
+/// losing authored behaviour.
 /// </remarks>
 public sealed class MechWarriorWorldFile
 {
@@ -36,6 +37,7 @@ public sealed class MechWarriorWorldFile
         IReadOnlyList<MechWarriorWorldTask> tasks,
         IReadOnlyList<MechWarriorGamePieceSpecification> gamePieceSpecifications,
         IReadOnlyList<MechWarriorMissionStar> stars,
+        IReadOnlyList<MechWarriorUnknownTag> unknownTags,
         int? timeOfDay,
         MechWarriorWorldLighting lighting,
         string luminosityTable,
@@ -50,6 +52,7 @@ public sealed class MechWarriorWorldFile
         Tasks = tasks;
         GamePieceSpecifications = gamePieceSpecifications;
         Stars = stars;
+        UnknownTags = unknownTags;
         TimeOfDay = timeOfDay;
         Lighting = lighting;
         LuminosityTable = luminosityTable;
@@ -73,6 +76,9 @@ public sealed class MechWarriorWorldFile
     public IReadOnlyList<MechWarriorGamePieceSpecification> GamePieceSpecifications { get; }
 
     public IReadOnlyList<MechWarriorMissionStar> Stars { get; }
+
+    /// <summary>Tags preserved verbatim because this decoder has no semantic handler for them yet.</summary>
+    public IReadOnlyList<MechWarriorUnknownTag> UnknownTags { get; }
 
     public int? TimeOfDay { get; }
 
@@ -103,6 +109,7 @@ public sealed class MechWarriorWorldFile
         var tasks = new List<MechWarriorWorldTask>();
         var gamePieceSpecifications = new List<MechWarriorGamePieceSpecification>();
         var stars = new List<MechWarriorMissionStar>();
+        var unknownTags = new List<MechWarriorUnknownTag>();
         var localTransforms = new Dictionary<int, MechWarriorWorldTransform>();
         int? timeOfDay = null;
         MechWarriorWorldLighting lighting = null;
@@ -311,6 +318,10 @@ public sealed class MechWarriorWorldFile
                     }
 
                     break;
+
+                default:
+                    unknownTags.Add(new MechWarriorUnknownTag(tagName, offset, tagSize));
+                    break;
             }
 
             offset += tagSize;
@@ -326,6 +337,7 @@ public sealed class MechWarriorWorldFile
             tasks.AsReadOnly(),
             gamePieceSpecifications.AsReadOnly(),
             stars.AsReadOnly(),
+            unknownTags.AsReadOnly(),
             timeOfDay,
             lighting,
             luminosityTable,

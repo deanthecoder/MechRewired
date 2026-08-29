@@ -69,11 +69,6 @@ public partial class PlayerMission : Node
         };
         m_reportPlayer.Finished += PlayNextQueuedReport;
         AddChild(m_reportPlayer);
-        foreach (var objective in definition.Objectives.Where(objective =>
-                     m_runtime.GetState(objective.Id) == MissionObjectiveState.Active))
-        {
-            GD.Print($"MechRewired: activated objective '{objective.Description}'.");
-        }
     }
 
     public void Apply(MissionEvent missionEvent)
@@ -94,7 +89,6 @@ public partial class PlayerMission : Node
             }
             else
             {
-                GD.Print($"MechRewired: activated objective '{transition.Objective.Description}'.");
                 if (transition.Objective.Kind == MissionObjectiveKind.Extract)
                 {
                     foreach (var report in m_extractionReadyReports)

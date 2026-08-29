@@ -252,21 +252,9 @@ public partial class PlayerTargeting : Node
 
     public override void _Ready()
     {
-        var loadout = string.Join(", ", WeaponSelection.Weapons
-            .GroupBy(weapon => weapon.Specification.Name)
-            .Select(group => $"{group.Count()}x {group.Key}"));
-        var mounts = string.Join(", ", WeaponSelection.Weapons.Select(weapon =>
-            $"{weapon.SourceId}:{weapon.Specification.HudName}@{weapon.Section}"));
-        var ammunition = string.Join(", ", WeaponSelection.Weapons
-            .Where(weapon => weapon.Specification.UsesAmmo)
-            .Select(weapon => $"{weapon.SourceId}:{weapon.Specification.HudName} {GetWeaponAmmo(weapon)}"));
         GD.Print(
-            $"MechRewired: targeting online ({m_actors.Count} battlefield actors, " +
-            $"{m_enemyMechs.Count} hostile combatants, {m_hostileActors.Count} hostile actors; " +
-            $"authored player loadout {loadout}; mounts [{mounts}]; " +
-            (string.IsNullOrWhiteSpace(ammunition) ? string.Empty : $"ammo [{ammunition}]; ") +
-            $"cooling {m_heat.CoolingPerSecond:F1} heat/s; " +
-            $"critical heat {m_heat.MaximumHeat:F0}; {MissilePoolSize} pooled missiles).");
+            $"MechRewired: targeting online ({m_enemyMechs.Count} hostile combatants; " +
+            $"{WeaponSelection.Weapons.Count} player weapons).");
     }
 
     public override void _Process(double delta)

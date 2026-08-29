@@ -176,9 +176,6 @@ public sealed record PlayerMechSounds(
         var entry = archive.GetEntry(resourcePath);
         var sound = MechWarriorSoundFile.Load(archive.ReadEntry(entry));
         var stream = CreateStream(sound, loop);
-        GD.Print(
-            $"MechRewired: loaded {entry.Path} ({MechWarriorSoundFile.SampleRate:N0} Hz mono; " +
-            $"{sound.Duration.TotalSeconds:F2} seconds; {purpose}{(loop ? ", looped" : string.Empty)}).");
         return stream;
     }
 
@@ -207,9 +204,6 @@ public sealed record PlayerMechSounds(
             LoopBegin = 0,
             LoopEnd = samples.Length / (sound.BitsPerSample / 8)
         };
-        GD.Print(
-            $"MechRewired: loaded {entry.Path} ({sound.SampleRate:N0} Hz mono; " +
-            $"{sound.Duration.TotalSeconds:F2} seconds; {purpose}{(loop ? ", looped" : string.Empty)}).");
         return stream;
     }
 

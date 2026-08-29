@@ -47,6 +47,17 @@ public sealed class MissionDefinition
 
     public IReadOnlyList<MissionObjectiveDefinition> Objectives { get; }
 
+    /// <summary>Returns authored records deliberately excluded because this objective decoder cannot represent them.</summary>
+    public static IReadOnlyList<MissionObjectiveExclusion> GetExcludedEntries(MechWarriorMissionTable table)
+    {
+        ArgumentNullException.ThrowIfNull(table);
+        return table.Entries
+            .Select(entry => (Entry: entry, Reason: GetExclusionReason(entry)))
+            .Where(candidate => candidate.Reason != null)
+            .Select(candidate => new MissionObjectiveExclusion(candidate.Entry, candidate.Reason))
+            .ToArray();
+    }
+
     public static MissionDefinition FromMissionTable(MechWarriorMissionTable table)
     {
         ArgumentNullException.ThrowIfNull(table);
@@ -133,4 +144,17 @@ public sealed class MissionDefinition
         isOptional = false;
         return false;
     }
+
+    private static string GetExclusionReason(MechWarriorMissionTableEntry entry)
+    {
+        if (string.IsNullOrWhiteSpace(entry.Description)) return "Record has no objective description.";
+        if (string.IsNullOrWhiteSpace(entry.Target.Name)) return "Record has no target resource.";
+        if (!TryGetKind(entry, out _)) return $"Trigger flags 0x{entry.TriggerFlags:X} are not supported.";
+        if (!TryGetOptional(entry, out _))
+            return $"Goal class '{entry.GoalClass}' with flags 0x{entry.GoalFlags:X2} is not supported.";
+        return null;
+    }
 }
+
+/// <summary>Explains why an authored MTBL record did not become a runtime objective.</summary>
+public sealed record MissionObjectiveExclusion(MechWarriorMissionTableEntry Entry, string Reason);

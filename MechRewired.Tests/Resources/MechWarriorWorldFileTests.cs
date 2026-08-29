@@ -163,6 +163,21 @@ public sealed class MechWarriorWorldFileTests
     }
 
     [Test]
+    public void LoadRetainsUnknownTagsForMissionFidelityAudit()
+    {
+        var data = WriteWorld(writer =>
+        {
+            WriteFixedAscii(writer, "XTRA", 4);
+            writer.Write(12);
+            writer.Write(0x12345678);
+        });
+
+        var world = MechWarriorWorldFile.Load(data);
+
+        Assert.That(world.UnknownTags, Is.EqualTo(new[] { new MechWarriorUnknownTag("XTRA", 0x34, 12) }));
+    }
+
+    [Test]
     public void LoadReadsAuthoredPathTable()
     {
         var data = WriteWorld(writer => WritePathTableTag(

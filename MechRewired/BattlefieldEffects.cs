@@ -76,10 +76,6 @@ public partial class BattlefieldEffects : Node3D
     public override void _Ready()
     {
         CreateEffectPools();
-        GD.Print(
-            $"MechRewired: preallocated battlefield VFX pools " +
-            $"({WeaponImpactPoolSize} weapon impacts, {DestructionPoolSize} destruction effects, " +
-            $"{DustPoolSize} dust effects).");
     }
 
     public void ConfigureTerrain(TerrainSurfaceIndex terrainSurface)
@@ -1339,7 +1335,6 @@ public partial class BattlefieldEffects : Node3D
             material.SetShaderParameter("normal_minus", normalMinus);
             if (!s_vfxTexturesLogged)
             {
-                GD.Print("MechRewired: loaded GodotExplosionVFX 8x8 smoke flipbook and normal maps.");
                 s_vfxTexturesLogged = true;
             }
         }

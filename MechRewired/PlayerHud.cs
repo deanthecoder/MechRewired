@@ -130,10 +130,6 @@ public partial class PlayerHud : Control
     {
         m_hudFont = GD.Load<FontFile>("res://Assets/Fonts/Orbitron-Variable.ttf") ??
                     ThemeDB.FallbackFont;
-        GD.Print(
-            $"MechRewired: pilot HUD online (radar {RadarRanges[m_radarRangeIndex] / 1000.0f:F1}km; " +
-            $"NAV '{SelectedNavigationPoint.Description}'; X/Shift+X adjusts radar range; " +
-            $"Z/Shift+Z adjusts display zoom; N/Shift+N cycles NAV points).");
     }
 
     /// <summary>
@@ -146,7 +142,6 @@ public partial class PlayerHud : Control
         m_radarPower = 0.0f;
         m_hudPower = 0.0f;
         QueueRedraw();
-        GD.Print("MechRewired: pilot HUD power-up sequence started.");
     }
 
     public override void _Process(double delta)
@@ -180,7 +175,6 @@ public partial class PlayerHud : Control
         if (m_initialPowerUp && m_radarPower >= 0.999f && m_hudPower >= 0.999f)
         {
             m_initialPowerUp = false;
-            GD.Print("MechRewired: pilot HUD power-up complete.");
         }
         m_displayedTargetSpeedKph = Mathf.MoveToward(
             m_displayedTargetSpeedKph,

@@ -209,6 +209,115 @@ public sealed class OriginalArchiveIntegrationTests
         }
     }
 
+    [Test]
+    public void WolfMissionAuthoredInventoryReconcilesWithACompleteRuntimeInventory()
+    {
+        var archive = OpenOriginalArchive();
+        var mission = MechWarriorMissionResources.Load(archive, "BWD/YELLSCN1.BWD");
+        var definition = MechRewired.Missions.MissionDefinition.FromMissionTable(
+            mission.Scenario.MissionTables.Single(table => table.Index == 0));
+        var level = MechWarriorLevel.Load(archive, mission.Level.Entry.Path);
+        var gamePieces = MechWarriorMissionGamePieceLoader.Load(archive, mission.Scenario);
+        var navigationPoints = mission.NavigationPoints.Select(resource =>
+        {
+            var world = MechWarriorWorldFile.Load(
+                archive.ReadEntry(resource.Entry), resource.Include.Transform);
+            return new MechWarriorMissionNavigationPoint(
+                Path.GetFileNameWithoutExtension(resource.Entry.Name), world.NavPoints.Single());
+        }).ToArray();
+        var runtime = CompleteRuntimeInventory(level, navigationPoints, definition, gamePieces);
+        var audit = MechRewired.Missions.MissionFidelityAudit.Analyze(
+            mission, level, navigationPoints, definition, gamePieces, runtime);
+        var hostileGroups = gamePieces
+            .Where(piece => piece.Star.Disposition == MechWarriorMissionDisposition.Hostile)
+            .Select(piece => piece.Specification.GroupId)
+            .Order()
+            .ToArray();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(mission.MissionPrefix, Is.EqualTo("YELL"));
+            Assert.That(mission.Level.Entry.Name, Is.EqualTo("YELLWLD1.BWD"));
+            Assert.That(gamePieces, Has.Count.EqualTo(4));
+            Assert.That(hostileGroups, Is.EqualTo(new[] { 1, 2, 3, 4 }));
+            Assert.That(level.Actors, Has.Count.EqualTo(9));
+            Assert.That(navigationPoints, Has.Length.EqualTo(3));
+            Assert.That(definition.Objectives, Has.Count.EqualTo(3));
+            Assert.That(audit.Findings.Where(finding =>
+                finding.Kind == MechRewired.Missions.MissionFidelityFindingKind.MissingRuntimeContent), Is.Empty);
+        });
+    }
+
+    [Test]
+    public void SilentThunderAuditRequiresTurretsAndReconAircraftAtRuntime()
+    {
+        var archive = OpenOriginalArchive();
+        var mission = MechWarriorMissionResources.Load(archive, "BWD/PINKSCN1.BWD");
+        var definition = MechRewired.Missions.MissionDefinition.FromMissionTable(
+            mission.Scenario.MissionTables.Single(table => table.Index == 0));
+        var level = MechWarriorLevel.Load(archive, mission.Level.Entry.Path);
+        var gamePieces = MechWarriorMissionGamePieceLoader.Load(archive, mission.Scenario);
+        var navigationPoints = mission.NavigationPoints.Select(resource =>
+        {
+            var world = MechWarriorWorldFile.Load(
+                archive.ReadEntry(resource.Entry), resource.Include.Transform);
+            return new MechWarriorMissionNavigationPoint(
+                Path.GetFileNameWithoutExtension(resource.Entry.Name), world.NavPoints.Single());
+        }).ToArray();
+        var runtime = CompleteRuntimeInventory(level, navigationPoints, definition, gamePieces);
+        var completeAudit = MechRewired.Missions.MissionFidelityAudit.Analyze(
+            mission, level, navigationPoints, definition, gamePieces, runtime);
+        var helicopter = level.Actors.Single(actor => actor.SourceEntry.Name == "PINKHELO.BWD");
+        runtime = new MechRewired.Missions.MissionRuntimeContent();
+        foreach (var actor in level.Actors)
+        {
+            runtime.AddActorRepresentation(actor, false);
+            if (actor.DestroyedComponents.Count > 0) runtime.AddActorRepresentation(actor, true);
+        }
+        foreach (var point in navigationPoints) runtime.AddNavigationPoint(point);
+        foreach (var objective in definition.Objectives) runtime.AddObjective(objective);
+        foreach (var effect in level.EffectObjects) runtime.AddEffect(effect);
+        foreach (var piece in gamePieces.Where(piece => piece.Star.Disposition == MechWarriorMissionDisposition.Hostile)
+                     .Where(piece => piece.SourceEntry.Name != "PINKENT2.BWD")) runtime.AddCombatant(piece);
+        var audit = MechRewired.Missions.MissionFidelityAudit.Analyze(
+            mission, level, navigationPoints, definition, gamePieces, runtime);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(completeAudit.Findings.Where(finding =>
+                finding.Kind == MechRewired.Missions.MissionFidelityFindingKind.MissingRuntimeContent), Is.Empty);
+            Assert.That(audit.Findings.Any(finding =>
+                finding.Kind == MechRewired.Missions.MissionFidelityFindingKind.MissingRuntimeContent &&
+                finding.Identity.Contains("PINKENT2.BWD", StringComparison.OrdinalIgnoreCase)), Is.True,
+                "The second authored Jade turret must not silently disappear.");
+            Assert.That(audit.Findings.Any(finding =>
+                finding.Kind == MechRewired.Missions.MissionFidelityFindingKind.MissingRuntimeContent &&
+                finding.Identity.Contains("PINKHELO.BWD", StringComparison.OrdinalIgnoreCase)), Is.True,
+                "The authored helicopter path must not silently disappear.");
+            Assert.That(helicopter.Description, Is.EqualTo("Recon Helicopter"));
+        });
+    }
+
+    private static MechRewired.Missions.MissionRuntimeContent CompleteRuntimeInventory(
+        MechWarriorLevel level,
+        IReadOnlyList<MechWarriorMissionNavigationPoint> navigationPoints,
+        MechRewired.Missions.MissionDefinition definition,
+        IReadOnlyList<MechWarriorMissionGamePiece> gamePieces)
+    {
+        var runtime = new MechRewired.Missions.MissionRuntimeContent();
+        foreach (var actor in level.Actors)
+        {
+            runtime.AddActorRepresentation(actor, false);
+            if (actor.DestroyedComponents.Count > 0) runtime.AddActorRepresentation(actor, true);
+        }
+        foreach (var point in navigationPoints) runtime.AddNavigationPoint(point);
+        foreach (var objective in definition.Objectives) runtime.AddObjective(objective);
+        foreach (var piece in gamePieces.Where(piece => piece.Star.Disposition == MechWarriorMissionDisposition.Hostile)) runtime.AddCombatant(piece);
+        foreach (var effect in level.EffectObjects) runtime.AddEffect(effect);
+        foreach (var plan in MechWarriorAuthoredAircraftResolver.Resolve(level)) runtime.AddAircraft(plan.Actor);
+        return runtime;
+    }
+
     private static bool IsDescendantOf(
         int objectId,
         int ancestorId,

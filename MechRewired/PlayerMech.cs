@@ -647,11 +647,6 @@ public partial class PlayerMech : Node3D
         m_reactorHum.Play();
         m_deploymentReport.Play();
 
-        GD.Print(
-            $"MechRewired: player controls ready (1-0 throttle; -/= adjust; Backspace reverses; " +
-            $"Left/Right steer; A toggles NAV autopilot; mouse aims torso; M aligns legs; / centers torso; C toggles follow camera; " +
-            $"maximum {Drive.Profile.MaximumForwardSpeedKph:F1} km/h, " +
-            $"reverse {Drive.Profile.MaximumForwardSpeedKph * Drive.Profile.ReverseSpeedFactor:F1} km/h).");
     }
 
     public bool TryGetWeaponOrigin(MechMountedWeapon weapon, out Vector3 origin)

@@ -1026,7 +1026,6 @@ public partial class Main : Node3D
 
             var paletteEntry = missionResources.PaletteEntry;
             palette = MechWarriorPalette.Load(archive.ReadEntry(paletteEntry));
-            GD.Print($"MechRewired: loaded {paletteEntry.Path} ({palette.Colors.Count} colors).");
 
             var playerMechEntry = archive.GetEntry(playerMechPath);
             var mechCatalog = MechWarriorMechCatalog.Load(archive);
@@ -1036,20 +1035,12 @@ public partial class Main : Node3D
             playerChassis = MechWarriorMechChassis.Load(archive.ReadEntry(playerChassisEntry));
             playerChassisName = playerChassisIdentity.DisplayName;
             GD.Print(
-                $"MechRewired: resolved player configuration {playerMechEntry.Path} through MECH.MTB " +
-                $"as {playerChassisName} ({playerChassisIdentity.Tonnage} tons; " +
-                $"{playerChassisEntry.Path}; {playerChassis.Objects.Count} authored objects, " +
-                $"{playerChassis.PointsOfFire.Count} firing points).");
+                $"MechRewired: configured player {playerChassisName} " +
+                $"({playerChassisIdentity.Tonnage} tons, {playerChassis.PointsOfFire.Count} firing points).");
             playerMechDefinition = MechWarriorMechFile.Load(archive.ReadEntry(playerMechEntry));
             GD.Print(
-                $"MechRewired: loaded {playerMechEntry.Path} ({playerMechDefinition.Tonnage} tons; " +
-                $"{playerMechDefinition.WalkingMovementPoints} walking movement points; " +
-                $"{playerMechDefinition.CruisingSpeedKph:F1} km/h cruise; " +
-                $"{playerMechDefinition.MaximumSpeedKph:F1} km/h maximum; authored armor/internal " +
-                $"{string.Join(", ", playerMechDefinition.Sections.Select(section =>
-                    $"{section.Key} {section.Value.FrontArmor}/{section.Value.RearArmor}/{section.Value.InternalStructure}"))}; " +
-                $"{playerMechDefinition.HeatSinkCount} heat sinks, {playerMechDefinition.Weapons.Count} supported weapons, " +
-                $"{playerMechDefinition.AmmoBinCount} ammo bins" +
+                $"MechRewired: loaded player loadout ({playerMechDefinition.Weapons.Count} weapons, " +
+                $"{playerMechDefinition.HeatSinkCount} heat sinks, {playerMechDefinition.AmmoBinCount} ammo bins" +
                 (playerMechDefinition.UnsupportedWeaponIds.Count == 0
                     ? string.Empty
                     : $", unsupported weapon IDs [{string.Join(", ", playerMechDefinition.UnsupportedWeaponIds)}]") +
@@ -1057,15 +1048,10 @@ public partial class Main : Node3D
             var planetEntry = missionResources.Planet.Entry;
             planet = MechWarriorWorldFile.Load(archive.ReadEntry(planetEntry));
             GD.Print(
-                $"MechRewired: loaded {planetEntry.Path} (time {planet.TimeOfDay}; " +
-                $"ambient {planet.Lighting?.AmbientLevel}; light type {planet.Lighting?.Type}; " +
-                $"light at {planet.Lighting?.Position}; shade distance {planet.Lighting?.ShadeDistance:F2}; " +
-                $"view distance {planet.ViewDistance:F2}; luma {planet.LuminosityTable}).");
+                $"MechRewired: loaded mission lighting (time {planet.TimeOfDay}; " +
+                $"view distance {planet.ViewDistance:F0}m; luma {planet.LuminosityTable}).");
             var luminosityEntry = archive.GetEntry($"LUMA/{planet.LuminosityTable}.TBL");
             luminosityTable = MechWarriorLuminosityTable.Load(archive.ReadEntry(luminosityEntry));
-            GD.Print(
-                $"MechRewired: loaded {luminosityEntry.Path} " +
-                $"({MechWarriorLuminosityTable.LevelCount} illumination levels).");
 
             var playerStartEntry = missionResources.PlayerStart.Entry;
             var playerStartWorld = MechWarriorWorldFile.Load(
@@ -1078,30 +1064,16 @@ public partial class Main : Node3D
             }
 
             playerStart = playerStartWorld.NavPoints[0];
-            GD.Print(
-                $"MechRewired: loaded {playerStartEntry.Path} player deployment " +
-                $"at ({playerStart.Position.X:F2}, {playerStart.Position.Y:F2}, {playerStart.Position.Z:F2}), " +
-                $"heading {playerStart.StartingAngle} degrees (group {playerStart.GroupId}; " +
-                $"radius {playerStart.Radius}; action 0x{playerStart.ActionFlags:X4}; " +
-                $"'{playerStart.Description}').");
+            GD.Print("MechRewired: loaded player deployment.");
 
             var scenarioEntry = missionResources.ScenarioEntry;
             var scenario = missionResources.Scenario;
             missionDefinition = LoadMissionDefinition(scenarioEntry, scenario);
             navigationPoints = LoadMissionNavigationPoints(archive, missionResources);
             missionGamePieces = MechWarriorMissionGamePieceLoader.Load(archive, scenario);
-            foreach (var gamePiece in missionGamePieces)
-            {
-                var specification = gamePiece.Specification;
-                var spawn = gamePiece.SpawnPoint;
-                GD.Print(
-                    $"MechRewired: resolved {gamePiece.Star.Disposition.ToString().ToLowerInvariant()} " +
-                    $"game piece group {specification.GroupId}: {specification.DisplayName} " +
-                    $"({specification.ConfigurationName}; pilot {specification.PilotName}) at " +
-                    $"({spawn.Position.X:F2}, {spawn.Position.Y:F2}, {spawn.Position.Z:F2}), " +
-                    $"heading {spawn.StartingAngle:F1} degrees; target/sleep/rubberband " +
-                    $"{specification.TargetRange}/{specification.SleepRange}/{specification.RubberbandRange}m.");
-            }
+            GD.Print(
+                $"MechRewired: resolved {missionGamePieces.Count} mission game pieces " +
+                $"({missionGamePieces.Count(piece => piece.Star.Disposition == MechWarriorMissionDisposition.Hostile)} hostile).");
 
             level = MechWarriorLevel.Load(
                 archive,
@@ -1111,35 +1083,8 @@ public partial class Main : Node3D
                     var includeEntry = archive.GetEntry("BWD", include.ResourceIndex);
                     var includeWorld = MechWarriorWorldFile.Load(archive.ReadEntry(includeEntry));
                     var isAnimatedDropShip = WorldHasTaskArgument(includeWorld, "drop");
-                    if (isAnimatedDropShip)
-                    {
-                        GD.Print(
-                            $"MechRewired: reserved {includeEntry.Path} for the animated DropShip " +
-                            "set piece instead of rendering a duplicate static world copy.");
-                    }
-
                     return !isAnimatedDropShip;
                 });
-            foreach (var source in level.Sources)
-            {
-                GD.Print($"MechRewired: loaded {source.Entry.Path} ({source.World.Objects.Count} objects).");
-            }
-
-            foreach (var actor in level.Actors)
-            {
-                var description = string.IsNullOrWhiteSpace(actor.Description)
-                    ? actor.Components[0].ModelEntry.Name
-                    : actor.Description;
-                var position = actor.Components[0].Transform.Translation;
-                var activeComponents = string.Join(", ", actor.Components.Select(component => component.ModelEntry.Name));
-                var destroyedComponents = actor.DestroyedComponents.Count == 0
-                    ? "none"
-                    : string.Join(", ", actor.DestroyedComponents.Select(component => component.ModelEntry.Name));
-                GD.Print(
-                    $"MechRewired: discovered actor {actor.SourceEntry.Path} object {actor.ObjectId} " +
-                    $"'{description}' at ({position.X:F2}, {position.Y:F2}, {position.Z:F2}) " +
-                    $"(health {actor.Health}; active [{activeComponents}]; destroyed [{destroyedComponents}]).");
-            }
 
             GD.Print(
                 $"MechRewired: assembled {missionResources.MissionPrefix} mission world ({level.Sources.Count} BWD resources, " +
@@ -1173,15 +1118,6 @@ public partial class Main : Node3D
             $"MechRewired: decoded {scenario.MissionTables.Count} mission tables from {scenarioEntry.Path}; " +
             $"default table has {missionTable.Entries.Count} records and " +
             $"{definition.Objectives.Count} supported objectives.");
-        foreach (var objective in definition.Objectives)
-        {
-            GD.Print(
-                $"MechRewired: extracted {(objective.IsOptional ? "optional" : "required")} " +
-                $"{objective.Kind} objective '{objective.Description}' targeting BWD/{objective.TargetResourceName}.BWD " +
-                $"(report {objective.SuccessReport.Name}; prerequisites " +
-                $"{(objective.PrerequisiteIds.Count == 0 ? "none" : string.Join(", ", objective.PrerequisiteIds))}).");
-        }
-
         return definition;
     }
 
@@ -1212,11 +1148,6 @@ public partial class Main : Node3D
             navigationPoints.Add(new MechWarriorMissionNavigationPoint(
                 Path.GetFileNameWithoutExtension(navigationEntry.Name),
                 navigationPoint));
-            GD.Print(
-                $"MechRewired: loaded {navigationEntry.Path} navigation point " +
-                $"'{navigationPoint.Description}' at ({navigationPoint.Position.X:F2}, " +
-                $"{navigationPoint.Position.Y:F2}, {navigationPoint.Position.Z:F2}) " +
-                $"(radius {navigationPoint.Radius}m; action 0x{navigationPoint.ActionFlags:X4}).");
         }
 
         if (navigationPoints.Count == 0)
@@ -1246,6 +1177,7 @@ public partial class Main : Node3D
         IReadOnlyList<MechWarriorMissionGamePiece> missionGamePieces,
         MechWarriorMissionResources missionResources)
     {
+        var runtimeContent = new MissionRuntimeContent();
         var terrainBiome = level.TerrainBiome;
         var usesDesertTerrain = terrainBiome == MechWarriorTerrainBiome.Desert;
         var atmosphericVisibilityRange = CalculateVisibilityDistance(planet.ViewDistance);
@@ -1262,13 +1194,7 @@ public partial class Main : Node3D
             17,
             terrainBiome);
         var missionSky = MissionSkyController.Create(this, skyProfile);
-        GD.Print(
-            $"MechRewired: rendered Sky3D mission atmosphere ({missionSky.Describe()}; " +
-            $"palette sky {SkyTopPaletteIndex}-{SkyHorizonPaletteIndex}; LITE ambient " +
-            $"{skyProfile.AuthoredAmbientLevel:F2}; authored depth cue {atmosphericDepthCueRange:F0}m; " +
-            $"view distance {atmosphericVisibilityRange:F0}m; " +
-            $"INIT sun time {skyProfile.TimeOfDay:F2}h; sky tint {skyProfile.SkyTopColor}; " +
-            $"horizon tint {skyProfile.HorizonColor}).");
+        GD.Print("MechRewired: configured mission atmosphere.");
 
         var levelRoot = new Node3D
         {
@@ -1316,10 +1242,6 @@ public partial class Main : Node3D
                     luminosityTable,
                     ObjectIlluminationLevel))
                 .ToArray();
-            GD.Print(
-                $"MechRewired: loaded {entry.Path} for explosion debris " +
-                $"({models.Count} pieces, {models.Sum(model => model.Vertices.Count)} vertices, " +
-                $"{models.Sum(model => model.Polygons.Count)} polygons).");
             return meshes;
         }).ToArray();
         var battlefieldActors = level.Actors
@@ -1365,9 +1287,6 @@ public partial class Main : Node3D
         if (linkedActors.Count > 0)
         {
             actorRoot.AddChild(new AuthoredActorDestructionController(linkedActors));
-            GD.Print(
-                $"MechRewired: linked {destructionLinks.Count} nested actor destruction relationships " +
-                $"across {linkedActors.Count} parent actors.");
         }
 
         var meshCache = new Dictionary<string, IReadOnlyList<ArrayMesh>>(StringComparer.OrdinalIgnoreCase);
@@ -1444,10 +1363,6 @@ public partial class Main : Node3D
                         wireframeCache.Add(
                             levelObject.ModelEntry.Path,
                             highestDetailModels.Select(MechWarriorModelMeshBuilder.BuildWireframe).ToArray());
-                        GD.Print(
-                            $"MechRewired: loaded {levelObject.ModelEntry.Path} ({models.Count} LODs; " +
-                            $"rendering LOD {highestDetailIndex}, {highestDetailModels[0].Vertices.Count} vertices, " +
-                            $"{highestDetailModels[0].Polygons.Count} polygons).");
                     }
                     catch (InvalidDataException exception)
                     {
@@ -1492,19 +1407,11 @@ public partial class Main : Node3D
                             out var destroyedWithActor))
                     {
                         locatorActor.AddRepresentation(locator, destroyedWithActor);
-                        GD.Print(
-                            $"MechRewired: attached map-authored colour locator " +
-                            $"{levelObject.SourceEntry.Path} object {levelObject.Id} to " +
-                            $"{locatorActor.Description} ({(destroyedWithActor ? "wreckage" : "active")} representation)."
-                        );
                     }
                     else
                     {
                         levelRoot.AddChild(locator);
                     }
-                    GD.Print(
-                        $"MechRewired: rendered map-authored colour locator {levelObject.SourceEntry.Path} " +
-                        $"object {levelObject.Id} ({levelObject.ModelEntry.Name}; {colors.Length} frames).");
                 }
 
                 continue;
@@ -1535,6 +1442,7 @@ public partial class Main : Node3D
                 isDestroyedRepresentation = actorComponent.Destroyed;
                 battlefieldActor = actorComponent.Actor;
                 battlefieldActor.AddRepresentation(objectRoot, isDestroyedRepresentation);
+                runtimeContent.AddActorRepresentation(battlefieldActor.Definition, isDestroyedRepresentation);
             }
             else
             {
@@ -1714,11 +1622,6 @@ public partial class Main : Node3D
                 snapLowExteriorVertices: false,
                 sealToImplicitGround: true);
             groundCoverageTriangles = derivedTerrain.CollisionTriangles;
-            GD.Print(
-                "MechRewired: extracted only the original mountain landforms' upward surfaces; " +
-                $"applied up to {TerrainGroundRelief.RockyMaximumAmplitudeMetres:F2}m of broad ground " +
-                $"relief fading out over the lowest {TerrainGroundRelief.RockyBaseFadeEndMetres:F0}m, " +
-                "and sealed exterior edges to the same height field.");
         }
 
         foreach (var sourceTerrainRoot in sourceTerrainRoots)
@@ -1737,11 +1640,12 @@ public partial class Main : Node3D
             terrainDiagnostics,
             terrainBiome);
         var terrainSurface = new TerrainSurfaceIndex(debugTriangles);
-        GD.Print(
-            $"MechRewired: spatially indexed {terrainSurface.TriangleCount:N0} terrain triangles " +
-            $"into {terrainSurface.CellCount:N0} height-query cells " +
-            $"({terrainSurface.AverageCellOccupancy:F1} average, " +
-            $"{terrainSurface.MaximumCellOccupancy:N0} maximum candidates per cell).");
+        runtimeContent.ReportInfo(
+            MissionFidelityFindingKind.ProceduralFallback,
+            missionResources.Level.Entry.Path,
+            "derived terrain",
+            "The original terrain control meshes are supplemented by the derived terrain surface and implicit ground.");
+        GD.Print($"MechRewired: prepared {terrainBiome.ToString().ToLowerInvariant()} terrain surface.");
         TerrainRockScatter terrainRocks = null;
         if (usesDesertTerrain)
         {
@@ -1754,21 +1658,6 @@ public partial class Main : Node3D
         {
             SettleActorOnTerrain(actor, rootRepresentation, models, terrainSurface, debugTriangles);
         }
-        GD.Print(usesDesertTerrain
-            ? $"MechRewired: applied desert-biome triplanar pocketed sand, lowland dunes, hardpan, " +
-              $"scattered rock and sandstone detail to the derived surface from {level.TerrainObjects.Count} " +
-              $"terrain objects and the implicit ground (dune coverage {TerrainSurfaceMaterial.DunePatchCoverage:F2}; " +
-              $"hardpan coverage {TerrainSurfaceMaterial.HardpanPatchCoverage:F2}; " +
-              $"stone coverage {TerrainSurfaceMaterial.StonePatchCoverage:F2}; " +
-              $"parallax {TerrainSurfaceMaterial.ParallaxDepthMetres:F2}m; " +
-              $"roughness {TerrainSurfaceMaterial.Roughness:F2})."
-            : "MechRewired: applied dedicated physical rocky-ground and cliff albedo with a " +
-              "restrained mountain-world palette grade; desert dunes, scatter rocks and sand layers are disabled.");
-#if DEBUG
-        GD.Print(
-            $"MechRewired: terrain diagnostics registered {terrainDiagnostics.RegisteredMeshCount} " +
-            "terrain mesh instances (derived hills and implicit ground).");
-#endif
         BattlefieldPhysics.AddTerrainCollision(levelRoot, debugTriangles);
         battlefieldEffects.ConfigureTerrain(terrainSurface);
         foreach (var battlefieldActor in battlefieldActors)
@@ -1781,12 +1670,18 @@ public partial class Main : Node3D
             battlefieldActors,
             renderedRootsByObject,
             debugTriangles,
-            terrainSurface);
-        LoadAmbientEffects(
+            terrainSurface,
+            runtimeContent);
+        var instantiatedEffects = LoadAmbientEffects(
             archive,
-            missionResources.Level.Entry.Path,
+            level,
             battlefieldEffects,
-            battlefieldEffectSounds.AmbientFire);
+            battlefieldEffectSounds.AmbientFire,
+            runtimeContent);
+        foreach (var effect in instantiatedEffects)
+        {
+            runtimeContent.AddEffect(effect);
+        }
         var playerRotation = MechWarriorCoordinateSystem.ToGodotRotation(
             new System.Numerics.Vector3(0.0f, playerStart.StartingAngle, 0.0f));
         var playerBasis = Basis.FromEuler(playerRotation * (Mathf.Pi / 180.0f));
@@ -1829,9 +1724,11 @@ public partial class Main : Node3D
             luminosityTable,
             deploymentAnchor,
             extractionAnchor,
-            dropShipDepartureDirection);
+            dropShipDepartureDirection,
+            runtimeContent);
 
         var playerMechSounds = PlayerMechSounds.Load(archive, missionResources.MissionPrefix);
+        GD.Print("MechRewired: loaded player and mission audio.");
         var playerMech = new PlayerMech(
             playerMechDefinition,
             playerMechSounds);
@@ -1875,7 +1772,9 @@ public partial class Main : Node3D
                 playerMaterialImages,
                 model.Polygons.Select(polygon => polygon.MaterialIndex),
                 playerUsesJadeFalconDecals,
-                isDecalModel);
+                isDecalModel,
+                runtimeContent,
+                modelEntry.Path);
             var partRoot = playerPartRoots[chassisObject.Id];
             var renderMesh = MechWarriorModelMeshBuilder.Build(
                 model,
@@ -1924,9 +1823,6 @@ public partial class Main : Node3D
             renderedPartCount++;
             vertexCount += model.Vertices.Count;
             triangleCount += model.Polygons.Sum(polygon => polygon.VertexIndices.Count - 2);
-            GD.Print(
-                $"MechRewired: loaded player {modelEntry.Path} (subtype {model.Subtype}, " +
-                $"{model.Vertices.Count} vertices, {model.Polygons.Count} polygons).");
         }
 
         if (!hasBounds)
@@ -1973,10 +1869,7 @@ public partial class Main : Node3D
                 Name = "GroundSandFog"
             };
             levelRoot.AddChild(groundSand);
-            GD.Print(
-                $"MechRewired: enabled windblown ground sand around the {playerChassisName} " +
-                $"({playerMech.WorldBounds.Size.Y:F1}m visual height; sand height is its volume depth, " +
-                "with density concentrated near the ground).");
+            GD.Print("MechRewired: enabled localized ground sand.");
 #if DEBUG
             RegisterDebugConsoleGroundSand(groundSand);
 #endif
@@ -2005,7 +1898,8 @@ public partial class Main : Node3D
             atmosphericVisibilityRange,
             () => GetSceneryObstacles(staticSceneryObstacles, battlefieldActors),
             terrainSurface,
-            debugTriangles.AsReadOnly());
+            debugTriangles.AsReadOnly(),
+            runtimeContent);
         GD.Print(
             $"MechRewired: configured {staticSceneryObstacles.Count} static and " +
             $"{battlefieldActors.Length} actor scenery obstacles.");
@@ -2015,6 +1909,14 @@ public partial class Main : Node3D
             playerMechSounds.NavigationPointTone,
             playerMechSounds.NavigationPointReports);
         AddChild(playerNavigation);
+        foreach (var navigationPoint in navigationPoints)
+        {
+            runtimeContent.AddNavigationPoint(navigationPoint);
+        }
+        foreach (var objective in missionDefinition.Objectives)
+        {
+            runtimeContent.AddObjective(objective);
+        }
         playerNavigation.NavigationPointReached += index => playerMission.Apply(new MissionEvent(
             MissionEventKind.NavigationPointReached,
             navigationPoints[index].ResourceName));
@@ -2036,6 +1938,13 @@ public partial class Main : Node3D
             playerMechSounds,
             battlefieldEffects);
         AddChild(playerTargeting);
+        ReportMissionFidelityAudit(
+            missionResources,
+            level,
+            navigationPoints,
+            missionDefinition,
+            missionGamePieces,
+            runtimeContent);
 #if DEBUG
         RegisterDebugConsoleTargeting(playerTargeting);
 #endif
@@ -2098,12 +2007,7 @@ public partial class Main : Node3D
             }
         };
 
-        GD.Print(
-            $"MechRewired: deployed PlayerMech {playerChassisName} at MW2 " +
-            $"({playerStart.Position.X:F2}, {playerStart.Position.Y:F2}, {playerStart.Position.Z:F2}), " +
-            $"heading {playerStart.StartingAngle} degrees, feet at rendered Y={surfaceHeight:F2} " +
-            $"({renderedPartCount} parts, {vertexCount} source vertices, " +
-            $"{triangleCount} triangles, scale {MechWarriorModelMeshBuilder.SourceUnitScale}).");
+        GD.Print($"MechRewired: deployed player {playerChassisName} ({renderedPartCount} rendered parts).");
 
         var target = playerMech.ToGlobal(bounds.GetCenter());
         var modelSize = Math.Max(bounds.Size.X, Math.Max(bounds.Size.Y, bounds.Size.Z));
@@ -2141,6 +2045,44 @@ public partial class Main : Node3D
         AddChild(camera);
     }
 
+    private static void ReportMissionFidelityAudit(
+        MechWarriorMissionResources resources,
+        MechWarriorLevel level,
+        IReadOnlyList<MechWarriorMissionNavigationPoint> navigationPoints,
+        MissionDefinition definition,
+        IReadOnlyList<MechWarriorMissionGamePiece> gamePieces,
+        MissionRuntimeContent runtimeContent)
+    {
+        var audit = MissionFidelityAudit.Analyze(
+            resources, level, navigationPoints, definition, gamePieces, runtimeContent);
+        if (audit.WarningCount == 0)
+        {
+            GD.Print(
+                $"MechRewired: mission fidelity audit passed for {resources.ScenarioEntry.Path} " +
+                $"({audit.Findings.Count} informational structural record(s)).");
+            return;
+        }
+
+        var groupedCounts = audit.Findings
+            .Where(finding => finding.Severity == MissionFidelitySeverity.Warning)
+            .GroupBy(finding => finding.Kind)
+            .OrderBy(group => group.Key)
+            .Select(group => $"{group.Key}={group.Count()}");
+        GD.Print(
+            $"WARNING: MechRewired: mission fidelity audit found {audit.WarningCount} warning(s) for " +
+            $"{resources.ScenarioEntry.Path} ({string.Join(", ", groupedCounts)}).");
+        foreach (var group in audit.Findings
+                     .Where(finding => finding.Severity == MissionFidelitySeverity.Warning)
+                     .GroupBy(finding => finding.Kind)
+                     .OrderBy(group => group.Key))
+        {
+            var finding = group.First();
+            GD.Print(
+                $"WARNING: MechRewired: audit {finding.Kind} ({group.Count()}): {finding.SourceResource} " +
+                $"{finding.Identity}: {finding.Reason}");
+        }
+    }
+
     private IReadOnlyList<EnemyMech> LoadEnemyMechs(
         MechWarriorProjectArchive archive,
         MechWarriorPalette palette,
@@ -2156,7 +2098,8 @@ public partial class Main : Node3D
         float atmosphericVisibilityRange,
         Func<IReadOnlyList<SceneryObstacle>> sceneryObstacleProvider,
         TerrainSurfaceIndex terrainSurface,
-        IReadOnlyList<DebugTriangle> debugTriangles)
+        IReadOnlyList<DebugTriangle> debugTriangles,
+        MissionRuntimeContent runtimeContent)
     {
         var enemyRoot = new Node3D { Name = "EnemyMechs" };
         AddChild(enemyRoot);
@@ -2199,6 +2142,7 @@ public partial class Main : Node3D
                 sceneryObstacleProvider,
                 debugTriangles);
             enemyRoot.AddChild(enemy);
+            runtimeContent.AddCombatant(gamePiece);
 
             var objectsById = chassis.Objects.ToDictionary(mechObject => mechObject.Id);
             var torsoObjectId = chassis.ThingObjectIds.FirstOrDefault(id => objectsById.ContainsKey(id));
@@ -2242,7 +2186,9 @@ public partial class Main : Node3D
                     materialImages,
                     model.Polygons.Select(polygon => polygon.MaterialIndex),
                     useJadeFalconDecals,
-                    isDecalModel);
+                    isDecalModel,
+                    runtimeContent,
+                    modelEntry.Path);
                 var mesh = MechWarriorModelMeshBuilder.Build(
                     model,
                     palette,
@@ -2325,21 +2271,12 @@ public partial class Main : Node3D
                     $"[{string.Join(", ", renderedModelNames)}].");
             }
 
-            GD.Print(
-                $"MechRewired: deployed hostile {enemy.Description} from {gamePiece.ChassisEntry.Path}/" +
-                $"{gamePiece.ConfigurationEntry.Name} at rendered ({enemy.Position.X:F2}, {enemy.Position.Y:F2}, " +
-                $"{enemy.Position.Z:F2}); {renderedParts} parts, {renderedPolygons} polygons, " +
-                $"{animatedGaitParts} articulated gait parts, {weaponMounts.Length} firing points, " +
-                $"weapons [{enemy.WeaponLoadout}], {enemy.Health} " +
-                $"{(enemy.IsStationaryEmplacement ? "emplacement" : "whole-mech")} health, " +
-                $"{mechDefinition.CruisingSpeedKph:F1} km/h tactical speed.");
         }
 
         var emplacementCount = enemies.Count(enemy => enemy.IsStationaryEmplacement);
         GD.Print(
-            $"MechRewired: hostile force deployed dormant ({enemies.Count - emplacementCount} data-driven mechs, " +
-            $"{emplacementCount} fixed emplacements; GPS acquire ranges, sensor cone/line of sight, " +
-            "chassis/torso tracking and MEK weapons; shared procedural mech gait).");
+            $"MechRewired: deployed hostile force ({enemies.Count - emplacementCount} mechs, " +
+            $"{emplacementCount} emplacements).");
         return enemies.AsReadOnly();
     }
 
@@ -2357,12 +2294,6 @@ public partial class Main : Node3D
         var entry = archive.GetEntry($"SHP/{prefix}DMG6.SHP");
         var shape = MechWarriorShapeImage.Load(archive.ReadEntry(entry));
         var silhouette = MechDamageSilhouetteBuilder.Build(archive, shape, chassis);
-        var authoredSections = chassis.DamageSectionsByObjectId.Values.Distinct().Order().ToArray();
-        GD.Print(
-            $"MechRewired: decompressed {entry.Path} damage silhouette " +
-            $"for {chassisName} ({shape.Width}x{shape.Height}); mapped " +
-            $"{chassis.DamageSectionsByObjectId.Count} OBJL objects across " +
-            $"[{string.Join(", ", authoredSections)}].");
         return silhouette;
     }
 
@@ -2373,7 +2304,9 @@ public partial class Main : Node3D
         Dictionary<byte, MechWarriorIndexedImage> materialImages,
         IEnumerable<byte> materialIndices,
         bool useJadeFalconDecal = false,
-        bool isDecalModel = false)
+        bool isDecalModel = false,
+        MissionRuntimeContent runtimeContent = null,
+        string modelPath = null)
     {
         foreach (var materialIndex in materialIndices.Distinct())
         {
@@ -2383,20 +2316,25 @@ public partial class Main : Node3D
             var isLargeClanInsigniaMaterial = materialIndex is
                 WolfLargeInsigniaMaterialIndex or JadeFalconLargeInsigniaMaterialIndex;
             var usesLargeClanInsignia = isDecalModel && isLargeClanInsigniaMaterial;
-            if ((textureMaterialIndex > MaximumTexturedMechMaterialIndex &&
-                 !usesLargeClanInsignia) ||
-                isLargeClanInsigniaMaterial && !isDecalModel ||
-                materialImages.ContainsKey(materialIndex) ||
-                !materialMap.Images.TryGetValue(textureMaterialIndex, out var materialImage))
+            var isSupportedTextureSlot =
+                textureMaterialIndex <= MaximumTexturedMechMaterialIndex || usesLargeClanInsignia;
+            if (!isSupportedTextureSlot || isLargeClanInsigniaMaterial && !isDecalModel ||
+                materialImages.ContainsKey(materialIndex))
             {
+                continue;
+            }
+            if (!materialMap.Images.TryGetValue(textureMaterialIndex, out var materialImage))
+            {
+                runtimeContent?.Report(
+                    MissionFidelityFindingKind.MissingMaterialMapping,
+                    modelPath ?? materialMapEntry.Path,
+                    $"material {materialIndex}",
+                    $"No {materialMapEntry.Path} mapping exists for resolved material {textureMaterialIndex}.");
                 continue;
             }
 
             var imageEntry = archive.GetEntry("CEL", materialImage.ImageResourceIndex);
             materialImages.Add(materialIndex, MechWarriorIndexedImage.Load(archive.ReadEntry(imageEntry)));
-            GD.Print(
-                $"MechRewired: mapped WTB material {materialIndex} through {materialMapEntry.Path} " +
-                $"to {imageEntry.Path} ('{materialImage.Name}').");
         }
     }
 
@@ -2542,7 +2480,8 @@ public partial class Main : Node3D
         MechWarriorLuminosityTable luminosityTable,
         Vector3 deploymentAnchor,
         Vector3 extractionAnchor,
-        Vector3 deploymentDirection)
+        Vector3 deploymentDirection,
+        MissionRuntimeContent runtimeContent)
     {
         var levelEntry = archive.GetEntry(levelPath);
         var levelWorld = MechWarriorWorldFile.Load(archive.ReadEntry(levelEntry));
@@ -2654,12 +2593,11 @@ public partial class Main : Node3D
             levelRoot.AddChild(dropShip);
             dropShip.BeginDeployment();
             dropShips.Add(dropShip);
-            var taskSummary = string.Join("; ", setPieceWorld.Tasks.Select(task => task.Command));
-            GD.Print(
-                $"MechRewired: staged dropship {setPieceEntry.Path} from map include at " +
-                $"({include.Transform.Translation.X:F2}, {include.Transform.Translation.Y:F2}, " +
-                $"{include.Transform.Translation.Z:F2}) ({renderedObjectCount}/{setPieceWorld.Objects.Count} models; " +
-                $"deployment {deploymentAnchor}; extraction {extractionAnchor}; tasks: {taskSummary}).");
+            runtimeContent.ReportInfo(
+                MissionFidelityFindingKind.ReservedSetPiece,
+                setPieceEntry.Path,
+                "drop task",
+                "Reserved map set piece was instantiated through the dedicated animated DropShip path.");
         }
 
         GD.Print($"MechRewired: staged {dropShips.Count} map-authored dropship set pieces.");
@@ -2677,7 +2615,8 @@ public partial class Main : Node3D
         IReadOnlyList<BattlefieldActor> actors,
         IReadOnlyDictionary<(string SourcePath, int ObjectId), Node3D> renderedRootsByObject,
         IList<DebugTriangle> sceneTriangles,
-        TerrainSurfaceIndex terrainSurface)
+        TerrainSurfaceIndex terrainSurface,
+        MissionRuntimeContent runtimeContent)
     {
         var hostileAircraft = new List<BattlefieldActor>();
         foreach (var plan in MechWarriorAuthoredAircraftResolver.Resolve(level))
@@ -2711,11 +2650,20 @@ public partial class Main : Node3D
                 plan.MaximumSoundDistance,
                 terrainSurface));
             hostileAircraft.Add(actor);
-            GD.Print(
-                $"MechRewired: activated {actor.Description} from {plan.Source.Entry.Path} on authored " +
-                $"'{plan.Path.Name}' path ({plan.Path.Points.Count} points, {plan.PathTask.Command}; " +
-                $"sound {(engineSound == null ? "none" : plan.SoundResourceName)})."
-            );
+            runtimeContent.AddAircraft(plan.Actor);
+            if (engineSound == null)
+            {
+                runtimeContent.Report(
+                    MissionFidelityFindingKind.PartialSupport,
+                    plan.Source.Entry.Path,
+                    $"TSK sound {plan.SoundResourceName}",
+                    "Authored aircraft sound resource was not available at runtime.");
+            }
+        }
+
+        if (hostileAircraft.Count > 0)
+        {
+            GD.Print($"MechRewired: activated {hostileAircraft.Count} authored aircraft path(s).");
         }
 
         return hostileAircraft.AsReadOnly();
@@ -2781,9 +2729,6 @@ public partial class Main : Node3D
             colors[objectId] = paletteIndices
                 .Select(index => ToGodotColor(palette[index]))
                 .ToArray();
-            GD.Print(
-                $"MechRewired: decoded map object {objectId} color animation " +
-                $"({string.Join(", ", paletteIndices)}).");
         }
 
         return colors;
@@ -2842,19 +2787,19 @@ public partial class Main : Node3D
                 "map-authored dropship engine");
     }
 
-    private static void LoadAmbientEffects(
+    private static IReadOnlyList<MechWarriorLevelObject> LoadAmbientEffects(
         MechWarriorProjectArchive archive,
-        string levelPath,
+        MechWarriorLevel level,
         BattlefieldEffects battlefieldEffects,
-        IReadOnlyDictionary<string, AudioStreamWav> ambientSounds)
+        IReadOnlyDictionary<string, AudioStreamWav> ambientSounds,
+        MissionRuntimeContent runtimeContent)
     {
-        var levelEntry = archive.GetEntry(levelPath);
-        var levelWorld = MechWarriorWorldFile.Load(archive.ReadEntry(levelEntry));
+        var instantiatedEffects = new List<MechWarriorLevelObject>();
         var totalLoadedCount = 0;
-        foreach (var include in levelWorld.Includes)
+        foreach (var source in level.Sources)
         {
-            var effectsEntry = archive.GetEntry("BWD", include.ResourceIndex);
-            var effectsWorld = MechWarriorWorldFile.Load(archive.ReadEntry(effectsEntry), include.Transform);
+            var effectsEntry = source.Entry;
+            var effectsWorld = source.World;
             var flameObjects = effectsWorld.Objects
                 .Where(effectObject => effectObject.ObjectType == 0x10)
                 .ToArray();
@@ -2925,22 +2870,30 @@ public partial class Main : Node3D
                 if (modelEntry.Name.StartsWith("SMO", StringComparison.OrdinalIgnoreCase) &&
                     foldedSmokeIds.Contains(effectObject.Id))
                 {
-                    GD.Print(
-                        $"MechRewired: folded elevated {modelEntry.Name} object {effectObject.Id} " +
-                        "into its lower fire emitter while preserving its authored plume volume.");
+                    instantiatedEffects.Add(new MechWarriorLevelObject(
+                        effectObject.Id, effectObject.RelativeToId, effectObject.CollisionType, effectObject.ObjectType,
+                        MechWarriorLevelObjectKind.Effect, effectsEntry, modelEntry, effectObject.Transform));
                     continue;
                 }
 
-                var heightOffset = effectObject.Transform.Translation.Y - include.Transform.Translation.Y;
+                var heightOffset = effectObject.Transform.Translation.Y;
                 var ambientSound = soundNamesByObject.TryGetValue(effectObject.Id, out var soundName) &&
                                    ambientSounds.TryGetValue(soundName, out var mappedSound)
                     ? mappedSound
                     : null;
+                if (soundNamesByObject.TryGetValue(effectObject.Id, out soundName) && ambientSound == null)
+                {
+                    runtimeContent.Report(
+                        MissionFidelityFindingKind.PartialSupport,
+                        effectsEntry.Path,
+                        $"TSK sound {soundName}",
+                        "Authored ambient sound was not mapped to a runtime resource.");
+                }
                 if (modelEntry.Name.StartsWith("SMO", StringComparison.OrdinalIgnoreCase))
                 {
                     battlefieldEffects.AddAmbientSmoke(
                         effectBounds,
-                        include.Transform.Translation.Y,
+                        0.0f,
                         $"{effectsEntry.Name}-{effectObject.Id}",
                         ambientSound);
                 }
@@ -2958,30 +2911,22 @@ public partial class Main : Node3D
                     battlefieldEffects.AddAmbientFire(
                         effectBounds,
                         plumeBounds,
-                        include.Transform.Translation.Y,
+                        0.0f,
                         $"{effectsEntry.Name}-{effectObject.Id}",
                         ambientSound);
                 }
 
-                GD.Print(
-                    $"MechRewired: placed {modelEntry.Name} effect from {effectsEntry.Path} " +
-                    $"object {effectObject.Id} (relative {effectObject.RelativeToId}; scale " +
-                    $"{effectObject.Transform.Scale.X:F2}, {effectObject.Transform.Scale.Y:F2}, " +
-                    $"{effectObject.Transform.Scale.Z:F2}; visual size " +
-                    $"{effectBounds.Size.X:F1} x {effectBounds.Size.Y:F1} x {effectBounds.Size.Z:F1}m; " +
-                    $"height offset {heightOffset:F2}m) at " +
-                    $"({effectObject.Transform.Translation.X:F2}, {effectObject.Transform.Translation.Y:F2}, " +
-                    $"{effectObject.Transform.Translation.Z:F2}).");
                 totalLoadedCount++;
                 renderedCount++;
+                instantiatedEffects.Add(new MechWarriorLevelObject(
+                    effectObject.Id, effectObject.RelativeToId, effectObject.CollisionType, effectObject.ObjectType,
+                    MechWarriorLevelObjectKind.Effect, effectsEntry, modelEntry, effectObject.Transform));
             }
 
-            GD.Print(
-                $"MechRewired: loaded {renderedCount}/{flameObjects.Length} scaled fire-and-smoke objects from " +
-                $"{effectsEntry.Path} ({effectsWorld.Tasks.Count} ambient-audio tasks).");
         }
 
         GD.Print($"MechRewired: loaded {totalLoadedCount} authored battlefield effect objects.");
+        return instantiatedEffects.AsReadOnly();
     }
 
     private static bool IsElevatedSmokeAboveFire(Aabb smoke, Aabb fire)
@@ -3078,13 +3023,6 @@ public partial class Main : Node3D
         var adjustment = surfaceHeight - lowestY;
         actor.Position += Vector3.Up * adjustment;
         TranslateActorTriangles(actor, sceneTriangles, Vector3.Up * adjustment);
-        if (Mathf.Abs(adjustment) >= 0.01f)
-        {
-            GD.Print(
-                $"MechRewired: settled {actor.Description} object {actor.Definition.ObjectId} in " +
-                $"BWD/{actor.SourceResourceName}.BWD " +
-                $"onto rendered terrain by {adjustment:F2}m; translated its targeting geometry equally.");
-        }
     }
 
     private static void TranslateActorTriangles(
@@ -3400,18 +3338,6 @@ public partial class Main : Node3D
             });
         }
 
-        GD.Print(
-            $"MechRewired: added sparse implicit ground field centred at " +
-            $"Y={DerivedTerrainSurfaceBuilder.ImplicitGroundHeight:F2} " +
-            $"({size.X:F0} × {size.Y:F0}; surface RGB " +
-            $"({(usesDesertTerrain ? TerrainSurfaceMaterial.DesertBaseColor : groundColor).R8}, " +
-            $"{(usesDesertTerrain ? TerrainSurfaceMaterial.DesertBaseColor : groundColor).G8}, " +
-            $"{(usesDesertTerrain ? TerrainSurfaceMaterial.DesertBaseColor : groundColor).B8}); " +
-            $"source palette diagnostic index " +
-            $"{representativePaletteIndex}, RGB ({groundColor.R8}, {groundColor.G8}, {groundColor.B8}); " +
-            $"relief ±{TerrainGroundRelief.MaximumAmplitude(groundReliefKind):F2}m; " +
-            $"removed {sparseGround.RemovedTriangleCount:N0} covered triangles, retained " +
-            $"{sparseGround.TriangleCount:N0}).");
         return renderedGroundTriangles;
     }
 
@@ -3426,7 +3352,6 @@ public partial class Main : Node3D
         bool snapLowExteriorVertices,
         bool sealToImplicitGround)
     {
-        var derivationStartedAt = Time.GetTicksMsec();
         var derived = DerivedTerrainSurfaceBuilder.Build(
             sceneTriangles,
             useMacroRelief,
@@ -3460,20 +3385,8 @@ public partial class Main : Node3D
         terrainDiagnostics.Register(instance, derived.RenderMesh, derived.RenderMesh);
 #endif
 
-        var removedSourceTriangles = sceneTriangles.RemoveAll(DerivedTerrainSurfaceBuilder.IsAuthoredTerrain);
+        sceneTriangles.RemoveAll(DerivedTerrainSurfaceBuilder.IsAuthoredTerrain);
         sceneTriangles.AddRange(derived.CollisionTriangles);
-        GD.Print(
-            $"MechRewired: derived one welded terrain surface from {derived.SourceTriangleCount:N0} " +
-            $"upward source triangles: {derived.RenderTriangleCount:N0} render triangles " +
-            $"({DerivedTerrainSurfaceBuilder.RenderSubdivisions}x per edge) and " +
-            $"{derived.BaseSnapVertexCount:N0} low base vertices snapped to floor; " +
-            $"{derived.BaseSealTriangleCount:N0} base-seal render triangles; " +
-            $"{derived.CollisionTriangles.Count:N0} collision triangles " +
-            $"({DerivedTerrainSurfaceBuilder.CollisionSubdivisions}x per edge); replaced " +
-            $"{removedSourceTriangles:N0} decoded terrain triangles. Connected-edge curvature " +
-            $"ramps to full smoothing by {DerivedTerrainSurfaceBuilder.SmoothingAngleDegrees:F0} degrees " +
-            $"after tolerance-based source seam welding " +
-            $"({Time.GetTicksMsec() - derivationStartedAt:N0}ms).");
         return derived;
     }
 
@@ -3532,11 +3445,6 @@ public partial class Main : Node3D
             })
             .Index;
         var representativePaletteColor = palette[representativePaletteIndex];
-        GD.Print(
-            $"MechRewired: sampled {description} RGB " +
-            $"({sampledAverage.R},{sampledAverage.G},{sampledAverage.B}) -> palette " +
-            $"{representativePaletteIndex} RGB " +
-            $"({representativePaletteColor.R},{representativePaletteColor.G},{representativePaletteColor.B}).");
         return ToGodotColor(returnSampledAverage ? sampledAverage : representativePaletteColor);
     }
 
@@ -3675,21 +3583,16 @@ public partial class Main : Node3D
         public void BeginDeployment()
         {
             Activate(false);
-            GD.Print($"MechRewired: started map-authored deployment dropship {m_sourceName}.");
         }
 
         public void BeginExtraction()
         {
             Activate(true);
-            GD.Print($"MechRewired: started map-authored extraction dropship {m_sourceName}.");
         }
 
         public void ConfigureAssemblyBounds(Aabb bounds)
         {
             m_landingOffset = Math.Max(0.0f, -bounds.Position.Y) + 0.15f;
-            GD.Print(
-                $"MechRewired: dropship {m_sourceName} landing offset {m_landingOffset:F2}m " +
-                $"from assembly bounds {bounds}.");
         }
 
         public void ConfigureAnimatedColor(
