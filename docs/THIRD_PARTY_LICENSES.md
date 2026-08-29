@@ -86,8 +86,8 @@ Sky3D's bundled third-party texture attributions remain in
 MechRewired includes ARez's
 [Compositor Lens Flare / Godrays](https://github.com/ARez2/compositor-effect-lens-effects)
 under `MechRewired/addons/lens_effects`. Its depth-aware compositor shader provides
-the subtle, occlusion-sensitive flare around the mission sun; the optional god rays
-are disabled. The complete license is kept beside the addon in
+the subtle, occlusion-sensitive flare around the mission sun and restrained, biome-tuned
+god rays. The complete license is kept beside the addon in
 `MechRewired/addons/lens_effects/LICENSE.txt`.
 
 Copyright (c) 2025 ARez

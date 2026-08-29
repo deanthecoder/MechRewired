@@ -651,22 +651,22 @@ public partial class Main : Node3D
             "add_cvar",
             "sky.fog.multiplier",
             sky.FogMultiplier,
-            "Scales level-authored atmospheric depth cue (1 is the 75%-density remaster default).");
+            "Scales the level-authored atmospheric depth cue (biome-tuned default).");
         m_debugConsole.Call(
             "add_cvar",
             "sky.fog.start",
             sky.FogStartFraction,
-            "Sets where fog begins as a fraction of its full authored distance (default 0.35).");
+            "Sets where fog begins as a fraction of its full authored distance (biome-tuned default).");
         m_debugConsole.Call(
             "add_cvar",
             "sky.fog.aerial",
             sky.FogAerialPerspective,
-            "Blends distant objects toward the sky colour behind them (0-1; default 1).");
+            "Blends distant objects toward the sky colour behind them (0-1; biome-tuned default).");
         m_debugConsole.Call(
             "add_cvar",
             "sky.fog.sun_scatter",
             sky.FogSunScatter,
-            "Adds directional sunlight to atmospheric haze (0-1; default 0.15).");
+            "Adds directional sunlight to atmospheric haze (0-1; biome-tuned default).");
         m_debugConsole.Call(
             "add_cvar",
             "sky.sun.azimuth_offset",
@@ -677,6 +677,11 @@ public partial class Main : Node3D
             "sky.sun.flare",
             sky.SunLensFlareIntensity,
             "Sets the uncapped sun lens-flare multiplier (default 3).");
+        m_debugConsole.Call(
+            "add_cvar",
+            "sky.sun.god_rays",
+            sky.SunGodRayStrength,
+            "Sets the depth-occluded sun-shaft strength from 0 to 0.2.");
         m_debugConsole.Call(
             "add_cvar",
             "sky.shadow.distance",
@@ -915,6 +920,11 @@ public partial class Main : Node3D
                  m_debugSky != null)
         {
             m_debugSky.SunLensFlareIntensity = numericValue;
+        }
+        else if (string.Equals(name, "sky.sun.god_rays", StringComparison.OrdinalIgnoreCase) &&
+                 m_debugSky != null)
+        {
+            m_debugSky.SunGodRayStrength = numericValue;
         }
         else if (string.Equals(name, "sky.shadow.distance", StringComparison.OrdinalIgnoreCase) &&
                  m_debugSky != null)
@@ -1656,14 +1666,11 @@ public partial class Main : Node3D
             "derived terrain",
             "The original terrain control meshes are supplemented by the derived terrain surface and implicit ground.");
         GD.Print($"MechRewired: prepared {terrainBiome.ToString().ToLowerInvariant()} terrain surface.");
-        TerrainRockScatter terrainRocks = null;
-        if (usesDesertTerrain)
-        {
-            terrainRocks = TerrainRockScatter.Create(
-                terrainSurface,
-                GetTerrainBounds(debugTriangles));
-            levelRoot.AddChild(terrainRocks);
-        }
+        var terrainRocks = TerrainRockScatter.Create(
+            terrainSurface,
+            GetTerrainBounds(debugTriangles),
+            terrainBiome);
+        levelRoot.AddChild(terrainRocks);
         foreach (var (actor, rootRepresentation, models) in pendingActorSettlements)
         {
             SettleActorOnTerrain(actor, rootRepresentation, models, terrainSurface, debugTriangles);
@@ -1872,17 +1879,32 @@ public partial class Main : Node3D
             playerMission.Fail);
         AddChild(playerDeathSequence);
         battlefieldEffects.ConfigureObserver(playerMech);
-        if (usesDesertTerrain && missionSky.EnableLocalizedVolumetricFog())
+        if (missionSky.EnableLocalizedVolumetricFog(usesDesertTerrain ? 160.0f : 280.0f))
         {
-            var groundSand = new GroundSandFog(playerMech, terrainSurface)
+            if (usesDesertTerrain)
             {
-                Name = "GroundSandFog"
-            };
-            levelRoot.AddChild(groundSand);
-            GD.Print("MechRewired: enabled localized ground sand.");
+                var groundSand = new GroundSandFog(playerMech, terrainSurface)
+                {
+                    Name = "GroundSandFog"
+                };
+                levelRoot.AddChild(groundSand);
+                GD.Print("MechRewired: enabled localized ground sand.");
 #if DEBUG
-            RegisterDebugConsoleGroundSand(groundSand);
+                RegisterDebugConsoleGroundSand(groundSand);
 #endif
+            }
+            else
+            {
+                var mountainHaze = new GroundMountainHaze(
+                    playerMech,
+                    terrainSurface,
+                    skyProfile.HorizonColor)
+                {
+                    Name = "GroundMountainHaze"
+                };
+                levelRoot.AddChild(mountainHaze);
+                GD.Print("MechRewired: enabled localized mountain-valley haze.");
+            }
         }
         if (usesDesertTerrain)
         {

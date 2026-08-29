@@ -24,9 +24,13 @@ public partial class SunLensFlare : Node
     private const string EffectScriptPath =
         "res://addons/lens_effects/lens_flare_compositor_effect.gd";
     private const float DefaultEffectMultiplier = 0.32f;
+    private const float DefaultGodRayDecay = 0.96f;
+    private const float DefaultGodRayDensity = 0.84f;
     private readonly DirectionalLight3D m_sunLight;
     private readonly CompositorEffect m_effect;
     private float m_intensity = 3.0f;
+    private float m_godRayStrength;
+    private int m_godRaySampleCount = 1;
 
     public SunLensFlare(WorldEnvironment worldEnvironment, DirectionalLight3D sunLight, Color tint)
     {
@@ -45,7 +49,8 @@ public partial class SunLensFlare : Node
         m_effect.Set("Anamorphic_Intensity", 240.0f);
         m_effect.Set("Anamorphic_Stretch", 0.28f);
         m_effect.Set("Anamorphic_Brightness", 0.12f);
-        // This task is specifically a lens flare; leave the asset's costlier god rays disabled.
+        m_effect.Set("Decay", DefaultGodRayDecay);
+        m_effect.Set("Density", DefaultGodRayDensity);
         m_effect.Set("Weight", 0.0f);
         m_effect.Set("SampleCount", 1);
 
@@ -63,6 +68,32 @@ public partial class SunLensFlare : Node
     {
         get => m_intensity;
         set => m_intensity = Mathf.Max(value, 0.0f);
+    }
+
+    /// <summary>
+    /// Controls the depth-occluded radial shafts mixed into the sun flare.
+    /// </summary>
+    public float GodRayStrength
+    {
+        get => m_godRayStrength;
+        set
+        {
+            m_godRayStrength = Mathf.Clamp(value, 0.0f, 0.20f);
+            m_effect.Set("Weight", m_godRayStrength);
+        }
+    }
+
+    /// <summary>
+    /// Controls radial depth samples used by the god-ray mask.
+    /// </summary>
+    public int GodRaySampleCount
+    {
+        get => m_godRaySampleCount;
+        set
+        {
+            m_godRaySampleCount = Mathf.Clamp(value, 1, 64);
+            m_effect.Set("SampleCount", m_godRaySampleCount);
+        }
     }
 
     public override void _Process(double delta)

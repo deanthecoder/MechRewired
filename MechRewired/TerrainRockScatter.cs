@@ -5,6 +5,7 @@
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
 using Godot;
+using MechRewired.Resources;
 
 namespace MechRewired;
 
@@ -21,23 +22,16 @@ public sealed partial class TerrainRockScatter : Node3D
     private const float CellSizeMetres = 96.0f;
     private const int OuterCellRadius = 3;
     private const int DenseCellRadius = 2;
-    private const float SparseCandidateSpacingMetres = 6.0f;
-    // Three-metre candidates cut new-cell terrain sampling by 56%. The increased acceptance
-    // preserves roughly 70% of the former rock count while avoiding the movement hitch.
-    private const float DenseCandidateSpacingMetres = 3.0f;
-    private const float DensePlacementMultiplier = 9.75f;
-    private const float HillProbeDistanceMetres = 14.0f;
-    private const float MaximumSlopeDegrees = 18.0f;
-    private const float MinimumPlacementChance = 0.006f;
-    private const float MaximumPlacementChance = 0.18f;
-    private const float MaximumDensePlacementChance = 0.255f;
     private const float MaximumRockGroundEmbedMetres = 0.14f;
     private const int Seed = 0x4D573252;
     private static readonly string[] RockMeshPaths =
     [
         "res://Assets/Props/Rocks/rock_00.obj",
         "res://Assets/Props/Rocks/rock_01.obj",
-        "res://Assets/Props/Rocks/rock_02.obj"
+        "res://Assets/Props/Rocks/rock_02.obj",
+        "res://Assets/Props/Rocks/rock_03.obj",
+        "res://Assets/Props/Rocks/rock_04.obj",
+        "res://Assets/Props/Rocks/rock_05.obj"
     ];
     private static readonly Vector2[] HillProbeDirections =
     [
@@ -45,9 +39,52 @@ public sealed partial class TerrainRockScatter : Node3D
         new(-1.0f, 0.0f), new(-0.7071f, -0.7071f), new(0.0f, -1.0f), new(0.7071f, -0.7071f)
     ];
 
-    private readonly record struct RockPlacement(Transform3D Transform, int ShapeIndex, bool CastsShadow);
+    private readonly record struct RockPlacement(
+        Transform3D Transform,
+        Vector3 SurfacePosition,
+        Vector3 SurfaceNormal,
+        Color RockColor,
+        Color GroundBlendColor,
+        int ShapeIndex,
+        bool CastsShadow);
     private sealed record ActiveCell(Node3D Node, bool IsDense);
     private readonly record struct CellRequest(Vector2I Cell, bool IsDense, bool AllowsShadows);
+    private readonly record struct ScatterProfile(
+        string CellNamePrefix,
+        float SparseCandidateSpacingMetres,
+        float DenseCandidateSpacingMetres,
+        float DensePlacementMultiplier,
+        float HillProbeDistanceMetres,
+        float MaximumSlopeDegrees,
+        float MinimumPlacementChance,
+        float MaximumPlacementChance,
+        float MaximumDensePlacementChance,
+        float MinimumRockScale,
+        float MaximumRockScale,
+        float ShadowMinimumScale,
+        float ShadowChance,
+        float HillFootWeight,
+        float BasinWeight,
+        float HillFootStartMetres,
+        float HillFootEndMetres,
+        float BasinStartMetres,
+        float BasinEndMetres,
+        float ClusterStart,
+        float ClusterEnd,
+        float MinimumClusterWeight,
+        float ClusterMultiplier,
+        bool UsesRockyMountainMaterial);
+
+    // Desert keeps the existing close-range, wind-deposited feel. The mountain profile trades
+    // count for scale and slope-foot clustering, leaving broad areas of bare bedrock visible.
+    private static readonly ScatterProfile DesertProfile = new(
+        "DesertRockCell", 6.0f, 3.0f, 9.75f, 14.0f, 18.0f,
+        0.006f, 0.18f, 0.255f, 0.28f, 2.0f, 1.25f, 0.035f,
+        0.78f, 0.22f, 0.75f, 7.0f, 0.15f, 2.0f, 0.62f, 0.80f, 0.0f, 3.8f, false);
+    private static readonly ScatterProfile RockyMountainProfile = new(
+        "MountainRockCell", 10.0f, 5.0f, 5.2f, 20.0f, 28.0f,
+        0.003f, 0.115f, 0.18f, 0.34f, 3.8f, 2.0f, 0.14f,
+        0.86f, 0.14f, 0.35f, 5.5f, 0.08f, 1.7f, 0.54f, 0.75f, 0.18f, 4.6f, true);
 
     private readonly Dictionary<Vector2I, ActiveCell> m_activeCells = new();
     private readonly Dictionary<Vector2I, CellRequest> m_pendingCells = new();
@@ -55,16 +92,26 @@ public sealed partial class TerrainRockScatter : Node3D
     private Aabb m_terrainBounds;
     private IReadOnlyList<Mesh> m_meshes;
     private Mesh m_contactShadowMesh;
+    private Mesh m_groundBlendMesh;
     private StandardMaterial3D m_sparseMaterial;
     private StandardMaterial3D m_denseMaterial;
     private StandardMaterial3D m_contactShadowMaterial;
+    private StandardMaterial3D m_groundBlendMaterial;
+    private ScatterProfile m_profile;
     private Node3D m_observer;
     private Vector2I m_observerCell;
     private bool m_hasObserverCell;
 
-    public static TerrainRockScatter Create(TerrainSurfaceIndex terrainSurface, Aabb terrainBounds)
+    /// <summary>Creates a biome-tuned, deterministic scatter stream.</summary>
+    public static TerrainRockScatter Create(
+        TerrainSurfaceIndex terrainSurface,
+        Aabb terrainBounds,
+        MechWarriorTerrainBiome biome)
     {
         ArgumentNullException.ThrowIfNull(terrainSurface);
+        var profile = biome == MechWarriorTerrainBiome.RockyMountain
+            ? RockyMountainProfile
+            : DesertProfile;
         var meshes = RockMeshPaths.Select(LoadRockMesh).ToArray();
         if (meshes.Any(mesh => mesh == null))
         {
@@ -81,11 +128,18 @@ public sealed partial class TerrainRockScatter : Node3D
             m_terrainBounds = terrainBounds,
             m_meshes = meshes!,
             m_contactShadowMesh = CreateContactShadowMesh(),
-            m_sparseMaterial = CreateRockMaterial(),
-            m_denseMaterial = CreateDenseRockMaterial(),
-            m_contactShadowMaterial = CreateContactShadowMaterial()
+            m_groundBlendMesh = CreateGroundBlendMesh(),
+            m_sparseMaterial = CreateRockMaterial(profile),
+            m_denseMaterial = CreateDenseRockMaterial(profile),
+            m_contactShadowMaterial = CreateContactShadowMaterial(profile),
+            m_groundBlendMaterial = CreateGroundBlendMaterial(profile),
+            m_profile = profile
         };
     }
+
+    /// <summary>Creates the original desert stream when no biome is supplied.</summary>
+    public static TerrainRockScatter Create(TerrainSurfaceIndex terrainSurface, Aabb terrainBounds) =>
+        Create(terrainSurface, terrainBounds, MechWarriorTerrainBiome.Desert);
 
     /// <summary>Starts streaming cells around the deployed player.</summary>
     public void ConfigureObserver(Node3D observer)
@@ -225,15 +279,21 @@ public sealed partial class TerrainRockScatter : Node3D
     {
         var placements = BuildCellPlacements(
             m_terrainSurface, m_terrainBounds, cell.X, cell.Y,
-            dense ? DenseCandidateSpacingMetres : SparseCandidateSpacingMetres,
-            dense ? DensePlacementMultiplier : 1.0f,
+            dense ? m_profile.DenseCandidateSpacingMetres : m_profile.SparseCandidateSpacingMetres,
+            dense ? m_profile.DensePlacementMultiplier : 1.0f,
+            m_profile,
             allowShadows);
         if (placements.Count == 0)
         {
             return null;
         }
 
-        var node = new Node3D { Name = dense ? $"DenseRockCell_{cell.X}_{cell.Y}" : $"RockCell_{cell.X}_{cell.Y}" };
+        var node = new Node3D
+        {
+            Name = dense
+                ? $"Dense{m_profile.CellNamePrefix}_{cell.X}_{cell.Y}"
+                : $"{m_profile.CellNamePrefix}_{cell.X}_{cell.Y}"
+        };
         for (var shapeIndex = 0; shapeIndex < m_meshes.Count; shapeIndex++)
         {
             AddInstances(node, placements, shapeIndex, castsShadow: false, dense ? m_denseMaterial : m_sparseMaterial);
@@ -246,18 +306,7 @@ public sealed partial class TerrainRockScatter : Node3D
 
     private void AddContactShadows(Node3D parent, IReadOnlyList<RockPlacement> placements)
     {
-        var transforms = placements
-            .Select(placement =>
-            {
-                var scale = placement.Transform.Basis.Scale.X;
-                var groundOffset = RockGroundEmbed(scale);
-                var position = placement.Transform.Origin + new Vector3(0.0f, groundOffset + 0.006f, 0.0f);
-                return new Transform3D(
-                    Basis.Identity.Scaled(new Vector3(scale * 0.50f, 1.0f, scale * 0.34f)),
-                    position);
-            })
-            .ToArray();
-        if (transforms.Length == 0)
+        if (placements.Count == 0)
         {
             return;
         }
@@ -265,13 +314,24 @@ public sealed partial class TerrainRockScatter : Node3D
         var multiMesh = new MultiMesh
         {
             TransformFormat = MultiMesh.TransformFormatEnum.Transform3D,
+            UseColors = true,
             Mesh = m_contactShadowMesh,
-            InstanceCount = transforms.Length,
-            VisibleInstanceCount = transforms.Length
+            InstanceCount = placements.Count,
+            VisibleInstanceCount = placements.Count
         };
-        for (var index = 0; index < transforms.Length; index++)
+        for (var index = 0; index < placements.Count; index++)
         {
-            multiMesh.SetInstanceTransform(index, transforms[index]);
+            var placement = placements[index];
+            var scale = placement.Transform.Basis.Scale;
+            var shadowBasis = SurfaceAlignedBasis(placement.SurfaceNormal, index * 0.87f)
+                .Scaled(new Vector3(scale.X * 0.68f, 1.0f, scale.Z * 0.52f));
+            multiMesh.SetInstanceTransform(index, new Transform3D(
+                shadowBasis,
+                placement.SurfacePosition + placement.SurfaceNormal * 0.012f));
+            // A radial vertex-alpha fade keeps this grounding cue soft rather than a stamped
+            // opaque ellipse. Large outcrops receive a little more contact weight.
+            multiMesh.SetInstanceColor(index, new Color(1.0f, 1.0f, 1.0f,
+                Mathf.Clamp(0.72f + Mathf.Max(scale.X, scale.Z) * 0.07f, 0.72f, 1.0f)));
         }
 
         parent.AddChild(new MultiMeshInstance3D
@@ -279,6 +339,41 @@ public sealed partial class TerrainRockScatter : Node3D
             Name = "RockContactShadows",
             Multimesh = multiMesh,
             MaterialOverride = m_contactShadowMaterial,
+            CastShadow = GeometryInstance3D.ShadowCastingSetting.Off
+        });
+
+        AddGroundBlends(parent, placements);
+    }
+
+    private void AddGroundBlends(Node3D parent, IReadOnlyList<RockPlacement> placements)
+    {
+        var multiMesh = new MultiMesh
+        {
+            TransformFormat = MultiMesh.TransformFormatEnum.Transform3D,
+            UseColors = true,
+            Mesh = m_groundBlendMesh,
+            InstanceCount = placements.Count,
+            VisibleInstanceCount = placements.Count
+        };
+        for (var index = 0; index < placements.Count; index++)
+        {
+            var placement = placements[index];
+            var scale = placement.Transform.Basis.Scale;
+            // A broad, very transparent terrain-tinted skirt disguises the hard object/ground
+            // seam. Its radial falloff is baked into the mesh, so it costs one batched draw.
+            var skirtBasis = SurfaceAlignedBasis(placement.SurfaceNormal, index * 1.31f)
+                .Scaled(new Vector3(scale.X * 1.16f, 1.0f, scale.Z * 1.10f));
+            multiMesh.SetInstanceTransform(index, new Transform3D(
+                skirtBasis,
+                placement.SurfacePosition + placement.SurfaceNormal * 0.007f));
+            multiMesh.SetInstanceColor(index, placement.GroundBlendColor);
+        }
+
+        parent.AddChild(new MultiMeshInstance3D
+        {
+            Name = "RockGroundBlends",
+            Multimesh = multiMesh,
+            MaterialOverride = m_groundBlendMaterial,
             CastShadow = GeometryInstance3D.ShadowCastingSetting.Off
         });
     }
@@ -290,11 +385,10 @@ public sealed partial class TerrainRockScatter : Node3D
         bool castsShadow,
         Godot.Material material)
     {
-        var transforms = placements
+        var instancePlacements = placements
             .Where(placement => placement.ShapeIndex == shapeIndex && placement.CastsShadow == castsShadow)
-            .Select(placement => placement.Transform)
             .ToArray();
-        if (transforms.Length == 0)
+        if (instancePlacements.Length == 0)
         {
             return;
         }
@@ -302,13 +396,15 @@ public sealed partial class TerrainRockScatter : Node3D
         var multiMesh = new MultiMesh
         {
             TransformFormat = MultiMesh.TransformFormatEnum.Transform3D,
+            UseColors = true,
             Mesh = m_meshes[shapeIndex],
-            InstanceCount = transforms.Length,
-            VisibleInstanceCount = transforms.Length
+            InstanceCount = instancePlacements.Length,
+            VisibleInstanceCount = instancePlacements.Length
         };
-        for (var index = 0; index < transforms.Length; index++)
+        for (var index = 0; index < instancePlacements.Length; index++)
         {
-            multiMesh.SetInstanceTransform(index, transforms[index]);
+            multiMesh.SetInstanceTransform(index, instancePlacements[index].Transform);
+            multiMesh.SetInstanceColor(index, instancePlacements[index].RockColor);
         }
 
         parent.AddChild(new MultiMeshInstance3D
@@ -322,7 +418,7 @@ public sealed partial class TerrainRockScatter : Node3D
 
     private static List<RockPlacement> BuildCellPlacements(
         TerrainSurfaceIndex terrainSurface, Aabb terrainBounds, int cellX, int cellZ,
-        float candidateSpacing, float densityMultiplier, bool allowShadows)
+        float candidateSpacing, float densityMultiplier, ScatterProfile profile, bool allowShadows)
     {
         var placements = new List<RockPlacement>();
         var candidatesPerEdge = Mathf.RoundToInt(CellSizeMetres / candidateSpacing);
@@ -334,57 +430,139 @@ public sealed partial class TerrainRockScatter : Node3D
             {
                 var candidateSeed = Hash(cellX, cellZ, x, z, candidatesPerEdge);
                 var position = new Vector3(
-                    cellOriginX + (x + 0.5f + SignedRandom(candidateSeed) * 0.34f) * candidateSpacing,
+                    // This deliberately crosses candidate-cell boundaries. Deposits retain a
+                    // predictable average density, but no longer reveal the generator's rows.
+                    cellOriginX + (x + 0.5f + SignedRandom(candidateSeed) * 0.82f) * candidateSpacing,
                     0.0f,
-                    cellOriginZ + (z + 0.5f + SignedRandom(candidateSeed + 1) * 0.34f) * candidateSpacing);
-                if (!ContainsXZ(terrainBounds, position) ||
-                    !terrainSurface.TryGetSurface(position, out var height, out _) ||
-                    !terrainSurface.TryGetSurfaceNormal(position, out var normal))
+                    cellOriginZ + (z + 0.5f + SignedRandom(candidateSeed + 1) * 0.82f) * candidateSpacing);
+                if (!TryAddPlacement(
+                        placements, terrainSurface, terrainBounds, position, candidateSeed,
+                        densityMultiplier, profile, allowShadows, out var depositWeight))
                 {
                     continue;
                 }
 
-                var slopeDegrees = Mathf.RadToDeg(Mathf.Acos(Mathf.Clamp(normal.Y, -1.0f, 1.0f)));
-                if (slopeDegrees > MaximumSlopeDegrees)
+                // A restrained second stone makes selected deposits read as naturally settled
+                // pairs/trios. It is capped to one extra instance and terrain-validated, so the
+                // stream remains predictable and roughly 6-17% denser only where deposits form.
+                var clusterChance = Mathf.Lerp(0.055f, 0.17f, depositWeight);
+                if (UnitRandom(candidateSeed + 27) >= clusterChance)
                 {
                     continue;
                 }
 
-                var depositWeight = CalculateDepositWeight(terrainSurface, position, height);
-                var slopeWeight = 1.0f - Mathf.SmoothStep(MaximumSlopeDegrees * 0.45f, MaximumSlopeDegrees, slopeDegrees);
-                var chance = Mathf.Lerp(MinimumPlacementChance, MaximumPlacementChance, depositWeight * slopeWeight);
-                // A low-frequency coherent mask produces talus patches and bare ground rather
-                // than an evenly peppered surface. Its mean is one, preserving density on average.
-                chance *= ClusterWeight(position);
-                chance = Mathf.Min(chance * densityMultiplier, densityMultiplier > 1.0f ? MaximumDensePlacementChance : MaximumPlacementChance);
-                if (UnitRandom(candidateSeed + 2) > chance)
-                {
-                    continue;
-                }
-
-                var scale = Mathf.Lerp(0.28f, 2.0f, UnitRandom(candidateSeed + 3));
-                // Sink the base slightly into the terrain so uneven source bottoms do not float.
-                position.Y = height - RockGroundEmbed(scale);
-                var rotation = Basis.FromEuler(new Vector3(0.0f, UnitRandom(candidateSeed + 4) * Mathf.Tau, 0.0f));
-                var castsShadow = allowShadows && scale >= 1.25f && UnitRandom(candidateSeed + 6) < 0.035f;
-                placements.Add(new RockPlacement(
-                    new Transform3D(rotation.Scaled(Vector3.One * scale), position),
-                    SelectShapeIndex(candidateSeed + 5),
-                    castsShadow));
+                var source = placements[^1];
+                var direction = new Vector3(
+                    Mathf.Cos(UnitRandom(candidateSeed + 28) * Mathf.Tau),
+                    0.0f,
+                    Mathf.Sin(UnitRandom(candidateSeed + 28) * Mathf.Tau));
+                var sourceScale = source.Transform.Basis.Scale;
+                var spacing = Mathf.Max(sourceScale.X, sourceScale.Z) *
+                    Mathf.Lerp(1.00f, 1.85f, UnitRandom(candidateSeed + 29));
+                var clusterPosition = source.SurfacePosition + direction * spacing;
+                TryAddPlacement(
+                    placements, terrainSurface, terrainBounds, clusterPosition, candidateSeed + 31,
+                    densityMultiplier, profile, allowShadows, out _, bypassPlacementChance: true,
+                    scaleMultiplier: Mathf.Lerp(0.48f, 0.82f, UnitRandom(candidateSeed + 32)));
             }
         }
 
         return placements;
     }
 
-    private static float CalculateDepositWeight(TerrainSurfaceIndex terrainSurface, Vector3 position, float height)
+    private static bool TryAddPlacement(
+        ICollection<RockPlacement> placements,
+        TerrainSurfaceIndex terrainSurface,
+        Aabb terrainBounds,
+        Vector3 surfacePosition,
+        int seed,
+        float densityMultiplier,
+        ScatterProfile profile,
+        bool allowShadows,
+        out float depositWeight,
+        bool bypassPlacementChance = false,
+        float scaleMultiplier = 1.0f)
+    {
+        depositWeight = 0.0f;
+        if (!ContainsXZ(terrainBounds, surfacePosition) ||
+            !terrainSurface.TryGetSurface(surfacePosition, out var height, out _) ||
+            !terrainSurface.TryGetSurfaceNormal(surfacePosition, out var normal))
+        {
+            return false;
+        }
+
+        normal = normal.Normalized();
+        var slopeDegrees = Mathf.RadToDeg(Mathf.Acos(Mathf.Clamp(normal.Y, -1.0f, 1.0f)));
+        if (slopeDegrees > profile.MaximumSlopeDegrees)
+        {
+            return false;
+        }
+
+        depositWeight = CalculateDepositWeight(terrainSurface, surfacePosition, height, profile);
+        var slopeWeight = 1.0f - Mathf.SmoothStep(
+            profile.MaximumSlopeDegrees * 0.45f, profile.MaximumSlopeDegrees, slopeDegrees);
+        var chance = Mathf.Lerp(
+            profile.MinimumPlacementChance, profile.MaximumPlacementChance, depositWeight * slopeWeight);
+        // A low-frequency coherent mask produces talus patches and bare ground rather than an
+        // evenly peppered surface. In mountain terrain those patches are loose slope-foot scree.
+        chance *= ClusterWeight(surfacePosition, profile);
+        chance = Mathf.Min(
+            chance * densityMultiplier,
+            densityMultiplier > 1.0f ? profile.MaximumDensePlacementChance : profile.MaximumPlacementChance);
+        if (!bypassPlacementChance && UnitRandom(seed + 2) > chance)
+        {
+            return false;
+        }
+
+        var scaleWeight = UnitRandom(seed + 3);
+        if (profile.UsesRockyMountainMaterial)
+        {
+            // Larger forms belong at terrain feet; small loose stones remain sparse on flatter
+            // ground. This keeps the mountain floor readable rather than carpeted.
+            scaleWeight = Mathf.Clamp(scaleWeight * 0.52f + depositWeight * 0.62f, 0.0f, 1.0f);
+        }
+
+        var baseScale = Mathf.Lerp(profile.MinimumRockScale, profile.MaximumRockScale, scaleWeight) * scaleMultiplier;
+        var scale = new Vector3(
+            baseScale * Mathf.Lerp(0.72f, 1.26f, UnitRandom(seed + 7)),
+            baseScale * Mathf.Lerp(0.78f, 1.18f, UnitRandom(seed + 8)),
+            baseScale * Mathf.Lerp(0.70f, 1.30f, UnitRandom(seed + 9)));
+        var yaw = UnitRandom(seed + 4) * Mathf.Tau;
+        var leanLimit = profile.UsesRockyMountainMaterial ? 6.0f : 4.0f;
+        var lean = Mathf.DegToRad(leanLimit);
+        var rotation = SurfaceAlignedBasis(normal, yaw) * Basis.FromEuler(new Vector3(
+            SignedRandom(seed + 10) * lean,
+            0.0f,
+            SignedRandom(seed + 11) * lean));
+        var maxScale = Mathf.Max(scale.X, Mathf.Max(scale.Y, scale.Z));
+        surfacePosition.Y = height;
+        var rockPosition = surfacePosition - normal * RockGroundEmbed(maxScale);
+        var castsShadow = allowShadows &&
+            maxScale >= profile.ShadowMinimumScale &&
+            UnitRandom(seed + 6) < profile.ShadowChance;
+        placements.Add(new RockPlacement(
+            new Transform3D(rotation.Scaled(scale), rockPosition),
+            surfacePosition,
+            normal,
+            CreateRockColor(surfacePosition, depositWeight, profile, seed),
+            CreateGroundBlendColor(surfacePosition, depositWeight, profile, seed),
+            SelectShapeIndex(seed + 5, profile),
+            castsShadow));
+        return true;
+    }
+
+    private static float CalculateDepositWeight(
+        TerrainSurfaceIndex terrainSurface,
+        Vector3 position,
+        float height,
+        ScatterProfile profile)
     {
         var highestNearbyHeight = height;
         var totalNearbyHeight = 0.0f;
         var sampleCount = 0;
         foreach (var direction in HillProbeDirections)
         {
-            var probe = position + new Vector3(direction.X, 0.0f, direction.Y) * HillProbeDistanceMetres;
+            var probe = position + new Vector3(direction.X, 0.0f, direction.Y) * profile.HillProbeDistanceMetres;
             if (!terrainSurface.TryGetHeight(probe, out var probeHeight))
             {
                 continue;
@@ -400,48 +578,61 @@ public sealed partial class TerrainRockScatter : Node3D
             return 0.0f;
         }
 
-        var hillFoot = Mathf.SmoothStep(0.75f, 7.0f, highestNearbyHeight - height);
-        var basin = Mathf.SmoothStep(0.15f, 2.0f, totalNearbyHeight / sampleCount - height);
-        return Mathf.Clamp(hillFoot * 0.78f + basin * 0.22f, 0.0f, 1.0f);
+        var hillFoot = Mathf.SmoothStep(
+            profile.HillFootStartMetres, profile.HillFootEndMetres, highestNearbyHeight - height);
+        var basin = Mathf.SmoothStep(
+            profile.BasinStartMetres, profile.BasinEndMetres, totalNearbyHeight / sampleCount - height);
+        return Mathf.Clamp(hillFoot * profile.HillFootWeight + basin * profile.BasinWeight, 0.0f, 1.0f);
     }
 
-    private static StandardMaterial3D CreateRockMaterial() => new()
+    private static StandardMaterial3D CreateRockMaterial(ScatterProfile profile) => new()
     {
         AlbedoTexture = GD.Load<Texture2D>("res://Assets/Props/Rocks/rock_color.jpg"),
-        AlbedoColor = new Color(1.28f, 1.20f, 1.08f),
+        AlbedoColor = profile.UsesRockyMountainMaterial
+            ? new Color(0.95f, 0.98f, 1.02f)
+            : new Color(1.28f, 1.20f, 1.08f),
         NormalTexture = GD.Load<Texture2D>("res://Assets/Props/Rocks/rock_normal.jpg"),
         NormalScale = 0.42f,
         RoughnessTexture = GD.Load<Texture2D>("res://Assets/Props/Rocks/rock_roughness.jpg"),
         Roughness = 0.92f,
         Metallic = 0.0f,
-        // Desert rock in a bright 3pm sky retains a warm fill even when it faces away from the sun.
-        // This is deliberately subtle: it softens the black side without making the rock unlit.
+        VertexColorUseAsAlbedo = true,
+        // The small emission lift keeps the unshadowed MultiMesh layer grounded without letting
+        // it flatten the selectively shadowed mountain outcrops.
         EmissionEnabled = true,
-        Emission = new Color(0.24f, 0.18f, 0.11f),
-        EmissionEnergyMultiplier = 0.32f,
+        Emission = profile.UsesRockyMountainMaterial
+            ? new Color(0.12f, 0.14f, 0.17f)
+            : new Color(0.24f, 0.18f, 0.11f),
+        EmissionEnergyMultiplier = profile.UsesRockyMountainMaterial ? 0.16f : 0.32f,
         TextureFilter = BaseMaterial3D.TextureFilterEnum.LinearWithMipmapsAnisotropic,
         ShadingMode = BaseMaterial3D.ShadingModeEnum.PerVertex,
         CullMode = BaseMaterial3D.CullModeEnum.Back
     };
 
-    private static StandardMaterial3D CreateDenseRockMaterial()
+    private static StandardMaterial3D CreateDenseRockMaterial(ScatterProfile profile)
     {
         // Pixel distance fade also culls the layer as the camera gets close. Streaming already
         // keeps construction well beyond the player, so retain opaque near-field rocks instead.
-        return CreateRockMaterial();
+        return CreateRockMaterial(profile);
     }
 
-    private static ArrayMesh CreateContactShadowMesh()
+    private static ArrayMesh CreateContactShadowMesh() => CreateRadialDecalMesh(10, 0.72f);
+
+    private static ArrayMesh CreateGroundBlendMesh() => CreateRadialDecalMesh(12, 0.56f);
+
+    private static ArrayMesh CreateRadialDecalMesh(int segments, float centreAlpha)
     {
-        const int segments = 10;
         var tool = new SurfaceTool();
         tool.Begin(Mesh.PrimitiveType.Triangles);
         for (var index = 0; index < segments; index++)
         {
             var start = Mathf.Tau * index / segments;
             var end = Mathf.Tau * (index + 1) / segments;
+            tool.SetColor(new Color(1.0f, 1.0f, 1.0f, centreAlpha));
             tool.AddVertex(Vector3.Zero);
+            tool.SetColor(new Color(1.0f, 1.0f, 1.0f, 0.0f));
             tool.AddVertex(new Vector3(Mathf.Cos(start), 0.0f, Mathf.Sin(start)));
+            tool.SetColor(new Color(1.0f, 1.0f, 1.0f, 0.0f));
             tool.AddVertex(new Vector3(Mathf.Cos(end), 0.0f, Mathf.Sin(end)));
         }
 
@@ -454,28 +645,113 @@ public sealed partial class TerrainRockScatter : Node3D
         return mesh;
     }
 
-    private static StandardMaterial3D CreateContactShadowMaterial() => new()
+    private static StandardMaterial3D CreateContactShadowMaterial(ScatterProfile profile) => new()
     {
-        AlbedoColor = new Color(0.035f, 0.025f, 0.015f, 0.18f),
+        AlbedoColor = profile.UsesRockyMountainMaterial
+            ? new Color(0.018f, 0.022f, 0.030f, 0.16f)
+            : new Color(0.035f, 0.025f, 0.015f, 0.18f),
         Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
         ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+        VertexColorUseAsAlbedo = true,
         CullMode = BaseMaterial3D.CullModeEnum.Disabled,
         TextureFilter = BaseMaterial3D.TextureFilterEnum.Nearest
     };
 
-    private static int SelectShapeIndex(int seed)
+    private static StandardMaterial3D CreateGroundBlendMaterial(ScatterProfile profile) => new()
     {
-        var value = UnitRandom(seed);
-        return value < 0.42f ? 0 : value < 0.75f ? 1 : 2;
+        AlbedoColor = new Color(1.0f, 1.0f, 1.0f, 1.0f),
+        Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
+        ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+        VertexColorUseAsAlbedo = true,
+        CullMode = BaseMaterial3D.CullModeEnum.Disabled,
+        TextureFilter = BaseMaterial3D.TextureFilterEnum.Nearest,
+        RenderPriority = -1
+    };
+
+    private static Color CreateRockColor(
+        Vector3 position,
+        float depositWeight,
+        ScatterProfile profile,
+        int seed)
+    {
+        // Two low-frequency masks avoid noisy per-instance confetti while still allowing talus
+        // at a cliff foot to inherit a slightly different tone from exposed rock higher up.
+        var localVariation = (ValueNoise(position.X * 0.018f, position.Z * 0.018f) - 0.5f) * 0.13f +
+            SignedRandom(seed + 19) * 0.026f;
+        if (profile.UsesRockyMountainMaterial)
+        {
+            return new Color(
+                0.91f + localVariation + depositWeight * 0.055f,
+                0.93f + localVariation * 0.80f + depositWeight * 0.025f,
+                0.95f + localVariation * 0.62f,
+                1.0f);
+        }
+
+        return new Color(
+            0.94f + localVariation + depositWeight * 0.070f,
+            0.89f + localVariation * 0.72f + depositWeight * 0.046f,
+            0.79f + localVariation * 0.45f + depositWeight * 0.025f,
+            1.0f);
     }
 
-    private static float ClusterWeight(Vector3 position)
+    private static Color CreateGroundBlendColor(
+        Vector3 position,
+        float depositWeight,
+        ScatterProfile profile,
+        int seed)
+    {
+        var localVariation = (ValueNoise(position.X * 0.011f + 41.7f, position.Z * 0.011f - 23.4f) - 0.5f) * 0.08f +
+            SignedRandom(seed + 23) * 0.018f;
+        if (profile.UsesRockyMountainMaterial)
+        {
+            return new Color(
+                0.29f + localVariation + depositWeight * 0.045f,
+                0.25f + localVariation * 0.82f + depositWeight * 0.030f,
+                0.21f + localVariation * 0.60f,
+                0.075f + depositWeight * 0.040f);
+        }
+
+        return new Color(
+            0.62f + localVariation + depositWeight * 0.045f,
+            0.47f + localVariation * 0.80f + depositWeight * 0.035f,
+            0.28f + localVariation * 0.55f,
+            0.070f + depositWeight * 0.035f);
+    }
+
+    private static Basis SurfaceAlignedBasis(Vector3 surfaceNormal, float yaw)
+    {
+        var up = surfaceNormal.Normalized();
+        var reference = Mathf.Abs(up.Dot(Vector3.Forward)) > 0.94f ? Vector3.Right : Vector3.Forward;
+        var right = up.Cross(reference).Normalized();
+        var forward = right.Cross(up).Normalized();
+        return new Basis(right, up, forward) * Basis.FromEuler(new Vector3(0.0f, yaw, 0.0f));
+    }
+
+    private static int SelectShapeIndex(int seed, ScatterProfile profile)
+    {
+        var value = UnitRandom(seed);
+        if (profile.UsesRockyMountainMaterial)
+        {
+            // Taller, broken forms lead rocky deposits, while every source model remains present.
+            return value < 0.13f ? 0 : value < 0.27f ? 1 : value < 0.40f ? 2 :
+                value < 0.63f ? 3 : value < 0.78f ? 4 : 5;
+        }
+
+        return value < 0.20f ? 0 : value < 0.38f ? 1 : value < 0.55f ? 2 :
+            value < 0.70f ? 3 : value < 0.85f ? 4 : 5;
+    }
+
+    private static float ClusterWeight(Vector3 position, ScatterProfile profile)
     {
         var broad = ValueNoise(position.X * 0.015f, position.Z * 0.015f);
         var detail = ValueNoise(position.X * 0.050f + 17.3f, position.Z * 0.050f - 9.1f);
         var cluster = broad * 0.84f + detail * 0.16f;
-        // Most ground is bare; only the highest coherent regions become talus-like deposits.
-        return Mathf.Lerp(0.0f, 3.8f, Mathf.SmoothStep(0.62f, 0.80f, cluster));
+        // Most ground is bare; mountain terrain retains a tiny loose-stone baseline while only
+        // the highest coherent regions become talus-like deposits.
+        return Mathf.Lerp(
+            profile.MinimumClusterWeight,
+            profile.ClusterMultiplier,
+            Mathf.SmoothStep(profile.ClusterStart, profile.ClusterEnd, cluster));
     }
 
     private static float ValueNoise(float x, float z)

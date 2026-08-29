@@ -1,10 +1,13 @@
-# Desert rock runtime assets
+# Terrain rock runtime assets
 
 `rock_00.obj` through `rock_05.obj` are generated, Quest-scale meshes. They contain 48–108
 triangles each, are normalised to one metre across, use a shared material, and are intended only
-for visual MultiMesh scatter. The runtime currently uses the three most distinct forms for this
-dense near-ground layer; the remainder are retained for occasional larger landmark rocks. None
-must receive collision bodies or shadows.
+for visual MultiMesh scatter. The runtime uses all six forms: Wolf's desert profile produces
+wind-deposited stone patches, while Jade Falcon's mountain profile favours larger talus and
+outcrop clusters at slope feet and basin edges. They do not receive collision bodies. Small forms
+use inexpensive, surface-aligned contact-shadow cards and terrain-tinted ground skirts; selected
+large, nearby rocks may cast directional shadows. Deterministic colour, scale, lean, jitter and
+occasional companion stones keep the shared source material from producing repeated-looking rows.
 
 They were derived from the user's external `highpoly-rocks-free-download.zip`, which is not copied
 into this repository. Regenerate them with:

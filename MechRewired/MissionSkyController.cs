@@ -33,9 +33,20 @@ public sealed class MissionSkyController
     private const float DefaultCloudCoverage = 0.40f;
     private const float DefaultCloudDensity = 1.00f;
     private const float DefaultCloudHeight = 1.8f;
+    private const float WarmMountainCloudCoverage = 0.16f;
+    private const float WarmMountainCloudDensity = 0.52f;
+    private const float WarmMountainCloudHeight = 2.4f;
     private const float DefaultFogStartFraction = 0.35f;
-    private const float DefaultFogAerialPerspective = 1.0f;
-    private const float DefaultFogSunScatter = 0.15f;
+    private const float DesertFogAerialPerspective = 0.72f;
+    private const float DesertFogSunScatter = 0.09f;
+    private const float WarmMountainFogMultiplier = 1.35f;
+    private const float WarmMountainFogStartFraction = 0.20f;
+    private const float WarmMountainFogAerialPerspective = 0.32f;
+    private const float WarmMountainFogSunScatter = 0.055f;
+    private const float DesertGodRayStrength = 0.006f;
+    private const int DesertGodRaySamples = 18;
+    private const float WarmMountainGodRayStrength = 0.018f;
+    private const int WarmMountainGodRaySamples = 24;
     private const float DefaultSsaoRadius = 1.35f;
     private const float DefaultSsaoIntensity = 1.35f;
     private const float DefaultSsaoDetail = 0.35f;
@@ -122,10 +133,10 @@ public sealed class MissionSkyController
 
     /// <summary>
     /// Enables the near-field volumetric buffer used by localized effects such as
-    /// windblown sand.  The scene deliberately keeps the global density at zero:
+    /// windblown sand or valley haze. The scene deliberately keeps the global density at zero:
     /// only authored <see cref="FogVolume"/> nodes contribute visible volume.
     /// </summary>
-    public bool EnableLocalizedVolumetricFog()
+    public bool EnableLocalizedVolumetricFog(float visibleDistance = 160.0f)
     {
         if (!string.Equals(
                 RenderingServer.GetCurrentRenderingMethod().ToString(),
@@ -134,13 +145,13 @@ public sealed class MissionSkyController
         {
             GD.Print(
                 "MechRewired: localized volumetric fog is unavailable outside the Forward+ renderer; " +
-                "skipping windblown sand.");
+                "skipping localized atmospheric effects.");
             return false;
         }
 
         m_environment.VolumetricFogEnabled = true;
         m_environment.VolumetricFogDensity = 0.0f;
-        m_environment.VolumetricFogLength = 160.0f;
+        m_environment.VolumetricFogLength = Mathf.Clamp(visibleDistance, 80.0f, 400.0f);
         m_environment.VolumetricFogDetailSpread = 1.8f;
         // Sand and future projectile lights move too quickly for history blending.
         m_environment.VolumetricFogTemporalReprojectionEnabled = false;
@@ -279,6 +290,15 @@ public sealed class MissionSkyController
     }
 
     /// <summary>
+    /// Controls the restrained, depth-occluded shafts mixed into the sun flare.
+    /// </summary>
+    public float SunGodRayStrength
+    {
+        get => m_sunLensFlare.GodRayStrength;
+        set => m_sunLensFlare.GodRayStrength = value;
+    }
+
+    /// <summary>
     /// Applies a named visual baseline without changing the mission itself.  They deliberately
     /// cover only the sky/time axis: gameplay and camera remain exactly as the tester arranged
     /// them, making captures useful both at initial deployment and during a live mission.
@@ -312,7 +332,8 @@ public sealed class MissionSkyController
         $"cirrus coverage {CloudCoverage:F2}, density {CloudDensity:F2}, scale {CloudHeight:F2}; " +
         $"sun azimuth offset {SunAzimuthOffsetDegrees:F1} degrees; shadow distance " +
         $"{SunShadowDistance:F0}m, opacity {SunShadowOpacity:F2}, angular distance " +
-        $"{m_sunLight.LightAngularDistance:F2} degrees; flare {SunLensFlareIntensity:F2}; " +
+        $"{m_sunLight.LightAngularDistance:F2} degrees; flare {SunLensFlareIntensity:F2}, " +
+        $"god rays {SunGodRayStrength:F3}; " +
         $"exposure {Exposure:F2}.";
 
     private void ApplyProfile()
@@ -331,10 +352,10 @@ public sealed class MissionSkyController
         var usesWarmAtmosphere = m_profile.UsesWarmPaletteAtmosphere;
         var usesRockyMountainTerrain = m_profile.TerrainBiome == MechWarriorTerrainBiome.RockyMountain;
         var ambientEnergy = DefaultAmbientLightEnergy +
-                            m_profile.AuthoredAmbientLevel * (usesRockyMountainTerrain ? 0.24f : 0.10f);
+                            m_profile.AuthoredAmbientLevel * (usesRockyMountainTerrain ? 0.30f : 0.10f);
         m_sky3D.Set(
             "sky_contribution",
-            usesRockyMountainTerrain ? 0.31f : DefaultSkyFillLightEnergy);
+            usesRockyMountainTerrain ? 0.36f : DefaultSkyFillLightEnergy);
         m_sky3D.Set("ambient_energy", ambientEnergy);
         m_sky3D.Set(
             "sun_energy",
@@ -371,12 +392,16 @@ public sealed class MissionSkyController
         m_skyDome.Set("atm_thickness", m_profile.UsesWarmPaletteAtmosphere ? 0.62f : 0.9f);
         m_skyDome.Set("atm_mie", m_profile.UsesWarmPaletteAtmosphere ? 0.11f : 0.055f);
         m_skyDome.Set("atm_turbidity", m_profile.UsesWarmPaletteAtmosphere ? 0.0035f : 0.0015f);
-        m_skyDome.Set("cirrus_visible", !m_profile.UsesWarmPaletteAtmosphere);
+        m_skyDome.Set("cirrus_visible", true);
         m_skyDome.Set(
             "cirrus_coverage",
-            m_profile.UsesWarmPaletteAtmosphere ? 0.0f : DefaultCloudCoverage);
-        m_skyDome.Set("cirrus_intensity", DefaultCloudDensity);
-        m_skyDome.Set("cirrus_size", DefaultCloudHeight);
+            m_profile.UsesWarmPaletteAtmosphere ? WarmMountainCloudCoverage : DefaultCloudCoverage);
+        m_skyDome.Set(
+            "cirrus_intensity",
+            m_profile.UsesWarmPaletteAtmosphere ? WarmMountainCloudDensity : DefaultCloudDensity);
+        m_skyDome.Set(
+            "cirrus_size",
+            m_profile.UsesWarmPaletteAtmosphere ? WarmMountainCloudHeight : DefaultCloudHeight);
         m_skyDome.Set("cumulus_visible", false);
         m_skyDome.Set("wind_speed", 0.8f);
 
@@ -398,17 +423,31 @@ public sealed class MissionSkyController
         // extinction colour from both ends of the authored sky gradient instead. The level data
         // still determines the hue and depth-cue distance without forcing geometry to become sky.
         var rockyFogColor = m_profile.SkyTopColor
-            .Lerp(m_profile.HorizonColor, 0.16f)
-            .Lerp(Colors.Black, 0.28f);
+            .Lerp(m_profile.HorizonColor, 0.20f)
+            .Lerp(Colors.Black, 0.14f);
         m_environment.FogLightColor = usesRockyMountainTerrain
             ? rockyFogColor
             : m_profile.HorizonColor;
-        m_environment.FogLightEnergy = usesRockyMountainTerrain ? 0.85f : 1.0f;
+        m_environment.FogLightEnergy = usesRockyMountainTerrain ? 0.78f : 0.84f;
         m_environment.FogDensity = 1.0f;
         m_environment.FogDepthCurve = 1.0f;
         m_environment.FogSkyAffect = 0.0f;
-        FogAerialPerspective = usesRockyMountainTerrain ? 0.05f : DefaultFogAerialPerspective;
-        FogSunScatter = usesRockyMountainTerrain ? 0.01f : DefaultFogSunScatter;
+        m_fogMultiplier = usesRockyMountainTerrain ? WarmMountainFogMultiplier : 1.0f;
+        m_fogStartFraction = usesRockyMountainTerrain
+            ? WarmMountainFogStartFraction
+            : DefaultFogStartFraction;
+        FogAerialPerspective = usesRockyMountainTerrain
+            ? WarmMountainFogAerialPerspective
+            : DesertFogAerialPerspective;
+        FogSunScatter = usesRockyMountainTerrain
+            ? WarmMountainFogSunScatter
+            : DesertFogSunScatter;
+        SunGodRayStrength = usesRockyMountainTerrain
+            ? WarmMountainGodRayStrength
+            : DesertGodRayStrength;
+        m_sunLensFlare.GodRaySampleCount = usesRockyMountainTerrain
+            ? WarmMountainGodRaySamples
+            : DesertGodRaySamples;
 
         TimeOfDay = m_profile.TimeOfDay;
         ConfigureSunShadows();
