@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://bw8jticfr6dl8"
+path="res://.godot/imported/lens_flares.glsl-5de502a9c3176c8d528a90fea62b4581.res"
+
+[deps]
+
+source_file="res://addons/lens_effects/lens_flares.glsl"
+dest_files=["res://.godot/imported/lens_flares.glsl-5de502a9c3176c8d528a90fea62b4581.res"]
+
+[params]
+

@@ -674,6 +674,11 @@ public partial class Main : Node3D
             "Offsets the INIT-derived sun direction in degrees for visual tuning.");
         m_debugConsole.Call(
             "add_cvar",
+            "sky.sun.flare",
+            sky.SunLensFlareIntensity,
+            "Sets the uncapped sun lens-flare multiplier (default 3).");
+        m_debugConsole.Call(
+            "add_cvar",
             "sky.shadow.distance",
             sky.SunShadowDistance,
             "Sets the directional-sun shadow coverage distance in metres.");
@@ -905,6 +910,11 @@ public partial class Main : Node3D
                  m_debugSky != null)
         {
             m_debugSky.SunAzimuthOffsetDegrees = numericValue;
+        }
+        else if (string.Equals(name, "sky.sun.flare", StringComparison.OrdinalIgnoreCase) &&
+                 m_debugSky != null)
+        {
+            m_debugSky.SunLensFlareIntensity = numericValue;
         }
         else if (string.Equals(name, "sky.shadow.distance", StringComparison.OrdinalIgnoreCase) &&
                  m_debugSky != null)

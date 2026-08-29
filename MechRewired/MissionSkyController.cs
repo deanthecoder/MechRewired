@@ -46,6 +46,7 @@ public sealed class MissionSkyController
     private readonly Node m_sky3D;
     private readonly Node m_skyDome;
     private readonly DirectionalLight3D m_sunLight;
+    private readonly SunLensFlare m_sunLensFlare;
     private readonly Godot.Environment m_environment;
     private readonly MissionSkyProfile m_profile;
     private float m_time;
@@ -57,12 +58,14 @@ public sealed class MissionSkyController
         Node sky3D,
         Node skyDome,
         DirectionalLight3D sunLight,
+        SunLensFlare sunLensFlare,
         Godot.Environment environment,
         MissionSkyProfile profile)
     {
         m_sky3D = sky3D;
         m_skyDome = skyDome;
         m_sunLight = sunLight;
+        m_sunLensFlare = sunLensFlare;
         m_environment = environment;
         m_profile = profile;
         m_time = profile.TimeOfDay;
@@ -75,7 +78,7 @@ public sealed class MissionSkyController
     {
         var skyScript = GD.Load<Script>(Sky3DScriptPath) ??
                         throw new InvalidOperationException($"Sky3D script is missing at {Sky3DScriptPath}.");
-        var sky3D = skyScript.Call("new").As<Node>() ??
+        var sky3D = skyScript.Call("new").As<WorldEnvironment>() ??
                     throw new InvalidOperationException("Sky3D did not create a Godot node.");
         sky3D.Name = "MissionSky";
         owner.AddChild(sky3D);
@@ -86,7 +89,15 @@ public sealed class MissionSkyController
                        throw new InvalidOperationException("Sky3D did not create its directional sunlight.");
         var environment = sky3D.Get("environment").As<Godot.Environment>() ??
                           throw new InvalidOperationException("Sky3D created no usable Godot environment.");
-        var controller = new MissionSkyController(sky3D, skyDome, sunLight, environment, profile);
+        var sunLensFlare = new SunLensFlare(sky3D, sunLight, profile.SunColor);
+        owner.AddChild(sunLensFlare);
+        var controller = new MissionSkyController(
+            sky3D,
+            skyDome,
+            sunLight,
+            sunLensFlare,
+            environment,
+            profile);
         controller.ApplyProfile();
         // SkyDome is created dynamically and initially disables its own processing in _ready.
         // Re-enable its normal-process cloud drift after that setup has completed.
@@ -259,6 +270,15 @@ public sealed class MissionSkyController
     }
 
     /// <summary>
+    /// Controls the strength of the compositor flare around an unobstructed sun.
+    /// </summary>
+    public float SunLensFlareIntensity
+    {
+        get => m_sunLensFlare.Intensity;
+        set => m_sunLensFlare.Intensity = value;
+    }
+
+    /// <summary>
     /// Applies a named visual baseline without changing the mission itself.  They deliberately
     /// cover only the sky/time axis: gameplay and camera remain exactly as the tester arranged
     /// them, making captures useful both at initial deployment and during a live mission.
@@ -292,7 +312,8 @@ public sealed class MissionSkyController
         $"cirrus coverage {CloudCoverage:F2}, density {CloudDensity:F2}, scale {CloudHeight:F2}; " +
         $"sun azimuth offset {SunAzimuthOffsetDegrees:F1} degrees; shadow distance " +
         $"{SunShadowDistance:F0}m, opacity {SunShadowOpacity:F2}, angular distance " +
-        $"{m_sunLight.LightAngularDistance:F2} degrees; exposure {Exposure:F2}.";
+        $"{m_sunLight.LightAngularDistance:F2} degrees; flare {SunLensFlareIntensity:F2}; " +
+        $"exposure {Exposure:F2}.";
 
     private void ApplyProfile()
     {
