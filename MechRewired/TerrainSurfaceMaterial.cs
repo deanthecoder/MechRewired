@@ -43,6 +43,11 @@ public static class TerrainSurfaceMaterial
     public const float MountainMacroReliefMetres = 1.15f;
     public const float RockSlopeStartDegrees = 12.0f;
     public const float RockSlopeEndDegrees = 38.0f;
+    // Fine photographed texture is important underfoot, but it reads as noisy repeated cracks
+    // across the far floor. Keep the near field unchanged, then hand visual weight to the
+    // material's existing broad projections over a deliberately long, ring-free transition.
+    public const float DistanceDetailFadeStartMetres = 82.0f;
+    public const float DistanceDetailFadeEndMetres = 260.0f;
     public static readonly Color DesertBaseColor = new("9c8b6e");
 
     private const string SandColorPath =
@@ -124,6 +129,8 @@ public static class TerrainSurfaceMaterial
         };
         material.SetShaderParameter("albedo_tint", albedoTint ?? DesertBaseColor);
         material.SetShaderParameter("normal_strength", NormalStrength);
+        material.SetShaderParameter("distance_detail_fade_start", DistanceDetailFadeStartMetres);
+        material.SetShaderParameter("distance_detail_fade_end", DistanceDetailFadeEndMetres);
         if (!useDesertDetails)
         {
             material.SetShaderParameter(
@@ -263,6 +270,8 @@ public static class TerrainSurfaceMaterial
         uniform float macro_normal_blend = 0.20;
         uniform float macro_variation_strength = 0.065;
         uniform float upward_lighting_compensation = 0.12;
+        uniform float distance_detail_fade_start = 82.0;
+        uniform float distance_detail_fade_end = 260.0;
 
         varying vec3 world_position;
         varying vec3 world_geometric_normal;
@@ -347,6 +356,10 @@ public static class TerrainSurfaceMaterial
         void fragment() {
             vec3 geometric_normal = normalize(world_geometric_normal);
             vec3 weights = triplanar_weights(geometric_normal);
+            float distance_detail_fade = smoothstep(
+                distance_detail_fade_start,
+                distance_detail_fade_end,
+                distance(CAMERA_POSITION_WORLD, world_position));
             vec3 ground_primary_position = world_position * ground_primary_texture_scale;
             vec3 ground_secondary_position = world_position * ground_secondary_texture_scale;
             vec3 mountain_primary_position = world_position * mountain_primary_texture_scale;
@@ -460,7 +473,15 @@ public static class TerrainSurfaceMaterial
             // Keep the photographed surfaces primary. A little desaturation suppresses isolated
             // terrestrial leaves and moss, while the normalized mission palette shifts hue
             // without replacing texture brightness or baking the old software lighting into PBR.
-            vec3 textured_albedo = mix(surface, macro_surface, mix(0.14, 0.20, rock_blend));
+            // Near the cockpit the photographed rock remains primary. At distance, the same
+            // material projected at formation scale replaces its busy tile detail, keeping the
+            // large geological colour bands readable without a visible fade boundary.
+            float near_macro_surface_blend = mix(0.14, 0.20, rock_blend);
+            float far_macro_surface_blend = mix(0.48, 0.62, rock_blend);
+            vec3 textured_albedo = mix(
+                surface,
+                macro_surface,
+                mix(near_macro_surface_blend, far_macro_surface_blend, distance_detail_fade));
             textured_albedo = mix(
                 textured_albedo,
                 vec3(luminance(textured_albedo)),
@@ -524,10 +545,14 @@ public static class TerrainSurfaceMaterial
                 ground_macro_world_normal,
                 mountain_macro_world_normal,
                 rock_blend));
+            float distance_macro_normal_blend = mix(
+                macro_normal_blend,
+                0.64,
+                distance_detail_fade);
             detail_world_normal = normalize(mix(
                 detail_world_normal,
                 macro_world_normal,
-                macro_normal_blend));
+                distance_macro_normal_blend));
             if (ground_transition_blend > 0.0001) {
                 vec3 floor_weights = vec3(0.0, 1.0, 0.0);
                 vec3 floor_primary_world_normal = sample_triplanar_normal(
@@ -549,6 +574,12 @@ public static class TerrainSurfaceMaterial
                     floor_world_normal,
                     ground_transition_blend));
             }
+            // Preserve formation-scale relief while reducing the high-frequency shimmer that
+            // makes far cliff faces look like a repeated normal map.
+            detail_world_normal = normalize(mix(
+                detail_world_normal,
+                geometric_normal,
+                distance_detail_fade * 0.34));
             NORMAL = normalize((VIEW_MATRIX * vec4(detail_world_normal, 0.0)).xyz);
 
             float ground_primary_surface_roughness = sample_triplanar(
@@ -579,6 +610,18 @@ public static class TerrainSurfaceMaterial
                 ground_surface_roughness,
                 mountain_surface_roughness,
                 rock_blend);
+            float ground_macro_roughness = sample_triplanar(
+                ground_primary_roughness,
+                ground_macro_position,
+                weights).r;
+            float mountain_macro_roughness = sample_triplanar(
+                mountain_primary_roughness,
+                mountain_macro_position,
+                weights).r;
+            float macro_surface_roughness = mix(
+                ground_macro_roughness,
+                mountain_macro_roughness,
+                rock_blend);
             if (ground_transition_blend > 0.0001) {
                 vec3 floor_weights = vec3(0.0, 1.0, 0.0);
                 float floor_primary_roughness = sample_triplanar(
@@ -598,8 +641,11 @@ public static class TerrainSurfaceMaterial
                     floor_roughness,
                     ground_transition_blend);
             }
+            float macro_roughness_variation =
+                (broad - 0.5) * 0.050 + (medium - 0.5) * 0.018;
+            float distance_roughness = macro_surface_roughness + macro_roughness_variation;
             ROUGHNESS = clamp(
-                surface_roughness,
+                mix(surface_roughness, distance_roughness, distance_detail_fade * 0.52),
                 0.78,
                 0.95);
             SPECULAR = 0.20;
@@ -650,6 +696,8 @@ public static class TerrainSurfaceMaterial
         uniform float macro_variation_strength = 0.07;
         uniform float slope_blend_start = 0.021852;
         uniform float slope_blend_end = 0.211989;
+        uniform float distance_detail_fade_start = 82.0;
+        uniform float distance_detail_fade_end = 260.0;
 
         varying vec3 world_position;
         varying vec3 world_geometric_normal;
@@ -846,6 +894,10 @@ public static class TerrainSurfaceMaterial
             vec3 sample_position = world_position * texture_scale;
             vec3 stone_sample_position = sample_position * stone_texture_scale;
             vec3 world_view = normalize(CAMERA_POSITION_WORLD - world_position);
+            float distance_detail_fade = smoothstep(
+                distance_detail_fade_start,
+                distance_detail_fade_end,
+                distance(CAMERA_POSITION_WORLD, world_position));
             float parallax_distance_fade = 1.0 - smoothstep(
                 80.0,
                 140.0,
@@ -950,12 +1002,24 @@ public static class TerrainSurfaceMaterial
             vec3 broad_color = mix(flat_broad_color, broad_rock, rock_blend);
 
             float macro = value_noise(world_position.xz * 0.006);
-            float macro_multiplier = 1.0 + (macro - 0.5) * 2.0 * macro_variation_strength;
+            float distance_macro_variation_strength = mix(
+                macro_variation_strength,
+                macro_variation_strength * 1.55,
+                distance_detail_fade);
+            float macro_multiplier = 1.0 + (macro - 0.5) * 2.0 *
+                distance_macro_variation_strength;
             // Use the photographed material as albedo, including its hardpan and charcoal-stone
             // colour relationships. The broad mip remains a stable distance-scale base while the
             // live detail control chooses how much fine texture survives. The old palette now
             // supplies only a normalized biome grade; coloured sun and sky perform illumination.
-            vec3 textured_albedo = mix(broad_color, surface_color, detail_strength);
+            float distance_detail_strength = mix(
+                detail_strength,
+                detail_strength * 0.30,
+                distance_detail_fade);
+            vec3 textured_albedo = mix(
+                broad_color,
+                surface_color,
+                distance_detail_strength);
             textured_albedo = mix(vec3(luminance(textured_albedo)), textured_albedo, 0.92);
             textured_albedo *= mix(vec3(1.0), palette_grade(albedo_tint.rgb), 0.16);
             ALBEDO = clamp(
@@ -995,6 +1059,13 @@ public static class TerrainSurfaceMaterial
                 flat_world_normal,
                 rock_world_normal,
                 rock_blend));
+            // The low mips already preserve broad dune and hardpan form. Relax the remaining
+            // fine normal texture toward the smoothed terrain normal at range so cracks do not
+            // keep reading as deep, full-size grooves across the horizon.
+            detail_world_normal = normalize(mix(
+                detail_world_normal,
+                geometric_normal,
+                distance_detail_fade * 0.76));
             NORMAL = normalize((VIEW_MATRIX * vec4(detail_world_normal, 0.0)).xyz);
 
             float sand_surface_roughness = sample_triplanar_auto(
@@ -1029,10 +1100,20 @@ public static class TerrainSurfaceMaterial
                 flat_surface_roughness,
                 stone_surface_roughness,
                 stone_patch);
-            ROUGHNESS = mix(
+            float detailed_roughness = mix(
                 0.90,
                 mix(flat_surface_roughness, rock_surface_roughness, rock_blend),
                 0.135);
+            float macro_roughness = 0.90 + (macro - 0.5) * 0.085;
+            // Dune fields read a touch softer and exposed hardpan a touch harsher from afar;
+            // the effect is deliberately small so this remains material variation, not bands.
+            macro_roughness += (hardpan_patch - dune_patch) * 0.025;
+            ROUGHNESS = clamp(mix(
+                detailed_roughness,
+                macro_roughness,
+                distance_detail_fade * 0.58),
+                0.82,
+                0.98);
             METALLIC = 0.0;
             if (debug_wireframe > 0.5) {
                 ALBEDO = vec3(0.20, 1.0, 1.0);
