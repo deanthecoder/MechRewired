@@ -1334,6 +1334,7 @@ public partial class Main : Node3D
             Node3D RootRepresentation,
             IReadOnlyList<MechWarriorModel> Models)>();
         var staticSceneryObstacles = new List<SceneryObstacle>();
+        var staticObstacleIndicesByObject = new Dictionary<(string SourcePath, int ObjectId), int>();
         var collisionWallsByObject = new Dictionary<
             (string SourcePath, int ObjectId),
             IReadOnlyList<SceneryWallTriangle>>();
@@ -1459,6 +1460,7 @@ public partial class Main : Node3D
                 RotationDegrees = MechWarriorCoordinateSystem.ToGodotRotation(levelObject.Transform.RotationDegrees),
                 Scale = MechWarriorCoordinateSystem.ToGodotScale(levelObject.Transform.Scale)
             };
+            objectRoot.SetMeta("mechrewired_object_id", levelObject.Id);
             renderedRootsByObject[(levelObject.SourceEntry.Path, levelObject.Id)] = objectRoot;
             var isDestroyedRepresentation = false;
             BattlefieldActor battlefieldActor = null;
@@ -1549,6 +1551,8 @@ public partial class Main : Node3D
                     out var sceneryObstacle))
             {
                 staticSceneryObstacles.Add(sceneryObstacle);
+                staticObstacleIndicesByObject[(levelObject.SourceEntry.Path, levelObject.Id)] =
+                    staticSceneryObstacles.Count - 1;
             }
 
             if (!isDestroyedRepresentation)
@@ -1696,6 +1700,18 @@ public partial class Main : Node3D
             renderedRootsByObject,
             debugTriangles,
             terrainSurface,
+            runtimeContent);
+        LoadAuthoredWorldPaths(
+            archive,
+            level,
+            levelRoot,
+            battlefieldActors,
+            actorComponents,
+            renderedRootsByObject,
+            debugTriangles,
+            staticSceneryObstacles,
+            staticObstacleIndicesByObject,
+            collisionWallsByObject,
             runtimeContent);
         var instantiatedEffects = LoadAmbientEffects(
             archive,
@@ -2789,6 +2805,292 @@ public partial class Main : Node3D
         return hostileAircraft.AsReadOnly();
     }
 
+    /// <summary>
+    /// Instantiates the archive's ordinary type-5 path tasks.  Recon aircraft and the dropship
+    /// remain specialised presentation systems because they add rotor and destruction behaviour
+    /// beyond the raw PTBL motion described here.
+    /// </summary>
+    private static void LoadAuthoredWorldPaths(
+        MechWarriorProjectArchive archive,
+        MechWarriorLevel level,
+        Node3D levelRoot,
+        IReadOnlyList<BattlefieldActor> actors,
+        IReadOnlyDictionary<(string SourcePath, int ObjectId), (BattlefieldActor Actor, bool Destroyed)> actorComponents,
+        IReadOnlyDictionary<(string SourcePath, int ObjectId), Node3D> renderedRootsByObject,
+        IList<DebugTriangle> sceneTriangles,
+        IList<SceneryObstacle> staticObstacles,
+        IDictionary<(string SourcePath, int ObjectId), int> staticObstacleIndicesByObject,
+        IReadOnlyDictionary<(string SourcePath, int ObjectId), IReadOnlyList<SceneryWallTriangle>> collisionWallsByObject,
+        MissionRuntimeContent runtimeContent)
+    {
+        var activatedCount = 0;
+        foreach (var source in level.Sources)
+        {
+            var sourceObjectsById = source.World.Objects.ToDictionary(worldObject => worldObject.Id);
+            foreach (var task in source.World.Tasks.Where(candidate => candidate.Type == 5))
+            {
+                if (!MechWarriorWorldPathTask.TryResolve(source.World, task, out var plan, out var error))
+                {
+                    runtimeContent.Report(
+                        MissionFidelityFindingKind.PartialSupport,
+                        source.Entry.Path,
+                        $"TSK {task.Command}",
+                        error);
+                    continue;
+                }
+
+                if (plan.Path.Name.Equals("recon", StringComparison.OrdinalIgnoreCase) ||
+                    plan.Path.Name.Equals("drop", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                // A path may target a movable component inside a larger, damageable assembly.
+                // Only an entity root owns the BattlefieldActor transform; moving an owning actor
+                // for one child component drags the entire building with it.
+                var actor = actors.FirstOrDefault(candidate =>
+                    candidate.Definition.SourceEntry.Path.Equals(source.Entry.Path, StringComparison.OrdinalIgnoreCase) &&
+                    candidate.Definition.ObjectId == plan.MotionObjectId);
+                var descendants = source.World.Objects
+                    .Where(worldObject => IsWorldObjectDescendant(
+                        worldObject,
+                        plan.MotionObjectId,
+                        sourceObjectsById))
+                    .ToArray();
+                var movedRoots = actor == null
+                    ? CreatePathRootsForStaticObjects(
+                        levelRoot,
+                        source.Entry.Path,
+                        descendants,
+                        renderedRootsByObject)
+                    : actor.Definition.Components
+                        .Select(componentObject => renderedRootsByObject.GetValueOrDefault(
+                            (componentObject.SourceEntry.Path, componentObject.Id)))
+                        .Where(root => root != null)
+                        .ToArray();
+                if (actor == null && movedRoots.Count == 0)
+                {
+                    runtimeContent.Report(
+                        MissionFidelityFindingKind.PartialSupport,
+                        source.Entry.Path,
+                        $"TSK {task.Command}",
+                        "The path target has neither rendered geometry nor a usable locator.");
+                    continue;
+                }
+
+                var parentTransform = Transform3D.Identity;
+                if (plan.MotionObject.RelativeToId >= 0 &&
+                    renderedRootsByObject.TryGetValue(
+                        (source.Entry.Path, plan.MotionObject.RelativeToId),
+                        out var parentRoot))
+                {
+                    parentTransform = parentRoot.GlobalTransform;
+                }
+
+                var isComponentOfStaticActor = actorComponents.ContainsKey(
+                    (source.Entry.Path, plan.MotionObjectId));
+                var obstacleSlots = actor == null && !isComponentOfStaticActor
+                    ? EnsureDynamicPathObstacles(
+                        source.Entry.Path,
+                        descendants,
+                        staticObstacles,
+                        staticObstacleIndicesByObject,
+                        collisionWallsByObject)
+                    : Array.Empty<int>();
+                var controller = new AuthoredWorldPathController(
+                    plan,
+                    source.Entry.Path,
+                    actor,
+                    movedRoots,
+                    parentTransform,
+                    sceneTriangles,
+                    staticObstacles,
+                    obstacleSlots);
+                levelRoot.AddChild(controller);
+                if (plan.Path.Name.Equals("pulshot", StringComparison.OrdinalIgnoreCase))
+                {
+                    AttachAuthoredPulseEffect(
+                        source.Entry.Path,
+                        plan,
+                        movedRoots,
+                        controller,
+                        runtimeContent);
+                }
+                AttachPathTaskSounds(archive, source, plan, descendants, controller, runtimeContent);
+                activatedCount++;
+            }
+        }
+
+        if (activatedCount > 0)
+        {
+            GD.Print($"MechRewired: activated {activatedCount} archive-authored type-5 path(s).");
+        }
+    }
+
+    private static void AttachAuthoredPulseEffect(
+        string sourcePath,
+        MechWarriorWorldPathTask plan,
+        IReadOnlyList<Node3D> movedRoots,
+        Node3D controller,
+        MissionRuntimeContent runtimeContent)
+    {
+        var pulseRoot = movedRoots.FirstOrDefault(root =>
+            root.GetMeta("mechrewired_object_id", -1).AsInt32() == plan.MotionObjectId);
+        var originalMesh = pulseRoot?.GetChildren()
+            .OfType<MeshInstance3D>()
+            .FirstOrDefault(instance => instance.Visible && instance.Mesh != null)
+            ?.Mesh;
+        if (pulseRoot == null || originalMesh == null)
+        {
+            runtimeContent.Report(
+                MissionFidelityFindingKind.PartialSupport,
+                sourcePath,
+                $"PTBL {plan.Path.Name}",
+                "The authored PULSE.WTB geometry was unavailable for the HPG projectile effect.");
+            return;
+        }
+
+        pulseRoot.Visible = false;
+        controller.AddChild(new AuthoredPulseEffect(originalMesh));
+    }
+
+    private static IReadOnlyList<int> EnsureDynamicPathObstacles(
+        string sourcePath,
+        IReadOnlyList<MechWarriorWorldObject> descendants,
+        IList<SceneryObstacle> staticObstacles,
+        IDictionary<(string SourcePath, int ObjectId), int> obstacleIndicesByObject,
+        IReadOnlyDictionary<(string SourcePath, int ObjectId), IReadOnlyList<SceneryWallTriangle>> collisionWallsByObject)
+    {
+        var slots = new List<int>();
+        foreach (var worldObject in descendants)
+        {
+            var key = (sourcePath, worldObject.Id);
+            if (!obstacleIndicesByObject.TryGetValue(key, out var slot) &&
+                collisionWallsByObject.TryGetValue(key, out var walls) &&
+                TryCreateSceneryObstacle($"path object {worldObject.Id}", walls, out var obstacle))
+            {
+                slot = staticObstacles.Count;
+                staticObstacles.Add(obstacle);
+                obstacleIndicesByObject.Add(key, slot);
+            }
+
+            if (slot >= 0)
+            {
+                slots.Add(slot);
+            }
+        }
+
+        return slots;
+    }
+
+    private static IReadOnlyList<Node3D> CreatePathRootsForStaticObjects(
+        Node3D levelRoot,
+        string sourcePath,
+        IReadOnlyList<MechWarriorWorldObject> descendants,
+        IReadOnlyDictionary<(string SourcePath, int ObjectId), Node3D> renderedRootsByObject)
+    {
+        var roots = new List<Node3D>();
+        foreach (var worldObject in descendants)
+        {
+            if (renderedRootsByObject.TryGetValue((sourcePath, worldObject.Id), out var renderedRoot))
+            {
+                roots.Add(renderedRoot);
+                continue;
+            }
+
+            // DUMMY objects are locators, but their child type-4 tasks can carry positional audio.
+            var locator = new Node3D { Name = $"PathLocator-{worldObject.Id}" };
+            locator.SetMeta("mechrewired_object_id", worldObject.Id);
+            locator.GlobalTransform = ToGodotWorldTransform(worldObject.Transform);
+            levelRoot.AddChild(locator);
+            roots.Add(locator);
+        }
+
+        return roots;
+    }
+
+    private static void AttachPathTaskSounds(
+        MechWarriorProjectArchive archive,
+        MechWarriorLevelSource source,
+        MechWarriorWorldPathTask plan,
+        IReadOnlyList<MechWarriorWorldObject> descendants,
+        Node3D controller,
+        MissionRuntimeContent runtimeContent)
+    {
+        var descendantIds = descendants.Select(worldObject => worldObject.Id).ToHashSet();
+        foreach (var task in source.World.Tasks.Where(candidate => candidate.Type == 4))
+        {
+            var semicolon = task.Command.IndexOf(';');
+            if (semicolon <= 0 ||
+                !int.TryParse(task.Command.AsSpan(0, semicolon), out var soundObjectId) ||
+                !descendantIds.Contains(soundObjectId))
+            {
+                continue;
+            }
+
+            var arguments = task.Command[(semicolon + 1)..]
+                .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+            if (arguments.Length < 2)
+            {
+                continue;
+            }
+
+            var soundName = arguments[1];
+            var entry = archive.Entries.FirstOrDefault(candidate =>
+                candidate.DirectoryName.Equals("SNDS", StringComparison.OrdinalIgnoreCase) &&
+                (candidate.Name.Equals($"{soundName}.WAV", StringComparison.OrdinalIgnoreCase) ||
+                 candidate.Name.Equals($"{soundName}.SFL", StringComparison.OrdinalIgnoreCase)));
+            if (entry == null)
+            {
+                runtimeContent.Report(
+                    MissionFidelityFindingKind.PartialSupport,
+                    source.Entry.Path,
+                    $"TSK sound {soundName}",
+                    "The path-attached sound resource was not available at runtime.");
+                continue;
+            }
+
+            var stream = entry.Name.EndsWith(".WAV", StringComparison.OrdinalIgnoreCase)
+                ? PlayerMechSounds.LoadWaveResource(archive, entry.Path, true, "map-authored path sound")
+                : PlayerMechSounds.LoadResource(archive, entry.Path, true, "map-authored path sound");
+            var player = new AudioStreamPlayer3D
+            {
+                Name = $"AuthoredPathSound-{soundName}",
+                Stream = stream,
+                UnitSize = 30.0f,
+                MaxDistance = 500.0f,
+                AttenuationModel = AudioStreamPlayer3D.AttenuationModelEnum.InverseDistance
+            };
+            controller.AddChild(player);
+            player.Play();
+        }
+    }
+
+    private static bool IsWorldObjectDescendant(
+        MechWarriorWorldObject candidate,
+        int ancestorId,
+        IReadOnlyDictionary<int, MechWarriorWorldObject> objectsById)
+    {
+        for (var current = candidate; ;)
+        {
+            if (current.Id == ancestorId)
+            {
+                return true;
+            }
+
+            if (current.RelativeToId < 0 ||
+                !objectsById.TryGetValue(current.RelativeToId, out current))
+            {
+                return false;
+            }
+        }
+    }
+
+    private static Transform3D ToGodotWorldTransform(MechWarriorWorldTransform transform) => new(
+        Basis.FromEuler(MechWarriorCoordinateSystem.ToGodotRotation(transform.RotationDegrees) *
+                        (Mathf.Pi / 180.0f)).Scaled(MechWarriorCoordinateSystem.ToGodotScale(transform.Scale)),
+        MechWarriorCoordinateSystem.ToGodotPosition(transform.Translation));
+
     private static void MakeMeshDoubleSided(ArrayMesh mesh)
     {
         for (var surfaceIndex = 0; surfaceIndex < mesh.GetSurfaceCount(); surfaceIndex++)
@@ -2920,6 +3222,10 @@ public partial class Main : Node3D
         {
             var effectsEntry = source.Entry;
             var effectsWorld = source.World;
+            var hasAuthoredHpgPulse = effectsWorld.Tasks.Any(task =>
+                task.Type == 5 &&
+                task.Command.Split([';', ','], StringSplitOptions.TrimEntries)
+                    .Any(argument => argument.Equals("pulshot", StringComparison.OrdinalIgnoreCase)));
             var flameObjects = effectsWorld.Objects
                 .Where(effectObject => effectObject.ObjectType == 0x10)
                 .ToArray();
@@ -2987,6 +3293,19 @@ public partial class Main : Node3D
                 var effectObject = effect.Object;
                 var modelEntry = effect.ModelEntry;
                 var effectBounds = effect.Bounds;
+                if (hasAuthoredHpgPulse &&
+                    modelEntry.Name.StartsWith("FIR", StringComparison.OrdinalIgnoreCase))
+                {
+                    // PINKARE1 reuses an FIR control volume for the HPG launch flash.  A standing
+                    // combustion plume misrepresents the machinery; AuthoredPulseEffect provides
+                    // the timed energy packet and illumination from the same authored location.
+                    instantiatedEffects.Add(new MechWarriorLevelObject(
+                        effectObject.Id, effectObject.RelativeToId, effectObject.CollisionType,
+                        effectObject.ObjectType, MechWarriorLevelObjectKind.Effect,
+                        effectsEntry, modelEntry, effectObject.Transform));
+                    continue;
+                }
+
                 if (modelEntry.Name.StartsWith("SMO", StringComparison.OrdinalIgnoreCase) &&
                     foldedSmokeIds.Contains(effectObject.Id))
                 {

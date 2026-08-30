@@ -103,6 +103,39 @@ public sealed class MechWarriorWorldFileTests
     }
 
     [Test]
+    public void TypeFiveTaskResolvesPlaybackRotationTargetAndPathTable()
+    {
+        var data = WriteWorld(writer =>
+        {
+            WriteObjectTag(writer, 7, -2, 101, new Vector3(2.0f, 3.0f, 4.0f));
+            WritePathTableTag(
+                writer,
+                "crane",
+                (new Vector3(10.0f, 20.0f, 30.0f), Vector3.Zero, 91),
+                (new Vector3(40.0f, 50.0f, 60.0f), new Vector3(0.0f, 90.0f, 0.0f), 182));
+            WriteTaskTag(writer, 5, 0, "7;loop,norotate,crane");
+        });
+
+        var world = MechWarriorWorldFile.Load(data);
+        var resolved = MechWarriorWorldPathTask.TryResolve(
+            world,
+            world.Tasks.Single(),
+            out var task,
+            out var error);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(resolved, Is.True, error);
+            Assert.That(task.MotionObjectId, Is.EqualTo(7));
+            Assert.That(task.Playback, Is.EqualTo(MechWarriorWorldPathPlayback.Loop));
+            Assert.That(task.RotateWithPath, Is.False);
+            Assert.That(task.Path.Name, Is.EqualTo("crane"));
+            Assert.That(task.Path.Points[0].TravelSeconds, Is.EqualTo(0.5f).Within(0.0001f));
+            Assert.That(task.Path.Points[1].TravelSeconds, Is.EqualTo(1.0f).Within(0.0001f));
+        });
+    }
+
+    [Test]
     public void LoadReadsPlanetLightingConfiguration()
     {
         var data = WriteWorld(writer =>
@@ -209,9 +242,9 @@ public sealed class MechWarriorWorldFileTests
         ];
 
         var start = MechWarriorWorldPathInterpolator.Sample(points, 0, 0.0f);
-        var firstArrival = MechWarriorWorldPathInterpolator.Sample(points, 0, 1.0f);
+        var firstArrival = MechWarriorWorldPathInterpolator.Sample(points, 0, points[0].TravelSeconds);
         var secondDeparture = MechWarriorWorldPathInterpolator.Sample(points, 1, 0.0f);
-        var finish = MechWarriorWorldPathInterpolator.Sample(points, 1, 2.0f);
+        var finish = MechWarriorWorldPathInterpolator.Sample(points, 1, points[1].TravelSeconds);
 
         Assert.Multiple(() =>
         {

@@ -18,7 +18,7 @@ public sealed record MechWarriorWorldPathPoint(
     Vector3 RotationDegrees,
     int TravelTicks)
 {
-    /// <summary>The original simulation advances authored path timing at 182 ticks per second.</summary>
+    /// <summary>The aircraft path simulation advances authored timing at 182 ticks per second.</summary>
     public const float SourceTicksPerSecond = 182.0f;
 
     public float TravelSeconds => TravelTicks / SourceTicksPerSecond;

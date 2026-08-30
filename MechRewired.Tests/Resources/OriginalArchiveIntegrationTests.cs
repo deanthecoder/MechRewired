@@ -77,7 +77,7 @@ public sealed class OriginalArchiveIntegrationTests
                 Does.Contain("VCDHELOA.WTB"));
             Assert.That(source.World.PathTables.Single(table => table.Name == "recon").Points, Has.Count.EqualTo(11));
             Assert.That(routePoints[0].TravelTicks, Is.EqualTo(1820));
-            Assert.That(routePoints[0].TravelSeconds, Is.EqualTo(10.0f));
+            Assert.That(routePoints[0].TravelSeconds, Is.EqualTo(10.0f).Within(0.001f));
             Assert.That(routeDurationSeconds, Is.EqualTo(46.0f).Within(0.001f));
             Assert.That(averageRouteSpeedKph, Is.EqualTo(246.8f).Within(0.2f),
                 "The fast recon pass is authored data; a tick-rate regression must not silently retune it.");
@@ -105,6 +105,53 @@ public sealed class OriginalArchiveIntegrationTests
                 Is.EqualTo(450.43f).Within(0.01f));
             Assert.That(plan.Actor.DestroyedComponents.Single(component => component.Id == 3).Transform.Translation.Y,
                 Is.EqualTo(38.33f).Within(0.01f));
+        });
+    }
+
+    [Test]
+    public void SilentThunderTypeFivePathsResolveFromOriginalBwdTables()
+    {
+        var archive = OpenOriginalArchive();
+        var craneWorld = MechWarriorWorldFile.Load(
+            archive.ReadEntry(archive.GetEntry("BWD/PINKARE3.BWD")));
+        var uplinkWorld = MechWarriorWorldFile.Load(
+            archive.ReadEntry(archive.GetEntry("BWD/PINKARE1.BWD")));
+        var cranePlans = craneWorld.Tasks
+            .Where(task => task.Type == 5)
+            .Select(task => ResolvePath(craneWorld, task))
+            .ToArray();
+        var uplinkPlans = uplinkWorld.Tasks
+            .Where(task => task.Type == 5)
+            .Select(task => ResolvePath(uplinkWorld, task))
+            .ToArray();
+        var uplinkEffects = uplinkWorld.Objects
+            .Where(worldObject => worldObject.ObjectType == 0x10)
+            .Select(worldObject => (worldObject.Id, Model: archive.GetEntry("POLY", worldObject.ModelResourceIndex).Name,
+                worldObject.RelativeToId, worldObject.Transform.Translation))
+            .ToArray();
+        var pulseModel = MechWarriorModel.LoadAll(
+            archive.ReadEntry(archive.GetEntry("POLY/PULSE.WTB")))[0];
+        Assert.Multiple(() =>
+        {
+            Assert.That(cranePlans, Has.Length.EqualTo(1));
+            Assert.That(cranePlans[0].Playback, Is.EqualTo(MechWarriorWorldPathPlayback.Loop));
+            Assert.That(cranePlans[0].RotateWithPath, Is.False);
+            Assert.That(cranePlans[0].Path.Name, Is.EqualTo("crane"));
+            Assert.That(cranePlans[0].Path.Points, Has.Count.EqualTo(15));
+            Assert.That(uplinkPlans, Has.Length.EqualTo(6));
+            Assert.That(uplinkPlans.Select(plan => plan.Playback),
+                Is.All.EqualTo(MechWarriorWorldPathPlayback.Repeat));
+            Assert.That(uplinkPlans.Select(plan => plan.Path.Name),
+                Is.EquivalentTo(new[] { "trnmove", "trnmove2", "trnmove3", "trnmove4", "pulshot", "sndshot" }));
+            Assert.That(uplinkPlans.Single(plan => plan.Path.Name == "pulshot").Path.Points.Last().Position.Y,
+                Is.EqualTo(2000.0f).Within(0.01f));
+            Assert.That(uplinkEffects.Select(effect => effect.Model),
+                Is.EqualTo(new[] { "FIR2_1.WTB" }),
+                "The HPG source carries one launch-flash control volume, not a persistent combustion site.");
+            Assert.That(pulseModel.Vertices, Has.Count.EqualTo(3));
+            Assert.That(pulseModel.Polygons.Select(polygon => polygon.VertexIndices),
+                Is.EquivalentTo(new[] { new[] { 0, 1, 2 }, new[] { 0, 2, 1 } }),
+                "PULSE.WTB is a two-sided triangular effect primitive, not a complete projectile sprite.");
         });
     }
 
@@ -337,6 +384,14 @@ public sealed class OriginalArchiveIntegrationTests
         }
 
         return false;
+    }
+
+    private static MechWarriorWorldPathTask ResolvePath(
+        MechWarriorWorldFile world,
+        MechWarriorWorldTask task)
+    {
+        Assert.That(MechWarriorWorldPathTask.TryResolve(world, task, out var plan, out var error), Is.True, error);
+        return plan;
     }
 
     private static IReadOnlySet<MechWarriorLevelActor> GetCascade(

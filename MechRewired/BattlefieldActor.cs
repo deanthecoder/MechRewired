@@ -33,6 +33,9 @@ public partial class BattlefieldActor : Node3D
     private Node3D m_effectObserver;
     private SceneryObstacle m_activeObstacle;
     private SceneryObstacle m_destroyedObstacle;
+    private SceneryObstacle m_initialActiveObstacle;
+    private SceneryObstacle m_initialDestroyedObstacle;
+    private Transform3D m_motionAnchor = Transform3D.Identity;
 
     public BattlefieldActor(
         MechWarriorLevelActor definition,
@@ -197,12 +200,25 @@ public partial class BattlefieldActor : Node3D
         {
             representations[index].GlobalTransform = worldTransforms[index];
         }
+
+        m_motionAnchor = anchor;
+    }
+
+    /// <summary>Moves an authored assembly and its collision footprint as one world-space unit.</summary>
+    public void ApplyMotionTransform(Transform3D transform)
+    {
+        GlobalTransform = transform;
+        var delta = transform * m_motionAnchor.AffineInverse();
+        m_activeObstacle = TransformObstacle(m_initialActiveObstacle, delta);
+        m_destroyedObstacle = TransformObstacle(m_initialDestroyedObstacle, delta);
     }
 
     public void ConfigureSceneryObstacles(
         SceneryObstacle activeObstacle,
         SceneryObstacle destroyedObstacle)
     {
+        m_initialActiveObstacle = activeObstacle;
+        m_initialDestroyedObstacle = destroyedObstacle;
         m_activeObstacle = activeObstacle;
         m_destroyedObstacle = destroyedObstacle;
     }
@@ -378,6 +394,38 @@ public partial class BattlefieldActor : Node3D
         return hasBounds
             ? bounds
             : new Aabb(representation.GlobalPosition, Vector3.Zero);
+    }
+
+    private static SceneryObstacle TransformObstacle(SceneryObstacle obstacle, Transform3D transform)
+    {
+        if (obstacle == null)
+        {
+            return null;
+        }
+
+        var walls = obstacle.Walls.Select(wall => new SceneryWallTriangle(
+            TransformWallPoint(transform, wall.A),
+            TransformWallPoint(transform, wall.B),
+            TransformWallPoint(transform, wall.C))).ToArray();
+        if (walls.Length == 0)
+        {
+            return obstacle;
+        }
+
+        var points = walls.SelectMany(wall => new[] { wall.A, wall.B, wall.C }).ToArray();
+        return new SceneryObstacle(
+            obstacle.Name,
+            new System.Numerics.Vector2(points.Min(point => point.X), points.Min(point => point.Y)),
+            new System.Numerics.Vector2(points.Max(point => point.X), points.Max(point => point.Y)),
+            walls);
+    }
+
+    private static System.Numerics.Vector2 TransformWallPoint(
+        Transform3D transform,
+        System.Numerics.Vector2 point)
+    {
+        var moved = transform * new Vector3(point.X, 0.0f, point.Y);
+        return new System.Numerics.Vector2(moved.X, moved.Z);
     }
 
     private sealed class DebrisState(

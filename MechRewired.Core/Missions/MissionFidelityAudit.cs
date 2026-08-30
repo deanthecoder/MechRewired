@@ -130,7 +130,7 @@ public sealed class MissionFidelityAudit
                 $"Tag is {tag.Size} bytes and has no semantic decoder.")));
             foreach (var (task, index) in source.World.Tasks.Select((task, index) => (task, index)))
             {
-                if (!TryValidateTask(task, out var reason))
+                if (!TryValidateTask(source.World, task, out var reason))
                 {
                     findings.Add(new MissionFidelityFinding(
                         MissionFidelityFindingKind.UnsupportedTask,
@@ -264,7 +264,10 @@ public sealed class MissionFidelityAudit
     private static bool IsStructuralTag(string tagName) =>
         tagName is "MOFF" or "MON" or "BLK" or "ENDB";
 
-    private static bool TryValidateTask(MechWarriorWorldTask task, out string reason)
+    private static bool TryValidateTask(
+        MechWarriorWorldFile world,
+        MechWarriorWorldTask task,
+        out string reason)
     {
         if (task.Type is not (1 or 4 or 5))
         {
@@ -279,18 +282,9 @@ public sealed class MissionFidelityAudit
             return false;
         }
 
-        if (task.Type == 5 && task.Command[(separator + 1)..].Length == 0)
+        if (task.Type == 5 && !MechWarriorWorldPathTask.TryResolve(
+                world, task, out _, out reason))
         {
-            reason = "Path task has no path command.";
-            return false;
-        }
-
-        if (task.Type == 5 && !task.Command[(separator + 1)..]
-                .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
-                .Any(argument => argument.Equals("recon", StringComparison.OrdinalIgnoreCase) ||
-                                 argument.Equals("drop", StringComparison.OrdinalIgnoreCase)))
-        {
-            reason = $"Path command '{task.Command}' is not implemented.";
             return false;
         }
 
