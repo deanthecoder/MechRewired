@@ -30,6 +30,7 @@ public partial class Main : Node3D
     private const int GeneralIlluminationLevel = 12;
     private const int ObjectIlluminationLevel = 8;
     private const byte MaximumTexturedMechMaterialIndex = 63;
+    private const byte AuthoredVaporMaterialIndex = 170;
     private const byte CamoMechMaterialIndex = 0;
     private const byte FlaggedCamoMechMaterialIndex = 0x70;
     private const byte WolfSmallInsigniaMaterialIndex = 0x14;
@@ -1236,6 +1237,11 @@ public partial class Main : Node3D
         // Keep indexed albedo lookup scoped to the verified mech range below.
         var materialMapEntry = archive.GetEntry("BWD/MW2_MAP1.BWD");
         var materialMap = MechWarriorMaterialMap.Load(archive.ReadEntry(materialMapEntry), 1);
+        var authoredVaporTexture = LoadOriginalIndexedTexture(
+            archive,
+            materialMap,
+            palette,
+            AuthoredVaporMaterialIndex);
         var materialImages = new Dictionary<byte, MechWarriorIndexedImage>();
         var playerMaterialImages = new Dictionary<byte, MechWarriorIndexedImage>();
         TerrainDiagnostics terrainDiagnostics = null;
@@ -1268,7 +1274,9 @@ public partial class Main : Node3D
             .Select(actor => new BattlefieldActor(actor, explosionDebrisMeshes))
             .ToArray();
         var battlefieldEffectSounds = BattlefieldEffectSounds.Load(archive);
-        var battlefieldEffects = new BattlefieldEffects(battlefieldEffectSounds.Explosions)
+        var battlefieldEffects = new BattlefieldEffects(
+            battlefieldEffectSounds.Explosions,
+            authoredVaporTexture)
         {
             Name = "BattlefieldEffects"
         };
@@ -1869,6 +1877,7 @@ public partial class Main : Node3D
             playerMech.CockpitCamera,
             Path.GetFileNameWithoutExtension(missionResources.ScenarioEntry.Name));
         RegisterDebugConsoleTerrain(terrainDiagnostics);
+        RegisterDebugConsoleAmbientEffects(battlefieldEffects);
 #endif
         var playerMission = new PlayerMission(archive, missionDefinition);
         AddChild(playerMission);
@@ -2076,6 +2085,42 @@ public partial class Main : Node3D
 #endif
         AddChild(camera);
     }
+
+#if DEBUG
+    private void RegisterDebugConsoleAmbientEffects(BattlefieldEffects battlefieldEffects)
+    {
+        ArgumentNullException.ThrowIfNull(battlefieldEffects);
+        m_debugConsole?.Call(
+            "add_command",
+            "vfx.capture_ambient",
+            Callable.From(() => CaptureAmbientEffects(battlefieldEffects)),
+            0,
+            0,
+            "Frames and captures the densest cluster of authored ambient effects.");
+
+        if (OS.GetCmdlineUserArgs().Contains("--capture-ambient-effects"))
+        {
+            CaptureAmbientEffects(battlefieldEffects, quitAfterCapture: true);
+        }
+    }
+
+    private void CaptureAmbientEffects(
+        BattlefieldEffects battlefieldEffects,
+        bool quitAfterCapture = false)
+    {
+        if (m_debugVisualCapture == null || !battlefieldEffects.TryGetAmbientCaptureBounds(out var bounds))
+        {
+            GD.PushWarning("MechRewired: no authored ambient effects are available to capture.");
+            if (quitAfterCapture)
+            {
+                GetTree().Quit();
+            }
+            return;
+        }
+
+        m_debugVisualCapture.CaptureAmbientEffectsFixture(bounds, quitAfterCapture);
+    }
+#endif
 
     private static void ReportMissionFidelityAudit(
         MechWarriorMissionResources resources,
@@ -2368,6 +2413,49 @@ public partial class Main : Node3D
             var imageEntry = archive.GetEntry("CEL", materialImage.ImageResourceIndex);
             materialImages.Add(materialIndex, MechWarriorIndexedImage.Load(archive.ReadEntry(imageEntry)));
         }
+    }
+
+    private static Texture2D LoadOriginalIndexedTexture(
+        MechWarriorProjectArchive archive,
+        MechWarriorMaterialMap materialMap,
+        MechWarriorPalette palette,
+        byte materialIndex)
+    {
+        if (!materialMap.Images.TryGetValue(materialIndex, out var materialImage))
+        {
+            GD.PushWarning(
+                $"MechRewired: material {materialIndex} has no original image; using the procedural VFX fallback.");
+            return null;
+        }
+
+        var entry = archive.GetEntry("CEL", materialImage.ImageResourceIndex);
+        var source = MechWarriorIndexedImage.Load(archive.ReadEntry(entry));
+        var pixels = new byte[source.Width * source.Height * 4];
+        for (var y = 0; y < source.Height; y++)
+        {
+            for (var x = 0; x < source.Width; x++)
+            {
+                // XEL rows are stored bottom-to-top, and palette index 255 is transparent.
+                var paletteIndex = source.GetPixel(x, source.Height - y - 1);
+                if (paletteIndex == byte.MaxValue)
+                {
+                    continue;
+                }
+
+                var destinationOffset = (y * source.Width + x) * 4;
+                var color = palette[paletteIndex];
+                pixels[destinationOffset] = color.R;
+                pixels[destinationOffset + 1] = color.G;
+                pixels[destinationOffset + 2] = color.B;
+                pixels[destinationOffset + 3] = byte.MaxValue;
+            }
+        }
+
+        var image = Image.CreateFromData(source.Width, source.Height, false, Image.Format.Rgba8, pixels);
+        GD.Print(
+            $"MechRewired: loaded original material {materialIndex} artwork {entry.Path} " +
+            $"({source.Width}x{source.Height}).");
+        return ImageTexture.CreateFromImage(image);
     }
 
     // Timber Wolf arm barrels use 0x70 for camouflaged housing sides; their separate end caps retain
@@ -2925,6 +3013,7 @@ public partial class Main : Node3D
                 {
                     battlefieldEffects.AddAmbientSmoke(
                         effectBounds,
+                        MechWarriorCoordinateSystem.ToGodotPosition(effectObject.Transform.Translation),
                         0.0f,
                         $"{effectsEntry.Name}-{effectObject.Id}",
                         ambientSound);

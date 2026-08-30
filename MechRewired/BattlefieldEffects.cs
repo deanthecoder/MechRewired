@@ -16,7 +16,7 @@ namespace MechRewired;
 /// Owns battlefield fire, explosion, and smoke effects.
 /// </summary>
 /// <remarks>
-/// All visuals are generated at runtime so the effects remain portable and do not require replacement assets.
+/// Transient visuals are generated at runtime; authored ambient effects use original archive art when available.
 /// </remarks>
 public partial class BattlefieldEffects : Node3D
 {
@@ -32,6 +32,7 @@ public partial class BattlefieldEffects : Node3D
     private static bool s_vfxTexturesLogged;
 
     private readonly IReadOnlyList<AudioStreamWav> m_explosionSounds;
+    private readonly Texture2D m_authoredVaporTexture;
     private readonly List<TunableEmitter> m_tunableEmitters = [];
     private readonly List<AmbientEffectState> m_ambientEffects = [];
     private readonly List<Node3D> m_distanceBoundEffects = [];
@@ -40,18 +41,22 @@ public partial class BattlefieldEffects : Node3D
     private readonly List<DustEffect> m_dustPool = [];
     private ShaderMaterial m_fireVisualMaterial;
     private ShaderMaterial m_smokeVisualMaterial;
+    private Godot.Material m_vaporVisualMaterial;
     private ShaderMaterial m_dustVisualMaterial;
     private StandardMaterial3D m_sparkVisualMaterial;
     private QuadMesh m_particleQuadMesh;
+    private QuadMesh m_vaporQuadMesh;
     private BoxMesh m_sparkMesh;
     private GradientTexture1D m_fireColorRamp;
     private GradientTexture1D m_ambientFireColorRamp;
     private GradientTexture1D m_ambientSmokeColorRamp;
     private GradientTexture1D m_ambientSmokeInitialColorRamp;
+    private GradientTexture1D m_ambientVaporColorRamp;
+    private GradientTexture1D m_ambientVaporInitialColorRamp;
     private GradientTexture1D m_smokeColorRamp;
     private GradientTexture1D m_smokeInitialColorRamp;
     private TerrainSurfaceIndex m_terrainSurface;
-    private Node3D m_observer;
+    private Node3D m_fallbackObserver;
     private DebugVfxParameter m_selectedDebugParameter;
     private float m_fireDensity = 2.5f;
     private float m_fireSize = 4.75f;
@@ -67,10 +72,13 @@ public partial class BattlefieldEffects : Node3D
     private float m_dustSpread = 68.0f;
     private float m_explosionFogDensity = 0.40f;
 
-    public BattlefieldEffects(IReadOnlyList<AudioStreamWav> explosionSounds)
+    public BattlefieldEffects(
+        IReadOnlyList<AudioStreamWav> explosionSounds,
+        Texture2D authoredVaporTexture = null)
     {
         ArgumentNullException.ThrowIfNull(explosionSounds);
         m_explosionSounds = explosionSounds;
+        m_authoredVaporTexture = authoredVaporTexture;
     }
 
     public override void _Ready()
@@ -85,12 +93,13 @@ public partial class BattlefieldEffects : Node3D
     }
 
     /// <summary>
-    /// Sets the player-position source used for one-way visual-effect cleanup.
+    /// Sets the fallback position used for effect streaming before a viewport has an active camera.
+    /// Runtime effect visibility otherwise follows the active camera, including the free inspector camera.
     /// </summary>
     public void ConfigureObserver(Node3D observer)
     {
         ArgumentNullException.ThrowIfNull(observer);
-        m_observer = observer;
+        m_fallbackObserver = observer;
         UpdateDistanceBoundEffects();
     }
 
@@ -104,18 +113,19 @@ public partial class BattlefieldEffects : Node3D
     /// <summary>Spawns only the major-explosion fog volume nearby so it can be tuned in isolation.</summary>
     public void SpawnExplosionFogTest()
     {
-        if (!IsInstanceValid(m_observer))
+        var observer = ResolveEffectObserver();
+        if (!IsInstanceValid(observer))
         {
             return;
         }
 
-        var forward = -m_observer.GlobalBasis.Z;
+        var forward = -observer.GlobalBasis.Z;
         if (forward.IsZeroApprox())
         {
             forward = Vector3.Forward;
         }
 
-        var hitPosition = m_observer.GlobalPosition + forward.Normalized() * 18.0f;
+        var hitPosition = observer.GlobalPosition + forward.Normalized() * 18.0f;
         hitPosition.Y = FindTerrainHeight(hitPosition, hitPosition.Y);
         const float testBoundsLength = 52.0f;
         var fog = CreateExplosionFog();
@@ -231,16 +241,58 @@ public partial class BattlefieldEffects : Node3D
 
     public void AddAmbientSmoke(
         Aabb authoredVolume,
+        Vector3 authoredOrigin,
         float authoredGroundHeight,
         string sourceName,
         AudioStreamWav ambientSound)
     {
+        var alignedVolume = AlignToTerrain(authoredVolume, authoredGroundHeight);
+        var heightAdjustment = alignedVolume.Position.Y - authoredVolume.Position.Y;
         AddAmbientEffect(new AmbientEffectState(
             false,
-            AlignToTerrain(authoredVolume, authoredGroundHeight),
+            alignedVolume,
             sourceName,
-            ambientSound));
+            ambientSound,
+            sourceOrigin: authoredOrigin + Vector3.Up * heightAdjustment));
     }
+
+#if DEBUG
+    /// <summary>
+    /// Returns the densest nearby group of authored effects for a repeatable visual-regression view.
+    /// </summary>
+    public bool TryGetAmbientCaptureBounds(out Aabb bounds)
+    {
+        bounds = default;
+        if (m_ambientEffects.Count == 0)
+        {
+            return false;
+        }
+
+        const float clusterRadius = 125.0f;
+        var clusterRadiusSquared = clusterRadius * clusterRadius;
+        var cluster = m_ambientEffects
+            .Select(anchor => m_ambientEffects
+                .Where(candidate => HorizontalDistanceSquared(
+                    anchor.Volume.GetCenter(),
+                    candidate.Volume.GetCenter()) <= clusterRadiusSquared)
+                .ToArray())
+            .OrderByDescending(candidates => candidates.Length)
+            .First();
+        bounds = cluster[0].Volume;
+        foreach (var ambientEffect in cluster.Skip(1))
+        {
+            bounds = bounds.Merge(ambientEffect.Volume);
+        }
+
+        return true;
+    }
+
+    private static float HorizontalDistanceSquared(Vector3 first, Vector3 second)
+    {
+        var difference = new Vector2(first.X - second.X, first.Z - second.Z);
+        return difference.LengthSquared();
+    }
+#endif
 
     private void AddAmbientEffect(AmbientEffectState definition)
     {
@@ -286,36 +338,29 @@ public partial class BattlefieldEffects : Node3D
 
     private void UpdateDistanceBoundEffects()
     {
-        if (!IsInstanceValid(m_observer))
+        var observer = ResolveEffectObserver();
+        if (!IsInstanceValid(observer))
         {
             return;
         }
 
-        var activatedAmbientEffect = false;
         foreach (var ambientEffect in m_ambientEffects)
         {
-            if (ambientEffect.IsCulled)
-            {
-                continue;
-            }
-
-            var isWithinRange = IsWithinEffectPersistenceRange(ambientEffect.Volume.GetCenter());
-            if (!ambientEffect.IsActive && isWithinRange && !activatedAmbientEffect)
+            var isWithinRange = IsWithinEffectPersistenceRange(ambientEffect.Volume.GetCenter(), observer);
+            if (!ambientEffect.IsActive && isWithinRange)
             {
                 ActivateAmbientEffect(ambientEffect);
-                UpdateAmbientDetail(ambientEffect.Instance, ambientEffect.Volume.GetCenter());
-                activatedAmbientEffect = true;
+                UpdateAmbientDetail(ambientEffect.Instance, ambientEffect.Volume.GetCenter(), observer);
                 GD.Print($"MechRewired: activated ambient {ambientEffect.KindName} '{ambientEffect.SourceName}' within {EffectPersistenceRadius:F0}m.");
             }
             else if (ambientEffect.IsActive && !isWithinRange)
             {
                 DeactivateAmbientEffect(ambientEffect);
-                ambientEffect.IsCulled = true;
-                GD.Print($"MechRewired: culled ambient {ambientEffect.KindName} '{ambientEffect.SourceName}' beyond {EffectPersistenceRadius:F0}m.");
+                GD.Print($"MechRewired: deactivated ambient {ambientEffect.KindName} '{ambientEffect.SourceName}' beyond {EffectPersistenceRadius:F0}m.");
             }
             else if (ambientEffect.IsActive)
             {
-                UpdateAmbientDetail(ambientEffect.Instance, ambientEffect.Volume.GetCenter());
+                UpdateAmbientDetail(ambientEffect.Instance, ambientEffect.Volume.GetCenter(), observer);
             }
         }
 
@@ -334,7 +379,7 @@ public partial class BattlefieldEffects : Node3D
                 continue;
             }
 
-            if (!IsWithinEffectPersistenceRange(effect.GlobalPosition))
+            if (!IsWithinEffectPersistenceRange(effect.GlobalPosition, observer))
             {
                 if (effect is IPooledEffect pooledEffect)
                 {
@@ -390,7 +435,7 @@ public partial class BattlefieldEffects : Node3D
         var volume = definition.Volume;
         var fireVolume = definition.FireVolume ?? volume;
         var plumeVolume = definition.PlumeVolume ?? volume;
-        var position = new Vector3(
+        var position = definition.SourceOrigin ?? new Vector3(
             fireVolume.GetCenter().X,
             fireVolume.Position.Y,
             fireVolume.GetCenter().Z);
@@ -404,7 +449,8 @@ public partial class BattlefieldEffects : Node3D
             effect.AddChild(CreateAmbientFireParticles(fireVolume.Size.X, fireVolume.Size.Y));
             var smoke = CreateAmbientSmokeParticles(
                 Math.Max(fireVolume.Size.X * 0.7f, plumeVolume.Size.X),
-                Math.Max(fireVolume.Size.Y * 1.3f, plumeVolume.Size.Y));
+                Math.Max(fireVolume.Size.Y * 1.3f, plumeVolume.Size.Y),
+                true);
             smoke.Position = new Vector3(
                 plumeVolume.GetCenter().X - position.X,
                 0.0f,
@@ -416,7 +462,7 @@ public partial class BattlefieldEffects : Node3D
         }
         else
         {
-            effect.AddChild(CreateAmbientSmokeParticles(volume.Size.X, volume.Size.Y));
+            effect.AddChild(CreateAmbientSmokeParticles(volume.Size.X, volume.Size.Y, false));
         }
 
         if (definition.AmbientSound != null)
@@ -427,13 +473,27 @@ public partial class BattlefieldEffects : Node3D
         return effect;
     }
 
-    private bool IsWithinEffectPersistenceRange(Vector3 position) =>
-        IsInstanceValid(m_observer) &&
-        m_observer.GlobalPosition.DistanceSquaredTo(position) <= EffectPersistenceRadius * EffectPersistenceRadius;
-
-    private void UpdateAmbientDetail(EffectInstance effect, Vector3 position)
+    private Node3D ResolveEffectObserver()
     {
-        var distance = m_observer.GlobalPosition.DistanceTo(position);
+        // The active camera can travel independently of the player mech in inspector mode.
+        // Streaming authored BWD effects from that camera prevents valid remote volumes from
+        // being omitted simply because the mech remained at its deployment location.
+        var activeCamera = GetViewport()?.GetCamera3D();
+        return IsInstanceValid(activeCamera) ? activeCamera : m_fallbackObserver;
+    }
+
+    private static bool IsWithinEffectPersistenceRange(Vector3 position, Node3D observer) =>
+        observer.GlobalPosition.DistanceSquaredTo(position) <= EffectPersistenceRadius * EffectPersistenceRadius;
+
+    private bool IsWithinEffectPersistenceRange(Vector3 position)
+    {
+        var observer = ResolveEffectObserver();
+        return IsInstanceValid(observer) && IsWithinEffectPersistenceRange(position, observer);
+    }
+
+    private static void UpdateAmbientDetail(EffectInstance effect, Vector3 position, Node3D observer)
+    {
+        var distance = observer.GlobalPosition.DistanceTo(position);
         var amountRatio = Mathf.Lerp(
             1.0f,
             MinimumAmbientAmountRatio,
@@ -830,47 +890,84 @@ public partial class BattlefieldEffects : Node3D
         return particles;
     }
 
-    private GpuParticles3D CreateAmbientSmokeParticles(float width, float height)
+    private GpuParticles3D CreateAmbientSmokeParticles(float width, float height, bool isSooty)
     {
         width = Math.Max(width, 1.0f);
         height = Math.Max(height, 2.0f);
-        var lifetime = Math.Clamp(height / 4.5f, 8.0f, 20.0f);
+        var lifetime = isSooty
+            ? Math.Clamp(height / 4.5f, 8.0f, 20.0f)
+            : Math.Clamp(height / 7.5f, 3.2f, 10.0f);
         var riseSpeed = height / lifetime;
-        var material = new ParticleProcessMaterial
-        {
-            Direction = Vector3.Up,
-            Spread = 24.0f,
-            InitialVelocityMin = riseSpeed * 0.7f,
-            InitialVelocityMax = riseSpeed * 1.25f,
-            Gravity = new Vector3(0.18f, riseSpeed * 0.06f, 0.1f),
-            DampingMin = 0.05f,
-            DampingMax = 0.35f,
-            ScaleMin = width * 0.06f,
-            ScaleMax = width * 0.18f,
-            ColorRamp = m_ambientSmokeColorRamp ??= CreateColorRamp(
+        // SMO WTBs are deliberately tall, flat authoring volumes.  Their horizontal size is the
+        // source footprint, while their height must also influence particle size; otherwise a
+        // 24m steam control becomes a sparse stack of sub-2m puffs.
+        var particleSize = isSooty
+            ? Math.Max(width * 0.24f, height * 0.11f)
+            : Math.Max(width * 0.24f, height * 0.18f);
+        var colorRamp = isSooty
+            ? m_ambientSmokeColorRamp ??= CreateColorRamp(
                 (0.0f, new Color(0.12f, 0.11f, 0.1f, 0.0f)),
                 (0.1f, new Color(0.14f, 0.13f, 0.12f, 0.82f)),
                 (0.6f, new Color(0.35f, 0.34f, 0.32f, 0.62f)),
-                (1.0f, new Color(0.62f, 0.61f, 0.58f, 0.0f))),
-            ColorInitialRamp = m_ambientSmokeInitialColorRamp ??= CreateColorRamp(
+                (1.0f, new Color(0.62f, 0.61f, 0.58f, 0.0f)))
+            : m_ambientVaporColorRamp ??= CreateColorRamp(
+                (0.0f, new Color(0.48f, 0.52f, 0.54f, 0.0f)),
+                (0.1f, new Color(0.53f, 0.57f, 0.59f, 0.76f)),
+                (0.6f, new Color(0.67f, 0.70f, 0.71f, 0.58f)),
+                (1.0f, new Color(0.82f, 0.84f, 0.84f, 0.0f)));
+        var initialColorRamp = isSooty
+            ? m_ambientSmokeInitialColorRamp ??= CreateColorRamp(
                 (0.0f, new Color(0.65f, 0.62f, 0.58f, 1.0f)),
-                (1.0f, Colors.White)),
-            TurbulenceEnabled = true,
-            TurbulenceNoiseStrength = 4.0f,
+                (1.0f, Colors.White))
+            : m_ambientVaporInitialColorRamp ??= CreateColorRamp(
+                (0.0f, new Color(0.8f, 0.83f, 0.84f, 1.0f)),
+                (1.0f, Colors.White));
+        var material = new ParticleProcessMaterial
+        {
+            Direction = Vector3.Up,
+            Spread = isSooty ? 24.0f : 2.0f,
+            InitialVelocityMin = riseSpeed * (isSooty ? 0.7f : 0.5f),
+            InitialVelocityMax = riseSpeed * (isSooty ? 1.25f : 0.68f),
+            Gravity = isSooty
+                ? new Vector3(0.18f, riseSpeed * 0.06f, 0.1f)
+                : Vector3.Zero,
+            DampingMin = isSooty ? 0.05f : 0.0f,
+            DampingMax = isSooty ? 0.35f : 0.03f,
+            ScaleMin = particleSize * 0.6f,
+            ScaleMax = particleSize * 1.4f,
+            ColorRamp = colorRamp,
+            ColorInitialRamp = initialColorRamp,
+            TurbulenceEnabled = isSooty,
+            TurbulenceNoiseStrength = isSooty ? 4.0f : 1.1f,
             TurbulenceNoiseScale = 2.4f,
             TurbulenceNoiseSpeed = new Vector3(0.18f, 0.28f, 0.14f),
-            TurbulenceInfluenceMin = 0.22f,
-            TurbulenceInfluenceMax = 0.62f,
+            TurbulenceInfluenceMin = isSooty ? 0.22f : 0.36f,
+            TurbulenceInfluenceMax = isSooty ? 0.62f : 0.68f,
             EmissionShape = ParticleProcessMaterial.EmissionShapeEnum.Box,
-            EmissionBoxExtents = new Vector3(width * 0.32f, 0.7f, width * 0.18f)
+            EmissionBoxExtents = isSooty
+                ? new Vector3(width * 0.32f, 0.7f, width * 0.18f)
+                : new Vector3(width * 0.04f, 0.12f, width * 0.02f)
         };
-        var amount = Math.Clamp((int)(width * 2.2f), 50, 140);
-        var particles = CreateParticles("Smoke", false, amount, lifetime, 0.04f, material, false);
+        var amount = isSooty
+            ? Math.Clamp((int)(width * 2.2f), 50, 140)
+            : Math.Clamp((int)(width * 1.8f), 14, 24);
+        var particles = CreateParticles(
+            isSooty ? "Smoke" : "Vapor",
+            false,
+            amount,
+            lifetime,
+            0.04f,
+            material,
+            false,
+            isSooty ? ParticleGeometry.Smoke : ParticleGeometry.Vapor);
         particles.Preprocess = lifetime;
         particles.VisibilityAabb = new Aabb(
             new Vector3(-width, -5.0f, -width),
             new Vector3(width * 2.0f, height * 1.5f + 10.0f, width * 2.0f));
-        RegisterAmbientEmitter(particles, ParticleGeometry.Smoke);
+        if (isSooty)
+        {
+            RegisterAmbientEmitter(particles, ParticleGeometry.Smoke);
+        }
         return particles;
     }
 
@@ -1194,6 +1291,7 @@ public partial class BattlefieldEffects : Node3D
         {
             ParticleGeometry.Fire => m_fireVisualMaterial ??= CreateParticleShaderMaterial(false),
             ParticleGeometry.Smoke => m_smokeVisualMaterial ??= CreateParticleShaderMaterial(true),
+            ParticleGeometry.Vapor => m_vaporVisualMaterial ??= CreateVaporMaterial(),
             ParticleGeometry.Dust => m_dustVisualMaterial ??= CreateParticleShaderMaterial(true, true),
             ParticleGeometry.Spark => m_sparkVisualMaterial ??= new StandardMaterial3D
             {
@@ -1206,10 +1304,16 @@ public partial class BattlefieldEffects : Node3D
         };
         PrimitiveMesh mesh = particleGeometry switch
         {
-            // The linked GodotExplosionVFX atlas is a high-resolution 8x8
-            // flipbook.  Use it on camera-facing quads rather than stacking
-            // opaque spheres: the sprite carries the fine smoke breakup and
-            // the shader supplies the source project's ramp/normal treatment.
+            // Preserve the original archive sprite's aspect ratio for authored vapor.
+            ParticleGeometry.Vapor => m_vaporQuadMesh ??= new QuadMesh
+            {
+                Size = new Vector2(
+                    m_authoredVaporTexture == null
+                        ? 1.0f
+                        : (float)m_authoredVaporTexture.GetWidth() / m_authoredVaporTexture.GetHeight(),
+                    1.0f)
+            },
+            // The remaining soft particles use the high-resolution 8x8 GodotExplosionVFX atlas.
             ParticleGeometry.Fire or ParticleGeometry.Smoke or ParticleGeometry.Dust => m_particleQuadMesh ??= new QuadMesh
             {
                 Size = new Vector2(1.0f, 1.0f)
@@ -1251,7 +1355,52 @@ public partial class BattlefieldEffects : Node3D
         return particles;
     }
 
-    private static ShaderMaterial CreateParticleShaderMaterial(bool smoke, bool dust = false)
+    private Godot.Material CreateVaporMaterial()
+    {
+        if (m_authoredVaporTexture == null)
+        {
+            return CreateParticleShaderMaterial(false, vapor: true);
+        }
+
+        var shader = new Shader
+        {
+            Code = """
+                shader_type spatial;
+                render_mode blend_mix, cull_disabled, unshaded;
+
+                uniform sampler2D vapor_texture : source_color, filter_nearest;
+
+                void vertex() {
+                    // The source quad locator is its lower-left corner. Move the billboard half
+                    // its 83:103 aspect width so the particle origin becomes the lower-middle.
+                    VERTEX.x += 0.403;
+                    VERTEX.y += 0.5;
+                    mat4 billboard = mat4(
+                        normalize(INV_VIEW_MATRIX[0]) * length(MODEL_MATRIX[0]),
+                        normalize(INV_VIEW_MATRIX[1]) * length(MODEL_MATRIX[1]),
+                        normalize(INV_VIEW_MATRIX[2]) * length(MODEL_MATRIX[2]),
+                        MODEL_MATRIX[3]);
+                    MODELVIEW_MATRIX = VIEW_MATRIX * billboard;
+                }
+
+                void fragment() {
+                    vec4 vapor = texture(vapor_texture, UV);
+                    if (vapor.a < 0.008) {
+                        discard;
+                    }
+
+                    ALBEDO = vapor.rgb;
+                    EMISSION = vapor.rgb * 0.16;
+                    ALPHA = vapor.a * COLOR.a;
+                }
+                """
+        };
+        var material = new ShaderMaterial { Shader = shader };
+        material.SetShaderParameter("vapor_texture", m_authoredVaporTexture);
+        return material;
+    }
+
+    private static ShaderMaterial CreateParticleShaderMaterial(bool smoke, bool dust = false, bool vapor = false)
     {
         var shader = new Shader
         {
@@ -1353,6 +1502,12 @@ public partial class BattlefieldEffects : Node3D
                     (0.18f, new Color(0.10f, 0.095f, 0.09f, 1.0f)),
                     (0.60f, new Color(0.32f, 0.30f, 0.27f, 1.0f)),
                     (1.0f, new Color(0.58f, 0.56f, 0.52f, 1.0f)))
+                : vapor
+                ? CreateColorRamp(
+                    (0.0f, new Color(0.38f, 0.42f, 0.44f, 1.0f)),
+                    (0.18f, new Color(0.56f, 0.60f, 0.62f, 1.0f)),
+                    (0.60f, new Color(0.74f, 0.77f, 0.78f, 1.0f)),
+                    (1.0f, new Color(0.90f, 0.92f, 0.92f, 1.0f)))
                 : CreateColorRamp(
                     (0.0f, new Color(0.0f, 0.0f, 0.0f, 1.0f)),
                     (0.50f, new Color(0.18f, 0.025f, 0.002f, 1.0f)),
@@ -1373,6 +1528,10 @@ public partial class BattlefieldEffects : Node3D
                 ? CreateColorRamp(
                     (0.0f, new Color(0.0f, 0.0f, 0.0f, 1.0f)),
                     (1.0f, new Color(0.035f, 0.025f, 0.018f, 1.0f)))
+                : vapor
+                ? CreateColorRamp(
+                    (0.0f, new Color(0.12f, 0.14f, 0.15f, 1.0f)),
+                    (1.0f, new Color(0.55f, 0.59f, 0.60f, 1.0f)))
                 : CreateColorRamp(
                     // This is the source material's sequence: a short white
                     // flash, orange flame, then red/black as the atlas fades.
@@ -1381,7 +1540,7 @@ public partial class BattlefieldEffects : Node3D
                     (0.461f, new Color(1.0f, 0.8f, 0.502f, 1.0f)),
                     (0.55f, new Color(1.0f, 0.0f, 0.0f, 1.0f)),
                     (0.602f, new Color(0.0f, 0.0f, 0.0f, 1.0f))));
-        material.SetShaderParameter("emission_strength", dust ? 0.0f : smoke ? 0.04f : 0.55f);
+        material.SetShaderParameter("emission_strength", dust ? 0.0f : vapor ? 0.8f : smoke ? 0.04f : 0.55f);
         material.SetShaderParameter("dust_albedo_multiplier", 1.0f);
         material.SetShaderParameter("dust_fill", dust ? 0.085f : 0.0f);
         material.SetShaderParameter("dust_opacity", dust ? 0.38f : 1.0f);
@@ -1477,7 +1636,8 @@ public partial class BattlefieldEffects : Node3D
             string sourceName,
             AudioStreamWav ambientSound,
             Aabb? fireVolume = null,
-            Aabb? plumeVolume = null)
+            Aabb? plumeVolume = null,
+            Vector3? sourceOrigin = null)
         {
             IsFire = isFire;
             Volume = volume;
@@ -1485,6 +1645,7 @@ public partial class BattlefieldEffects : Node3D
             AmbientSound = ambientSound;
             FireVolume = fireVolume;
             PlumeVolume = plumeVolume;
+            SourceOrigin = sourceOrigin;
         }
 
         public bool IsFire { get; }
@@ -1499,11 +1660,11 @@ public partial class BattlefieldEffects : Node3D
 
         public Aabb? PlumeVolume { get; }
 
+        public Vector3? SourceOrigin { get; }
+
         public EffectInstance Instance { get; set; }
 
         public bool IsActive { get; set; }
-
-        public bool IsCulled { get; set; }
 
         public string KindName => IsFire ? "fire" : "smoke";
     }
@@ -1512,6 +1673,7 @@ public partial class BattlefieldEffects : Node3D
     {
         Fire,
         Smoke,
+        Vapor,
         Dust,
         Spark
     }

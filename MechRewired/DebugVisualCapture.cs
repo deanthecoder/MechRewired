@@ -215,6 +215,59 @@ public sealed partial class DebugVisualCapture : Node
     }
 
     /// <summary>
+    /// Frames the densest group of authored smoke/fire controls and captures their live emitters.
+    /// </summary>
+    public async void CaptureAmbientEffectsFixture(
+        Aabb effectBounds,
+        bool quitAfterCapture = false)
+    {
+        var restoreConsoleAfterCapture = HideConsoleForCapture();
+        var center = effectBounds.GetCenter();
+        var horizontalSpan = Math.Max(effectBounds.Size.X, effectBounds.Size.Z);
+        var cameraDistance = Math.Max(40.0f, Math.Max(horizontalSpan * 0.78f, effectBounds.Size.Y * 2.0f));
+        var cameraOffset = new Vector3(1.0f, 0.0f, 0.72f).Normalized() * cameraDistance;
+        var cameraPosition = center + cameraOffset;
+        cameraPosition.Y = effectBounds.Position.Y + effectBounds.Size.Y * 0.28f;
+        var target = center;
+        target.Y = effectBounds.Position.Y + effectBounds.Size.Y * 0.42f;
+        var fixtureCamera = new Camera3D
+        {
+            Name = "AmbientEffectsFixtureCamera",
+            CullMask = m_camera.CullMask,
+            Fov = m_camera.Fov,
+            Far = Math.Max(m_camera.Far, 8000.0f),
+            Current = true
+        };
+        fixtureCamera.LookAtFromPosition(cameraPosition, target, Vector3.Up);
+        AddChild(fixtureCamera);
+
+        try
+        {
+            // The first frame switches the distance-streaming observer; subsequent frames allow
+            // newly activated preprocessed particle systems to reach the renderer.
+            for (var frame = 0; frame < 240; frame++)
+            {
+                await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            }
+
+            WriteCapture(
+                "ambient-effects-fixture",
+                terrainDiagnostic: "lit authored ambient-effect fixture",
+                captureCamera: fixtureCamera);
+        }
+        finally
+        {
+            m_camera.Current = true;
+            fixtureCamera.QueueFree();
+            RestoreConsoleAfterCapture(restoreConsoleAfterCapture);
+            if (quitAfterCapture)
+            {
+                GetTree().Quit();
+            }
+        }
+    }
+
+    /// <summary>
     /// Recreates the Jade Falcon mountain-base and sunlit-crest regression view supplied from the
     /// cockpit, without moving the player or depending on manual torso aiming.
     /// </summary>
