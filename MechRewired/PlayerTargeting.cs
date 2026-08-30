@@ -30,6 +30,7 @@ public partial class PlayerTargeting : Node
     private const float MissileGuidanceArmingDistance = 55.0f;
     private const float HeatWarningFraction = 0.8f;
     private const int MissilePoolSize = 64;
+    private const float GroupFireDelaySeconds = 0.12f;
 
     private readonly PlayerMech m_playerMech;
     private readonly PlayerMechSounds m_playerMechSounds;
@@ -53,10 +54,11 @@ public partial class PlayerTargeting : Node
     private readonly Dictionary<ushort, int> m_ammunitionByWeapon;
     private readonly List<MissileEffect> m_missilePool = [];
     private readonly List<PendingMissile> m_pendingMissiles = [];
+    private readonly List<PendingWeaponFire> m_pendingWeaponFires = [];
     private readonly List<PendingWeaponRepeat> m_pendingWeaponRepeats = [];
     private readonly Random m_missileLaunchRandom = new();
-    private bool m_advanceAfterWeaponRepeats;
-    private bool m_repeatedFireWasForcedGroup;
+    private bool m_advanceAfterPendingWeaponFires;
+    private bool m_pendingFireWasForcedGroup;
     private float m_missileLockProgress;
     private EnemyMech m_lockCandidate;
     private EnemyMech m_lockedEnemy;
@@ -268,6 +270,7 @@ public partial class PlayerTargeting : Node
 
         UpdateMissileLock((float)delta);
         UpdatePendingMissiles((float)delta);
+        UpdatePendingWeaponFires((float)delta);
         UpdatePendingWeaponRepeats((float)delta);
         UpdateObjectiveActor();
     }
@@ -491,7 +494,7 @@ public partial class PlayerTargeting : Node
             return;
         }
 
-        CancelPendingWeaponRepeats();
+        CancelPendingWeaponFires();
         PlayThermalReport(m_playerMechSounds.ShuttingDown);
         m_shutdownEffectSound.Play();
         m_playerMech.SetShutdownState(true, "manual shutdown");
@@ -519,16 +522,17 @@ public partial class PlayerTargeting : Node
 
     private void InitiateThermalShutdown(string reason)
     {
-        CancelPendingWeaponRepeats();
+        CancelPendingWeaponFires();
         PlayThermalReport(m_playerMechSounds.ThermalShutdown);
         m_shutdownEffectSound.Play();
         m_playerMech.SetShutdownState(true, reason);
     }
 
-    private void CancelPendingWeaponRepeats()
+    private void CancelPendingWeaponFires()
     {
+        m_pendingWeaponFires.Clear();
         m_pendingWeaponRepeats.Clear();
-        m_advanceAfterWeaponRepeats = false;
+        m_advanceAfterPendingWeaponFires = false;
     }
 
     private void PlayThermalReport(AudioStreamWav report)
@@ -546,41 +550,60 @@ public partial class PlayerTargeting : Node
             return;
         }
 
-        if (m_pendingWeaponRepeats.Count > 0)
+        if (m_pendingWeaponFires.Count > 0 || m_pendingWeaponRepeats.Count > 0)
         {
             return;
         }
 
-        var indices = WeaponSelection.GetFireIndices(forceGroup);
+        var indices = WeaponSelection.GetFireIndices(forceGroup)
+            .Where(index => m_weaponCooldowns[index] <= 0.0 &&
+                            IsWeaponOperational(WeaponSelection.Weapons[index]))
+            .ToArray();
         var fired = false;
-        var fireOrdinal = 0;
-        foreach (var index in indices)
+        if (forceGroup && indices.Length > 0)
         {
-            if (m_weaponCooldowns[index] > 0.0 || !IsWeaponOperational(WeaponSelection.Weapons[index]))
-            {
-                continue;
-            }
-
-            if (!FireWeapon(index, indices.Count > 1 ? fireOrdinal * 0.07f : 0.0f))
-            {
-                continue;
-            }
-            if (m_playerMech.IsShutdown)
-            {
-                fired = true;
-                break;
-            }
-
-            if (WeaponSelection.Weapons[index].Specification.Kind == MechWeaponKind.Ballistic)
+            fired = FireWeapon(indices[0]);
+            if (fired && WeaponSelection.Weapons[indices[0]].Specification.Kind == MechWeaponKind.Ballistic)
             {
                 m_pendingWeaponRepeats.Add(new PendingWeaponRepeat(
-                    index,
+                    indices[0],
                     4,
-                    (float)WeaponSelection.Weapons[index].Specification.RecycleSeconds));
+                    (float)WeaponSelection.Weapons[indices[0]].Specification.RecycleSeconds));
             }
+            if (fired && !m_playerMech.IsShutdown)
+            {
+                for (var ordinal = 1; ordinal < indices.Length; ordinal++)
+                {
+                    m_pendingWeaponFires.Add(new PendingWeaponFire(
+                        indices[ordinal],
+                        ordinal * GroupFireDelaySeconds));
+                }
+            }
+        }
+        else
+        {
+            foreach (var index in indices)
+            {
+                if (!FireWeapon(index))
+                {
+                    continue;
+                }
+                if (m_playerMech.IsShutdown)
+                {
+                    fired = true;
+                    break;
+                }
 
-            fireOrdinal++;
-            fired = true;
+                if (WeaponSelection.Weapons[index].Specification.Kind == MechWeaponKind.Ballistic)
+                {
+                    m_pendingWeaponRepeats.Add(new PendingWeaponRepeat(
+                        index,
+                        4,
+                        (float)WeaponSelection.Weapons[index].Specification.RecycleSeconds));
+                }
+
+                fired = true;
+            }
         }
 
         if (!fired)
@@ -592,10 +615,10 @@ public partial class PlayerTargeting : Node
             return;
         }
 
-        if (m_pendingWeaponRepeats.Count > 0)
+        if (m_pendingWeaponFires.Count > 0 || m_pendingWeaponRepeats.Count > 0)
         {
-            m_advanceAfterWeaponRepeats = true;
-            m_repeatedFireWasForcedGroup = forceGroup;
+            m_advanceAfterPendingWeaponFires = true;
+            m_pendingFireWasForcedGroup = forceGroup;
             return;
         }
 
@@ -615,8 +638,7 @@ public partial class PlayerTargeting : Node
     {
         if (m_playerMech.IsShutdown)
         {
-            m_pendingWeaponRepeats.Clear();
-            m_advanceAfterWeaponRepeats = false;
+            CancelPendingWeaponFires();
             return;
         }
 
@@ -645,10 +667,55 @@ public partial class PlayerTargeting : Node
             }
         }
 
-        if (m_pendingWeaponRepeats.Count == 0 && m_advanceAfterWeaponRepeats)
+        AdvanceAfterPendingWeaponFires();
+    }
+
+    private void UpdatePendingWeaponFires(float delta)
+    {
+        if (m_playerMech.IsShutdown)
         {
-            m_advanceAfterWeaponRepeats = false;
-            AdvanceAfterFire(m_repeatedFireWasForcedGroup);
+            CancelPendingWeaponFires();
+            return;
+        }
+
+        for (var index = 0; index < m_pendingWeaponFires.Count;)
+        {
+            var pendingFire = m_pendingWeaponFires[index];
+            pendingFire.Delay -= delta;
+            if (pendingFire.Delay > 0.0f)
+            {
+                index++;
+                continue;
+            }
+
+            m_pendingWeaponFires.RemoveAt(index);
+            if (FireWeapon(pendingFire.WeaponIndex) &&
+                WeaponSelection.Weapons[pendingFire.WeaponIndex].Specification.Kind == MechWeaponKind.Ballistic)
+            {
+                m_pendingWeaponRepeats.Add(new PendingWeaponRepeat(
+                    pendingFire.WeaponIndex,
+                    4,
+                    (float)WeaponSelection.Weapons[pendingFire.WeaponIndex].Specification.RecycleSeconds));
+            }
+
+            if (m_playerMech.IsShutdown)
+            {
+                CancelPendingWeaponFires();
+                return;
+            }
+        }
+
+        AdvanceAfterPendingWeaponFires();
+    }
+
+    private void AdvanceAfterPendingWeaponFires()
+    {
+        if (m_pendingWeaponFires.Count == 0 &&
+            m_pendingWeaponRepeats.Count == 0 &&
+            m_advanceAfterPendingWeaponFires)
+        {
+            m_advanceAfterPendingWeaponFires = false;
+            AdvanceAfterFire(m_pendingFireWasForcedGroup);
         }
     }
 
@@ -1445,6 +1512,13 @@ public partial class PlayerTargeting : Node
         public Action<Vector3> Impact { get; } = impact;
 
         public float GuidanceArmingDistance { get; } = guidanceArmingDistance;
+    }
+
+    private sealed class PendingWeaponFire(int weaponIndex, float delay)
+    {
+        public int WeaponIndex { get; } = weaponIndex;
+
+        public float Delay { get; set; } = delay;
     }
 
     private sealed class PendingWeaponRepeat(int weaponIndex, int remaining, float delay)
