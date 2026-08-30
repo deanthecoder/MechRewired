@@ -1717,6 +1717,7 @@ public partial class Main : Node3D
             archive,
             level,
             battlefieldEffects,
+            actorComponents,
             battlefieldEffectSounds.AmbientFire,
             runtimeContent);
         foreach (var effect in instantiatedEffects)
@@ -2850,6 +2851,11 @@ public partial class Main : Node3D
                 var actor = actors.FirstOrDefault(candidate =>
                     candidate.Definition.SourceEntry.Path.Equals(source.Entry.Path, StringComparison.OrdinalIgnoreCase) &&
                     candidate.Definition.ObjectId == plan.MotionObjectId);
+                var lifetimeOwner = FindOwningActorByObjectId(
+                    source.Entry.Path,
+                    plan.MotionObjectId,
+                    actorComponents,
+                    sourceObjectsById);
                 var descendants = source.World.Objects
                     .Where(worldObject => IsWorldObjectDescendant(
                         worldObject,
@@ -2900,6 +2906,7 @@ public partial class Main : Node3D
                     plan,
                     source.Entry.Path,
                     actor,
+                    lifetimeOwner,
                     movedRoots,
                     parentTransform,
                     sceneTriangles,
@@ -3085,6 +3092,31 @@ public partial class Main : Node3D
         }
     }
 
+    private static BattlefieldActor FindOwningActorByObjectId(
+        string sourcePath,
+        int objectId,
+        IReadOnlyDictionary<(string SourcePath, int ObjectId), (BattlefieldActor Actor, bool Destroyed)> actorComponents,
+        IReadOnlyDictionary<int, MechWarriorWorldObject> objectsById)
+    {
+        var visited = new HashSet<int>();
+        for (var currentId = objectId; currentId >= 0 && visited.Add(currentId);)
+        {
+            if (actorComponents.TryGetValue((sourcePath, currentId), out var component))
+            {
+                return component.Actor;
+            }
+
+            if (!objectsById.TryGetValue(currentId, out var worldObject))
+            {
+                break;
+            }
+
+            currentId = worldObject.RelativeToId;
+        }
+
+        return null;
+    }
+
     private static Transform3D ToGodotWorldTransform(MechWarriorWorldTransform transform) => new(
         Basis.FromEuler(MechWarriorCoordinateSystem.ToGodotRotation(transform.RotationDegrees) *
                         (Mathf.Pi / 180.0f)).Scaled(MechWarriorCoordinateSystem.ToGodotScale(transform.Scale)),
@@ -3212,6 +3244,7 @@ public partial class Main : Node3D
         MechWarriorProjectArchive archive,
         MechWarriorLevel level,
         BattlefieldEffects battlefieldEffects,
+        IReadOnlyDictionary<(string SourcePath, int ObjectId), (BattlefieldActor Actor, bool Destroyed)> actorComponents,
         IReadOnlyDictionary<string, AudioStreamWav> ambientSounds,
         MissionRuntimeContent runtimeContent)
     {
@@ -3221,6 +3254,7 @@ public partial class Main : Node3D
         {
             var effectsEntry = source.Entry;
             var effectsWorld = source.World;
+            var sourceObjectsById = effectsWorld.Objects.ToDictionary(worldObject => worldObject.Id);
             var hasAuthoredHpgPulse = effectsWorld.Tasks.Any(task =>
                 task.Type == 5 &&
                 task.Command.Split([';', ','], StringSplitOptions.TrimEntries)
@@ -3292,6 +3326,11 @@ public partial class Main : Node3D
                 var effectObject = effect.Object;
                 var modelEntry = effect.ModelEntry;
                 var effectBounds = effect.Bounds;
+                var lifetimeOwner = FindOwningActorByObjectId(
+                    effectsEntry.Path,
+                    effectObject.RelativeToId,
+                    actorComponents,
+                    sourceObjectsById);
                 if (hasAuthoredHpgPulse &&
                     modelEntry.Name.StartsWith("FIR", StringComparison.OrdinalIgnoreCase))
                 {
@@ -3334,7 +3373,8 @@ public partial class Main : Node3D
                         MechWarriorCoordinateSystem.ToGodotPosition(effectObject.Transform.Translation),
                         0.0f,
                         $"{effectsEntry.Name}-{effectObject.Id}",
-                        ambientSound);
+                        ambientSound,
+                        lifetimeOwner);
                 }
                 else
                 {
@@ -3352,7 +3392,8 @@ public partial class Main : Node3D
                         plumeBounds,
                         0.0f,
                         $"{effectsEntry.Name}-{effectObject.Id}",
-                        ambientSound);
+                        ambientSound,
+                        lifetimeOwner);
                 }
 
                 totalLoadedCount++;

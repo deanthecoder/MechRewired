@@ -203,6 +203,8 @@ public sealed class OriginalArchiveIntegrationTests
         var archive = OpenOriginalArchive();
         var craneWorld = MechWarriorWorldFile.Load(
             archive.ReadEntry(archive.GetEntry("BWD/PINKARE3.BWD")));
+        var steamWorld = MechWarriorWorldFile.Load(
+            archive.ReadEntry(archive.GetEntry("BWD/PINKARE5.BWD")));
         var uplinkWorld = MechWarriorWorldFile.Load(
             archive.ReadEntry(archive.GetEntry("BWD/PINKARE1.BWD")));
         var cranePlans = craneWorld.Tasks
@@ -220,6 +222,24 @@ public sealed class OriginalArchiveIntegrationTests
             .ToArray();
         var pulseModel = MechWarriorModel.LoadAll(
             archive.ReadEntry(archive.GetEntry("POLY/PULSE.WTB")))[0];
+        var steamControls = steamWorld.Objects
+            .Where(worldObject => worldObject.ObjectType == 0x10)
+            .ToArray();
+        var craneObjectsById = craneWorld.Objects.ToDictionary(worldObject => worldObject.Id);
+        var craneDescendantIds = craneWorld.Objects
+            .Where(worldObject => IsDescendantOf(
+                worldObject.Id,
+                cranePlans[0].MotionObjectId,
+                craneObjectsById))
+            .Select(worldObject => worldObject.Id)
+            .ToHashSet();
+        var craneSoundObjectIds = craneWorld.Tasks
+            .Where(task => task.Type == 4)
+            .Select(task => task.Command.Split(';', 2)[0])
+            .Where(argument => int.TryParse(argument, out _))
+            .Select(int.Parse)
+            .Where(craneDescendantIds.Contains)
+            .ToArray();
         Assert.Multiple(() =>
         {
             Assert.That(cranePlans, Has.Length.EqualTo(1));
@@ -227,6 +247,14 @@ public sealed class OriginalArchiveIntegrationTests
             Assert.That(cranePlans[0].RotateWithPath, Is.False);
             Assert.That(cranePlans[0].Path.Name, Is.EqualTo("crane"));
             Assert.That(cranePlans[0].Path.Points, Has.Count.EqualTo(15));
+            Assert.That(craneWorld.Entities.Select(entity => entity.ObjectId),
+                Does.Contain(cranePlans[0].MotionObjectId),
+                "Crane motion and its attached sound must share the crane actor's destruction lifetime.");
+            Assert.That(craneSoundObjectIds, Is.Not.Empty,
+                "The crane path must retain its authored positional machinery sound.");
+            Assert.That(steamControls.Select(control => control.RelativeToId),
+                Is.SubsetOf(steamWorld.Entities.Select(entity => entity.ObjectId)),
+                "Each steam control is attached directly to a destructible relief assembly.");
             Assert.That(uplinkPlans, Has.Length.EqualTo(6));
             Assert.That(uplinkPlans.Select(plan => plan.Playback),
                 Is.All.EqualTo(MechWarriorWorldPathPlayback.Repeat));

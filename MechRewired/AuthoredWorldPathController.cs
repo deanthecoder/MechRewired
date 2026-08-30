@@ -29,6 +29,7 @@ public partial class AuthoredWorldPathController : Node3D
 
     private readonly MechWarriorWorldPathTask m_plan;
     private readonly BattlefieldActor m_actor;
+    private readonly BattlefieldActor m_lifetimeOwner;
     private readonly IReadOnlyList<Node3D> m_movedRoots;
     private readonly IList<DebugTriangle> m_sceneTriangles;
     private readonly int[] m_triangleIndices;
@@ -41,11 +42,13 @@ public partial class AuthoredWorldPathController : Node3D
     private Transform3D m_currentTransform;
     private int m_segmentIndex;
     private float m_segmentElapsed;
+    private bool m_stoppedByDestruction;
 
     public AuthoredWorldPathController(
         MechWarriorWorldPathTask plan,
         string sourcePath,
         BattlefieldActor actor,
+        BattlefieldActor lifetimeOwner,
         IReadOnlyList<Node3D> movedRoots,
         Transform3D parentTransform,
         IList<DebugTriangle> sceneTriangles,
@@ -54,6 +57,7 @@ public partial class AuthoredWorldPathController : Node3D
     {
         m_plan = plan ?? throw new ArgumentNullException(nameof(plan));
         m_actor = actor;
+        m_lifetimeOwner = lifetimeOwner;
         m_movedRoots = movedRoots ?? throw new ArgumentNullException(nameof(movedRoots));
         m_sceneTriangles = sceneTriangles ?? throw new ArgumentNullException(nameof(sceneTriangles));
         m_staticObstacles = staticObstacles ?? throw new ArgumentNullException(nameof(staticObstacles));
@@ -88,11 +92,24 @@ public partial class AuthoredWorldPathController : Node3D
         }
 
         ApplyTransform(m_initialPathTransform);
+        if (m_lifetimeOwner != null)
+        {
+            m_lifetimeOwner.Destroyed += OnLifetimeOwnerDestroyed;
+        }
+    }
+
+    public override void _ExitTree()
+    {
+        if (m_lifetimeOwner != null)
+        {
+            m_lifetimeOwner.Destroyed -= OnLifetimeOwnerDestroyed;
+        }
     }
 
     public override void _PhysicsProcess(double delta)
     {
-        if (m_plan.Path.Points.Count < 2 ||
+        if (m_stoppedByDestruction ||
+            m_plan.Path.Points.Count < 2 ||
             m_plan.Playback == MechWarriorWorldPathPlayback.OneShot &&
             m_segmentIndex == m_plan.Path.Points.Count - 1)
         {
@@ -120,6 +137,28 @@ public partial class AuthoredWorldPathController : Node3D
                 break;
             }
         }
+    }
+
+    private void OnLifetimeOwnerDestroyed(BattlefieldActor owner, Vector3 hitPosition)
+    {
+        _ = hitPosition;
+        if (m_stoppedByDestruction)
+        {
+            return;
+        }
+
+        m_stoppedByDestruction = true;
+        SetPhysicsProcess(false);
+        var attachedSounds = GetChildren().OfType<AudioStreamPlayer3D>().ToArray();
+        foreach (var audio in attachedSounds)
+        {
+            audio.Stop();
+        }
+
+        GD.Print(
+            $"MechRewired: stopped authored path '{m_plan.Path.Name}' and {attachedSounds.Length} attached sound(s) " +
+            "with destroyed " +
+            $"{owner.Description} object {owner.Definition.ObjectId}.");
     }
 
     private void AdvanceSegment()

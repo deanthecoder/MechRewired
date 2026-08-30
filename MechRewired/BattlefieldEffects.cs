@@ -35,6 +35,7 @@ public partial class BattlefieldEffects : Node3D
     private readonly Texture2D m_authoredVaporTexture;
     private readonly List<TunableEmitter> m_tunableEmitters = [];
     private readonly List<AmbientEffectState> m_ambientEffects = [];
+    private readonly HashSet<BattlefieldActor> m_ambientEffectOwners = [];
     private readonly List<Node3D> m_distanceBoundEffects = [];
     private readonly List<ImpactEffect> m_weaponImpactPool = [];
     private readonly List<EffectInstance> m_destructionPool = [];
@@ -84,6 +85,16 @@ public partial class BattlefieldEffects : Node3D
     public override void _Ready()
     {
         CreateEffectPools();
+    }
+
+    public override void _ExitTree()
+    {
+        foreach (var owner in m_ambientEffectOwners)
+        {
+            owner.Destroyed -= OnAmbientEffectOwnerDestroyed;
+        }
+
+        m_ambientEffectOwners.Clear();
     }
 
     public void ConfigureTerrain(TerrainSurfaceIndex terrainSurface)
@@ -226,7 +237,8 @@ public partial class BattlefieldEffects : Node3D
         Aabb authoredPlumeVolume,
         float authoredGroundHeight,
         string sourceName,
-        AudioStreamWav ambientSound)
+        AudioStreamWav ambientSound,
+        BattlefieldActor owner = null)
     {
         var fireVolume = AlignToTerrain(authoredFireVolume, authoredGroundHeight);
         var plumeVolume = AlignToTerrain(authoredPlumeVolume, authoredGroundHeight);
@@ -236,7 +248,8 @@ public partial class BattlefieldEffects : Node3D
             sourceName,
             ambientSound,
             fireVolume,
-            plumeVolume));
+            plumeVolume,
+            owner: owner));
     }
 
     public void AddAmbientSmoke(
@@ -244,7 +257,8 @@ public partial class BattlefieldEffects : Node3D
         Vector3 authoredOrigin,
         float authoredGroundHeight,
         string sourceName,
-        AudioStreamWav ambientSound)
+        AudioStreamWav ambientSound,
+        BattlefieldActor owner = null)
     {
         var alignedVolume = AlignToTerrain(authoredVolume, authoredGroundHeight);
         var heightAdjustment = alignedVolume.Position.Y - authoredVolume.Position.Y;
@@ -253,7 +267,8 @@ public partial class BattlefieldEffects : Node3D
             alignedVolume,
             sourceName,
             ambientSound,
-            sourceOrigin: authoredOrigin + Vector3.Up * heightAdjustment));
+            sourceOrigin: authoredOrigin + Vector3.Up * heightAdjustment,
+            owner: owner));
     }
 
 #if DEBUG
@@ -312,7 +327,38 @@ public partial class BattlefieldEffects : Node3D
 
         AddChild(definition.Instance);
         m_ambientEffects.Add(definition);
+        if (definition.Owner != null && m_ambientEffectOwners.Add(definition.Owner))
+        {
+            definition.Owner.Destroyed += OnAmbientEffectOwnerDestroyed;
+        }
         UpdateDistanceBoundEffects();
+    }
+
+    private void OnAmbientEffectOwnerDestroyed(BattlefieldActor owner, Vector3 hitPosition)
+    {
+        _ = hitPosition;
+        var suppressedCount = 0;
+        foreach (var ambientEffect in m_ambientEffects.Where(effect => ReferenceEquals(effect.Owner, owner)))
+        {
+            if (ambientEffect.IsSuppressed)
+            {
+                continue;
+            }
+
+            ambientEffect.IsSuppressed = true;
+            if (ambientEffect.IsActive)
+            {
+                DeactivateAmbientEffect(ambientEffect);
+            }
+            suppressedCount++;
+        }
+
+        if (suppressedCount > 0)
+        {
+            GD.Print(
+                $"MechRewired: stopped {suppressedCount} authored ambient effect(s) with destroyed " +
+                $"{owner.Description} object {owner.Definition.ObjectId}.");
+        }
     }
 
     private Aabb AlignToTerrain(Aabb volume, float authoredGroundHeight)
@@ -346,6 +392,11 @@ public partial class BattlefieldEffects : Node3D
 
         foreach (var ambientEffect in m_ambientEffects)
         {
+            if (ambientEffect.IsSuppressed)
+            {
+                continue;
+            }
+
             var isWithinRange = IsWithinEffectPersistenceRange(ambientEffect.Volume.GetCenter(), observer);
             if (!ambientEffect.IsActive && isWithinRange)
             {
@@ -1637,7 +1688,8 @@ public partial class BattlefieldEffects : Node3D
             AudioStreamWav ambientSound,
             Aabb? fireVolume = null,
             Aabb? plumeVolume = null,
-            Vector3? sourceOrigin = null)
+            Vector3? sourceOrigin = null,
+            BattlefieldActor owner = null)
         {
             IsFire = isFire;
             Volume = volume;
@@ -1646,6 +1698,7 @@ public partial class BattlefieldEffects : Node3D
             FireVolume = fireVolume;
             PlumeVolume = plumeVolume;
             SourceOrigin = sourceOrigin;
+            Owner = owner;
         }
 
         public bool IsFire { get; }
@@ -1662,9 +1715,13 @@ public partial class BattlefieldEffects : Node3D
 
         public Vector3? SourceOrigin { get; }
 
+        public BattlefieldActor Owner { get; }
+
         public EffectInstance Instance { get; set; }
 
         public bool IsActive { get; set; }
+
+        public bool IsSuppressed { get; set; }
 
         public string KindName => IsFire ? "fire" : "smoke";
     }
