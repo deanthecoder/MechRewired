@@ -197,6 +197,14 @@ public partial class EnemyMech : Node3D
     /// <summary>Raised once when this hostile activates its reactor/sensors.</summary>
     public event Action<EnemyMech> PoweredUp;
 
+    public override void _Ready()
+    {
+        if (MechDefinition.Weapons.Any(weapon => weapon.Specification.Kind == MechWeaponKind.Missile))
+        {
+            CreateMissilePool();
+        }
+    }
+
     public bool RegisterGaitPart(Node3D node, string partName) =>
         m_mechRig.RegisterPart(node, partName);
 
@@ -692,21 +700,28 @@ public partial class EnemyMech : Node3D
 
     private MissileEffect AcquireMissile()
     {
-        if (m_missilePool.Count == 0)
-        {
-            for (var index = 0; index < MissilePoolSize; index++)
-            {
-                var missile = new MissileEffect(index % 4 == 0)
-                {
-                    Name = $"{Name}-Missile{index + 1}"
-                };
-                GetParent().AddChild(missile);
-                m_missilePool.Add(missile);
-            }
-        }
+        CreateMissilePool();
 
         return m_missilePool.FirstOrDefault(missile => !missile.IsActive) ??
                m_missilePool.MaxBy(missile => missile.Age);
+    }
+
+    private void CreateMissilePool()
+    {
+        if (m_missilePool.Count > 0)
+        {
+            return;
+        }
+
+        for (var index = 0; index < MissilePoolSize; index++)
+        {
+            var missile = new MissileEffect(index % 4 == 0)
+            {
+                Name = $"{Name}-Missile{index + 1}"
+            };
+            GetParent().AddChild(missile);
+            m_missilePool.Add(missile);
+        }
     }
 
     private void ApplyWeaponDamage(
