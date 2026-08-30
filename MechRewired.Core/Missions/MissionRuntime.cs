@@ -19,6 +19,7 @@ namespace MechRewired.Missions;
 public sealed class MissionRuntime
 {
     private readonly Dictionary<string, MissionObjectiveState> m_states;
+    private readonly HashSet<string> m_observedEvents = new(StringComparer.OrdinalIgnoreCase);
 
     public MissionRuntime(MissionDefinition definition)
     {
@@ -60,6 +61,7 @@ public sealed class MissionRuntime
             return Array.Empty<MissionObjectiveTransition>();
         }
 
+        m_observedEvents.Add(GetEventKey(missionEvent));
         var transitions = new List<MissionObjectiveTransition>();
         foreach (var objective in Definition.Objectives.Where(objective =>
                      GetState(objective.Id) == MissionObjectiveState.Active &&
@@ -106,8 +108,15 @@ public sealed class MissionRuntime
         return true;
     }
 
-    private static bool IsSatisfiedBy(MissionObjectiveDefinition objective, MissionEvent missionEvent)
+    private bool IsSatisfiedBy(MissionObjectiveDefinition objective, MissionEvent missionEvent)
     {
+        if (objective.Kind == MissionObjectiveKind.Aggregate)
+        {
+            return objective.AggregateRequirements.Count > 0 &&
+                   objective.AggregateRequirements.All(requirement =>
+                       m_observedEvents.Contains(GetEventKey(requirement)));
+        }
+
         if (!string.Equals(
                 objective.TargetResourceName,
                 missionEvent.TargetResourceName,
@@ -125,4 +134,7 @@ public sealed class MissionRuntime
             _ => false
         };
     }
+
+    private static string GetEventKey(MissionEvent missionEvent) =>
+        $"{missionEvent.Kind}:{missionEvent.TargetResourceName}";
 }

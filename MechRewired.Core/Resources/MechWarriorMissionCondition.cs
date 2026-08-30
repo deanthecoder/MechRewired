@@ -11,9 +11,18 @@
 namespace MechRewired.Resources;
 
 /// <summary>
-/// Preserves one compact condition or action encoded in an MW2 mission-table record.
+/// Identifies the state of another mission-table record used to activate an objective.
 /// </summary>
-/// <remarks>
-/// The one-byte opcode and 24-bit argument are exposed without assigning unverified semantics.
-/// </remarks>
-public sealed record MechWarriorMissionCondition(char Opcode, int Argument);
+public enum MechWarriorMissionConditionResult : byte
+{
+    Completed = (byte)'C',
+    Failed = (byte)'F',
+    Initial = (byte)'I',
+    Succeeded = (byte)'S'
+}
+
+/// <summary>References one objective record in one MTBL/star table.</summary>
+public sealed record MechWarriorMissionCondition(
+    MechWarriorMissionConditionResult Result,
+    byte ObjectiveIndex,
+    byte TableIndex);

@@ -12,34 +12,36 @@ using MechRewired.Resources;
 
 namespace MechRewired.Missions;
 
-/// <summary>
-/// Builds reusable objective definitions from an original MW2 mission table.
-/// </summary>
-/// <remarks>
-/// The first decoder recognizes verified Pyre Light trigger and goal flags while retaining raw table data separately.
-/// </remarks>
+/// <summary>Builds player objectives and their dependency graph from an original MW2 mission table.</summary>
 public sealed class MissionDefinition
 {
-    private const int DestroyTrigger = 0x0002;
-    private const int InspectTrigger = 0x0008;
-    private const int NavigationTrigger = 0x0100;
     private const byte PrimaryGoal = 0x01;
     private const byte SecondaryGoal = 0x02;
+    private const byte TertiaryGoal = 0x04;
     private const byte ReturnGoal = 0x08;
 
     private MissionDefinition(
         int tableIndex,
+        int timeLimitSeconds,
         MechWarriorMissionResourceReference successReport,
         MechWarriorMissionResourceReference failureReport,
-        IReadOnlyList<MissionObjectiveDefinition> objectives)
+        IReadOnlyList<MissionObjectiveDefinition> objectives,
+        IReadOnlyList<MissionEventReportDefinition> eventReports,
+        IReadOnlySet<int> consumedEntryIndices)
     {
         TableIndex = tableIndex;
+        TimeLimitSeconds = timeLimitSeconds;
         SuccessReport = successReport;
         FailureReport = failureReport;
         Objectives = objectives;
+        EventReports = eventReports;
+        ConsumedEntryIndices = consumedEntryIndices;
     }
 
     public int TableIndex { get; }
+
+    /// <summary>Original mission duration in seconds; -1 means unlimited.</summary>
+    public int TimeLimitSeconds { get; }
 
     public MechWarriorMissionResourceReference SuccessReport { get; }
 
@@ -47,84 +49,248 @@ public sealed class MissionDefinition
 
     public IReadOnlyList<MissionObjectiveDefinition> Objectives { get; }
 
-    /// <summary>Returns authored records deliberately excluded because this objective decoder cannot represent them.</summary>
+    /// <summary>One-shot reports attached to direct hidden or navigation records.</summary>
+    public IReadOnlyList<MissionEventReportDefinition> EventReports { get; }
+
+    /// <summary>MTBL records represented either as player objectives or their internal dependency records.</summary>
+    public IReadOnlySet<int> ConsumedEntryIndices { get; }
+
+    /// <summary>Returns authored table-zero records still outside the player mission runtime.</summary>
     public static IReadOnlyList<MissionObjectiveExclusion> GetExcludedEntries(MechWarriorMissionTable table)
     {
         ArgumentNullException.ThrowIfNull(table);
+        var definition = FromMissionTable(table);
         return table.Entries
-            .Select(entry => (Entry: entry, Reason: GetExclusionReason(entry)))
-            .Where(candidate => candidate.Reason != null)
-            .Select(candidate => new MissionObjectiveExclusion(candidate.Entry, candidate.Reason))
+            .Where(entry => !definition.ConsumedEntryIndices.Contains(entry.Index))
+            .Select(entry => new MissionObjectiveExclusion(entry, GetExclusionReason(entry)))
             .ToArray();
     }
 
     public static MissionDefinition FromMissionTable(MechWarriorMissionTable table)
     {
         ArgumentNullException.ThrowIfNull(table);
+        var consumed = new HashSet<int>();
+        var objectiveEntries = table.Entries
+            .Where(entry => !string.IsNullOrWhiteSpace(entry.Description) &&
+                            TryGetKind(entry, out _) &&
+                            TryGetOptional(entry, out _))
+            .ToArray();
+        var idsByEntry = objectiveEntries.ToDictionary(
+            entry => entry.Index,
+            entry => $"mtbl-{table.Index}-{entry.Index}");
+        var requiredNonExtractionIds = objectiveEntries
+            .Where(entry => TryGetKind(entry, out var kind) &&
+                            kind != MissionObjectiveKind.Extract &&
+                            TryGetOptional(entry, out var isOptional) &&
+                            !isOptional)
+            .Select(entry => idsByEntry[entry.Index])
+            .ToArray();
         var objectives = new List<MissionObjectiveDefinition>();
-        var requiredNonExtractionIds = new List<string>();
-        foreach (var entry in table.Entries)
-        {
-            if (string.IsNullOrWhiteSpace(entry.Description) ||
-                string.IsNullOrWhiteSpace(entry.Target.Name) ||
-                !TryGetKind(entry, out var kind) ||
-                !TryGetOptional(entry, out var isOptional))
-            {
-                continue;
-            }
 
-            var id = $"mtbl-{table.Index}-{entry.Index}";
+        foreach (var entry in objectiveEntries)
+        {
+            consumed.Add(entry.Index);
+            TryGetKind(entry, out var kind);
+            TryGetOptional(entry, out var isOptional);
             IReadOnlyList<string> prerequisites = Array.Empty<string>();
             if (!isOptional && kind == MissionObjectiveKind.Extract)
             {
-                prerequisites = requiredNonExtractionIds.ToArray();
+                var authored = ResolveExtractionPrerequisites(table, entry, idsByEntry, consumed);
+                prerequisites = authored.Count == 0 ? requiredNonExtractionIds : authored;
             }
 
+            var aggregateRequirements = kind == MissionObjectiveKind.Aggregate
+                ? ResolveAggregateRequirements(table, entry, consumed)
+                : Array.Empty<MissionEvent>();
             objectives.Add(new MissionObjectiveDefinition(
-                id,
+                idsByEntry[entry.Index],
                 entry.Description,
                 kind,
                 entry.Target.Name,
                 isOptional,
                 prerequisites,
-                entry.SuccessReport));
-            if (!isOptional && kind != MissionObjectiveKind.Extract)
+                entry.SuccessReport,
+                aggregateRequirements));
+        }
+
+        var completionReportIndices = objectiveEntries
+            .Where(entry => TryGetKind(entry, out var kind) &&
+                            kind is MissionObjectiveKind.Destroy or MissionObjectiveKind.Inspect)
+            .Select(entry => entry.Index)
+            .ToHashSet();
+        var eventReports = new List<MissionEventReportDefinition>();
+        foreach (var entry in table.Entries.Where(entry =>
+                     entry.SuccessReport.ResourceIndex.HasValue &&
+                     !completionReportIndices.Contains(entry.Index)))
+        {
+            if (!TryGetMissionEvent(entry, out var trigger))
             {
-                requiredNonExtractionIds.Add(id);
+                continue;
             }
+
+            consumed.Add(entry.Index);
+            eventReports.Add(new MissionEventReportDefinition(trigger, entry.SuccessReport));
         }
 
         return new MissionDefinition(
             table.Index,
+            table.MissionTimeSeconds,
             table.SuccessReport,
             table.FailureReport,
-            objectives.AsReadOnly());
+            objectives.AsReadOnly(),
+            eventReports.AsReadOnly(),
+            consumed);
+    }
+
+    private static IReadOnlyList<string> ResolveExtractionPrerequisites(
+        MechWarriorMissionTable table,
+        MechWarriorMissionTableEntry extraction,
+        IReadOnlyDictionary<int, string> idsByEntry,
+        ISet<int> consumed)
+    {
+        var showRecords = table.Entries.Where(entry =>
+            entry.ControlAction == MechWarriorMissionControlAction.ShowObjective &&
+            entry.TargetObjectiveIndex == extraction.Index).ToArray();
+        MechWarriorMissionTableEntry[] sources = showRecords.Length == 0 ? [extraction] : showRecords;
+        var prerequisites = new List<string>();
+        foreach (var source in sources)
+        {
+            consumed.Add(source.Index);
+            CollectObjectiveDependencies(table, source, idsByEntry, consumed, prerequisites, new HashSet<int>());
+        }
+
+        return prerequisites.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+    }
+
+    private static void CollectObjectiveDependencies(
+        MechWarriorMissionTable table,
+        MechWarriorMissionTableEntry source,
+        IReadOnlyDictionary<int, string> idsByEntry,
+        ISet<int> consumed,
+        ICollection<string> prerequisites,
+        ISet<int> visiting)
+    {
+        if (!visiting.Add(source.Index))
+        {
+            return;
+        }
+
+        foreach (var condition in source.ActivationConditions.Where(condition => condition.TableIndex == table.Index))
+        {
+            if (condition.ObjectiveIndex >= table.Entries.Count)
+            {
+                continue;
+            }
+
+            var dependency = table.Entries[condition.ObjectiveIndex];
+            consumed.Add(dependency.Index);
+            if (idsByEntry.TryGetValue(dependency.Index, out var id))
+            {
+                prerequisites.Add(id);
+            }
+            else
+            {
+                CollectObjectiveDependencies(table, dependency, idsByEntry, consumed, prerequisites, visiting);
+            }
+        }
+
+        visiting.Remove(source.Index);
+    }
+
+    private static IReadOnlyList<MissionEvent> ResolveAggregateRequirements(
+        MechWarriorMissionTable table,
+        MechWarriorMissionTableEntry objective,
+        ISet<int> consumed)
+    {
+        var succeedRecords = table.Entries.Where(entry =>
+            entry.ControlAction == MechWarriorMissionControlAction.SucceedObjective &&
+            entry.TargetObjectiveIndex == objective.Index).ToArray();
+        MechWarriorMissionTableEntry[] sources = succeedRecords.Length == 0 ? [objective] : succeedRecords;
+        var requirements = new List<MissionEvent>();
+        foreach (var source in sources)
+        {
+            consumed.Add(source.Index);
+            CollectAggregateRequirements(table, source, consumed, requirements, new HashSet<int>());
+        }
+
+        return requirements
+            .DistinctBy(requirement => $"{requirement.Kind}:{requirement.TargetResourceName}",
+                StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static void CollectAggregateRequirements(
+        MechWarriorMissionTable table,
+        MechWarriorMissionTableEntry source,
+        ISet<int> consumed,
+        ICollection<MissionEvent> requirements,
+        ISet<int> visiting)
+    {
+        if (!visiting.Add(source.Index))
+        {
+            return;
+        }
+
+        foreach (var condition in source.ActivationConditions.Where(condition => condition.TableIndex == table.Index))
+        {
+            if (condition.ObjectiveIndex >= table.Entries.Count)
+            {
+                continue;
+            }
+
+            var dependency = table.Entries[condition.ObjectiveIndex];
+            consumed.Add(dependency.Index);
+            if (TryGetMissionEvent(dependency, out var requirement))
+            {
+                requirements.Add(requirement);
+            }
+            else if (dependency.Action != MechWarriorMissionAction.Begin)
+            {
+                CollectAggregateRequirements(table, dependency, consumed, requirements, visiting);
+            }
+        }
+
+        visiting.Remove(source.Index);
+    }
+
+    private static bool TryGetMissionEvent(MechWarriorMissionTableEntry entry, out MissionEvent missionEvent)
+    {
+        var kind = entry.Action switch
+        {
+            MechWarriorMissionAction.Destroy => (MissionEventKind?)MissionEventKind.TargetDestroyed,
+            MechWarriorMissionAction.Recon => MissionEventKind.TargetInspected,
+            MechWarriorMissionAction.GoTo or MechWarriorMissionAction.Return or MechWarriorMissionAction.Leave =>
+                MissionEventKind.NavigationPointReached,
+            _ => null
+        };
+        if (kind.HasValue && !string.IsNullOrWhiteSpace(entry.Target.Name))
+        {
+            missionEvent = new MissionEvent(kind.Value, entry.Target.Name);
+            return true;
+        }
+
+        missionEvent = null;
+        return false;
     }
 
     private static bool TryGetKind(MechWarriorMissionTableEntry entry, out MissionObjectiveKind kind)
     {
-        if ((entry.TriggerFlags & InspectTrigger) != 0)
+        kind = entry.Action switch
         {
-            kind = MissionObjectiveKind.Inspect;
-            return true;
-        }
-
-        if ((entry.TriggerFlags & DestroyTrigger) != 0)
-        {
-            kind = MissionObjectiveKind.Destroy;
-            return true;
-        }
-
-        if ((entry.TriggerFlags & NavigationTrigger) != 0)
-        {
-            kind = (entry.GoalFlags & ReturnGoal) != 0
-                ? MissionObjectiveKind.Extract
-                : MissionObjectiveKind.ReachNavigationPoint;
-            return true;
-        }
-
-        kind = default;
-        return false;
+            MechWarriorMissionAction.Recon => MissionObjectiveKind.Inspect,
+            MechWarriorMissionAction.Destroy => MissionObjectiveKind.Destroy,
+            MechWarriorMissionAction.GoTo or MechWarriorMissionAction.Return =>
+                (entry.GoalFlags & ReturnGoal) != 0
+                    ? MissionObjectiveKind.Extract
+                    : MissionObjectiveKind.ReachNavigationPoint,
+            MechWarriorMissionAction.Wait => MissionObjectiveKind.Aggregate,
+            _ => default
+        };
+        return entry.Action is MechWarriorMissionAction.Recon or
+            MechWarriorMissionAction.Destroy or
+            MechWarriorMissionAction.GoTo or
+            MechWarriorMissionAction.Return or
+            MechWarriorMissionAction.Wait;
     }
 
     private static bool TryGetOptional(MechWarriorMissionTableEntry entry, out bool isOptional)
@@ -135,7 +301,7 @@ public sealed class MissionDefinition
             return true;
         }
 
-        if (entry.GoalClass == 'O' && (entry.GoalFlags & SecondaryGoal) != 0)
+        if (entry.GoalClass == 'O' && (entry.GoalFlags & (SecondaryGoal | TertiaryGoal)) != 0)
         {
             isOptional = true;
             return true;
@@ -147,14 +313,24 @@ public sealed class MissionDefinition
 
     private static string GetExclusionReason(MechWarriorMissionTableEntry entry)
     {
-        if (string.IsNullOrWhiteSpace(entry.Description)) return "Record has no objective description.";
-        if (string.IsNullOrWhiteSpace(entry.Target.Name)) return "Record has no target resource.";
-        if (!TryGetKind(entry, out _)) return $"Trigger flags 0x{entry.TriggerFlags:X} are not supported.";
-        if (!TryGetOptional(entry, out _))
-            return $"Goal class '{entry.GoalClass}' with flags 0x{entry.GoalFlags:X2} is not supported.";
-        return null;
+        if (entry.Action == MechWarriorMissionAction.Begin)
+        {
+            return "Initial deployment record is not yet evaluated by the player mission runtime.";
+        }
+
+        if (entry.ControlAction != MechWarriorMissionControlAction.None)
+        {
+            return $"Mission-control action 0x{(ushort)entry.ControlAction:X4} is not yet evaluated.";
+        }
+
+        return $"{entry.Action} record is not represented by a player objective or dependency.";
     }
 }
 
-/// <summary>Explains why an authored MTBL record did not become a runtime objective.</summary>
+/// <summary>Explains why an authored MTBL record did not become part of the runtime graph.</summary>
 public sealed record MissionObjectiveExclusion(MechWarriorMissionTableEntry Entry, string Reason);
+
+/// <summary>An archive-authored report played the first time a direct MTBL event occurs.</summary>
+public sealed record MissionEventReportDefinition(
+    MissionEvent Trigger,
+    MechWarriorMissionResourceReference Report);

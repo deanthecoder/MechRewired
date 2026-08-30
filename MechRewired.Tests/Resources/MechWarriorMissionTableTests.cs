@@ -32,15 +32,24 @@ public sealed class MechWarriorMissionTableTests
         var table = MechWarriorMissionTable.Load(data);
 
         Assert.That(table.Index, Is.Zero);
+        Assert.That(table.MissionTimeSeconds, Is.EqualTo(1500));
         Assert.That(table.Entries, Has.Count.EqualTo(3));
         var destroy = table.Entries[0];
         Assert.Multiple(() =>
         {
-            Assert.That(destroy.TriggerFlags, Is.EqualTo(0x0002));
+            Assert.That(destroy.Action, Is.EqualTo(MechWarriorMissionAction.Destroy));
+            Assert.That(destroy.ControlAction, Is.EqualTo(MechWarriorMissionControlAction.None));
             Assert.That(destroy.VisibilityCode, Is.EqualTo('V'));
-            Assert.That(destroy.Trigger, Is.EqualTo(new MechWarriorMissionCondition('C', 0)));
+            Assert.That(destroy.ConditionLogic, Is.EqualTo(MechWarriorMissionConditionLogic.Any));
+            Assert.That(destroy.ActivationConditions, Is.EqualTo(new[]
+            {
+                new MechWarriorMissionCondition(MechWarriorMissionConditionResult.Completed, 0, 0)
+            }));
+            Assert.That(destroy.TimeSeconds, Is.Zero);
             Assert.That(destroy.GoalClass, Is.EqualTo('M'));
             Assert.That(destroy.GoalFlags, Is.EqualTo(1));
+            Assert.That(destroy.MechsPerTarget, Is.Zero);
+            Assert.That(destroy.DoNotDisturb, Is.Zero);
             Assert.That(destroy.SuccessReport.ResourceIndex, Is.EqualTo(337));
             Assert.That(destroy.SuccessReport.Name, Is.EqualTo("yell002S"));
             Assert.That(destroy.Target.ResourceIndex, Is.EqualTo(1383));
@@ -64,13 +73,14 @@ public sealed class MechWarriorMissionTableTests
         const int headerSize = 30;
         const int recordSize = 151;
         var data = new byte[headerSize + recordSize * 3];
+        BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(4), 1500);
         WriteReference(data, 8, 10, 119, "gene001S");
         WriteReference(data, 19, 21, 118, "gene001F");
         WriteEntry(
             data.AsSpan(headerSize, recordSize),
-            0x0002,
+            MechWarriorMissionAction.Destroy,
             'V',
-            'C',
+            [new MechWarriorMissionCondition(MechWarriorMissionConditionResult.Completed, 0, 0)],
             'M',
             1,
             337,
@@ -80,9 +90,9 @@ public sealed class MechWarriorMissionTableTests
             "Destroy Chemical Plant at Nav Epsilon");
         WriteEntry(
             data.AsSpan(headerSize + recordSize, recordSize),
-            0x0008,
+            MechWarriorMissionAction.Recon,
             'V',
-            'C',
+            [new MechWarriorMissionCondition(MechWarriorMissionConditionResult.Completed, 0, 0)],
             'M',
             1,
             336,
@@ -92,9 +102,12 @@ public sealed class MechWarriorMissionTableTests
             "Inspect Firebase Wreckage at Nav Zeta");
         WriteEntry(
             data.AsSpan(headerSize + recordSize * 2, recordSize),
-            0x0100,
+            MechWarriorMissionAction.GoTo,
             'H',
-            'S',
+            [
+                new MechWarriorMissionCondition(MechWarriorMissionConditionResult.Succeeded, 0, 0),
+                new MechWarriorMissionCondition(MechWarriorMissionConditionResult.Succeeded, 1, 0)
+            ],
             'M',
             8,
             147,
@@ -105,11 +118,60 @@ public sealed class MechWarriorMissionTableTests
         return data;
     }
 
+    internal static byte[] CreateAggregateTableData()
+    {
+        const int headerSize = 30;
+        const int recordSize = 151;
+        var baseData = CreateTableData();
+        var data = new byte[headerSize + recordSize * 6];
+        baseData.CopyTo(data, 0);
+        WriteEntry(
+            data.AsSpan(headerSize + recordSize * 3, recordSize),
+            MechWarriorMissionAction.Destroy,
+            'H',
+            [new MechWarriorMissionCondition(MechWarriorMissionConditionResult.Completed, 0, 0)],
+            'O',
+            0,
+            -1,
+            string.Empty,
+            1408,
+            "enemy1",
+            "Enemy Mech Destroyed");
+        WriteEntry(
+            data.AsSpan(headerSize + recordSize * 4, recordSize),
+            MechWarriorMissionAction.Destroy,
+            'H',
+            [new MechWarriorMissionCondition(MechWarriorMissionConditionResult.Completed, 0, 0)],
+            'O',
+            0,
+            -1,
+            string.Empty,
+            1409,
+            "enemy2",
+            "Enemy Mech Destroyed");
+        WriteEntry(
+            data.AsSpan(headerSize + recordSize * 5, recordSize),
+            MechWarriorMissionAction.Wait,
+            'V',
+            [
+                new MechWarriorMissionCondition(MechWarriorMissionConditionResult.Succeeded, 3, 0),
+                new MechWarriorMissionCondition(MechWarriorMissionConditionResult.Succeeded, 4, 0)
+            ],
+            'O',
+            2,
+            120,
+            "gene002S",
+            1403,
+            "start",
+            "Destroy all Enemy Mechs");
+        return data;
+    }
+
     private static void WriteEntry(
         Span<byte> data,
-        int triggerFlags,
+        MechWarriorMissionAction action,
         char visibility,
-        char trigger,
+        IReadOnlyList<MechWarriorMissionCondition> conditions,
         char goalClass,
         byte goalFlags,
         short successIndex,
@@ -118,12 +180,22 @@ public sealed class MechWarriorMissionTableTests
         string targetName,
         string description)
     {
-        BinaryPrimitives.WriteInt32LittleEndian(data, triggerFlags);
+        BinaryPrimitives.WriteUInt16LittleEndian(data, (ushort)action);
         data[4] = (byte)visibility;
-        data[10] = (byte)trigger;
-        for (var offset = 14; offset < 46; offset += 4)
+        BinaryPrimitives.WriteInt32LittleEndian(data[6..],
+            conditions.Count > 1 ? (int)MechWarriorMissionConditionLogic.All : 0);
+        for (var offset = 10; offset < 42; offset += 4)
         {
             data.Slice(offset, 4).Fill(0xff);
+            data[offset + 3] = 0;
+        }
+        for (var index = 0; index < conditions.Count; index++)
+        {
+            var condition = conditions[index];
+            var offset = 10 + index * 4;
+            data[offset] = (byte)condition.Result;
+            data[offset + 1] = condition.ObjectiveIndex;
+            data[offset + 2] = condition.TableIndex;
             data[offset + 3] = 0;
         }
 
@@ -132,7 +204,8 @@ public sealed class MechWarriorMissionTableTests
         WriteReference(data, 50, 52, successIndex, successName);
         WriteReference(data, 61, 63, -1, string.Empty);
         WriteReference(data, 72, 74, targetIndex, targetName);
-        BinaryPrimitives.WriteInt32LittleEndian(data[83..], -1);
+        BinaryPrimitives.WriteInt16LittleEndian(data[83..], -1);
+        BinaryPrimitives.WriteInt16LittleEndian(data[85..], -1);
         Encoding.ASCII.GetBytes(description, data[87..]);
     }
 

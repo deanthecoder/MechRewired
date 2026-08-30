@@ -21,5 +21,7 @@ public enum MissionObjectiveKind
     Destroy,
     Inspect,
     ReachNavigationPoint,
-    Extract
+    Extract,
+    /// <summary>Completes when a set of other authored MTBL target records has succeeded.</summary>
+    Aggregate
 }

@@ -21,6 +21,95 @@ public sealed class OriginalArchiveIntegrationTests
     private const string ArchiveEnvironmentVariable = "MECHREWIRED_MW2_PRJ";
 
     [Test]
+    public void SilentThunderMissionTableRetainsAuthoredControlSemantics()
+    {
+        var archive = OpenOriginalArchive();
+        var mission = MechWarriorMissionResources.Load(archive, "BWD/PINKSCN1.BWD");
+        var table = mission.Scenario.MissionTables.Single(candidate => candidate.Index == 0);
+        var showExtraction = table.Entries[12];
+        var secondary = table.Entries[14];
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(table.MissionTimeSeconds, Is.EqualTo(1500));
+            Assert.That(showExtraction.Action, Is.EqualTo(MechWarriorMissionAction.None));
+            Assert.That(showExtraction.ControlAction,
+                Is.EqualTo(MechWarriorMissionControlAction.ShowObjective));
+            Assert.That(showExtraction.ConditionLogic, Is.EqualTo(MechWarriorMissionConditionLogic.All));
+            Assert.That(showExtraction.ActivationConditions, Is.EqualTo(new[]
+            {
+                new MechWarriorMissionCondition(MechWarriorMissionConditionResult.Succeeded, 1, 0),
+                new MechWarriorMissionCondition(MechWarriorMissionConditionResult.Succeeded, 2, 0)
+            }));
+            Assert.That(showExtraction.TargetObjectiveIndex, Is.EqualTo(20));
+            Assert.That(secondary.Action, Is.EqualTo(MechWarriorMissionAction.Wait));
+            Assert.That(secondary.GoalFlags, Is.EqualTo(0x02));
+            Assert.That(secondary.ActivationConditions.Select(condition => condition.ObjectiveIndex),
+                Is.EqualTo(new byte[] { 5, 6, 26 }));
+        });
+    }
+
+    [Test]
+    public void SilentThunderExposesAuthoredOptionalDestructionGoals()
+    {
+        var archive = OpenOriginalArchive();
+        var mission = MechWarriorMissionResources.Load(archive, "BWD/PINKSCN1.BWD");
+        var definition = MechRewired.Missions.MissionDefinition.FromMissionTable(
+            mission.Scenario.MissionTables.Single(table => table.Index == 0));
+        var secondary = definition.Objectives.Single(objective =>
+            objective.Description == "Destroy all Enemy Mechs");
+        var tertiary = definition.Objectives.Single(objective =>
+            objective.Description == "Destroy Targets of Opportunity");
+        var extraction = definition.Objectives.Single(objective =>
+            objective.Kind == MechRewired.Missions.MissionObjectiveKind.Extract);
+        var navigationReports = definition.EventReports
+            .Where(report => report.Trigger.Kind == MechRewired.Missions.MissionEventKind.NavigationPointReached)
+            .ToDictionary(
+                report => report.Trigger.TargetResourceName,
+                report => report.Report.Name,
+                StringComparer.OrdinalIgnoreCase);
+        var runtime = new MechRewired.Missions.MissionRuntime(definition);
+        runtime.Apply(new MechRewired.Missions.MissionEvent(
+            MechRewired.Missions.MissionEventKind.TargetDestroyed, "pinkENS1"));
+        runtime.Apply(new MechRewired.Missions.MissionEvent(
+            MechRewired.Missions.MissionEventKind.TargetDestroyed, "pinkENS2"));
+        var secondaryTransitions = runtime.Apply(new MechRewired.Missions.MissionEvent(
+            MechRewired.Missions.MissionEventKind.TargetDestroyed, "pinkENS3"));
+        runtime.Apply(new MechRewired.Missions.MissionEvent(
+            MechRewired.Missions.MissionEventKind.TargetDestroyed, "pinkare3"));
+        var tertiaryTransitions = runtime.Apply(new MechRewired.Missions.MissionEvent(
+            MechRewired.Missions.MissionEventKind.TargetDestroyed, "pinkare5"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(definition.Objectives, Has.Count.EqualTo(5));
+            Assert.That(definition.TimeLimitSeconds, Is.EqualTo(1500));
+            Assert.That(secondary.IsOptional, Is.True);
+            Assert.That(secondary.Kind, Is.EqualTo(MechRewired.Missions.MissionObjectiveKind.Aggregate));
+            Assert.That(secondary.SuccessReport.Name, Is.EqualTo("gene002S"));
+            Assert.That(secondary.AggregateRequirements.Select(requirement => requirement.TargetResourceName),
+                Is.EquivalentTo(new[] { "pinkENS1", "pinkENS2", "pinkENS3" }));
+            Assert.That(tertiary.IsOptional, Is.True);
+            Assert.That(tertiary.SuccessReport.Name, Is.EqualTo("gene003S"));
+            Assert.That(tertiary.AggregateRequirements.Select(requirement => requirement.TargetResourceName),
+                Is.EquivalentTo(new[] { "pinkare3", "pinkare5" }));
+            Assert.That(secondaryTransitions.Select(transition => transition.Objective.Id),
+                Does.Contain(secondary.Id));
+            Assert.That(tertiaryTransitions.Select(transition => transition.Objective.Id),
+                Does.Contain(tertiary.Id));
+            Assert.That(runtime.GetState(secondary.Id),
+                Is.EqualTo(MechRewired.Missions.MissionObjectiveState.Completed));
+            Assert.That(runtime.GetState(tertiary.Id),
+                Is.EqualTo(MechRewired.Missions.MissionObjectiveState.Completed));
+            Assert.That(extraction.PrerequisiteIds,
+                Is.EquivalentTo(new[] { "mtbl-0-1", "mtbl-0-2" }));
+            Assert.That(navigationReports["Pinknav1"], Is.EqualTo("genegoaS"));
+            Assert.That(navigationReports["Pinknav2"], Is.EqualTo("genegobS"));
+            Assert.That(navigationReports["Pinknav3"], Is.EqualTo("genegocS"));
+        });
+    }
+
+    [Test]
     public void JadeFalconReconHelicopterIsOneMovingDamageableAssembly()
     {
         var archive = OpenOriginalArchive();
@@ -280,6 +369,16 @@ public sealed class OriginalArchiveIntegrationTests
             .Select(piece => piece.Specification.GroupId)
             .Order()
             .ToArray();
+        var secondary = definition.Objectives.Single(objective =>
+            objective.Description == "Destroy All Surviving Mechs");
+        var extraction = definition.Objectives.Single(objective =>
+            objective.Kind == MechRewired.Missions.MissionObjectiveKind.Extract);
+        var navigationReports = definition.EventReports
+            .Where(report => report.Trigger.Kind == MechRewired.Missions.MissionEventKind.NavigationPointReached)
+            .ToDictionary(
+                report => report.Trigger.TargetResourceName,
+                report => report.Report.Name,
+                StringComparer.OrdinalIgnoreCase);
 
         Assert.Multiple(() =>
         {
@@ -289,7 +388,16 @@ public sealed class OriginalArchiveIntegrationTests
             Assert.That(hostileGroups, Is.EqualTo(new[] { 1, 2, 3, 4 }));
             Assert.That(level.Actors, Has.Count.EqualTo(9));
             Assert.That(navigationPoints, Has.Length.EqualTo(3));
-            Assert.That(definition.Objectives, Has.Count.EqualTo(3));
+            Assert.That(definition.Objectives, Has.Count.EqualTo(5));
+            Assert.That(definition.TimeLimitSeconds, Is.EqualTo(1500));
+            Assert.That(secondary.SuccessReport.Name, Is.EqualTo("gene002S"));
+            Assert.That(secondary.AggregateRequirements.Select(requirement => requirement.TargetResourceName),
+                Is.EquivalentTo(new[] { "yellens1", "yellens2", "yellens3", "yellens4", "yellens5" }));
+            Assert.That(extraction.PrerequisiteIds,
+                Is.EquivalentTo(new[] { "mtbl-0-6", "mtbl-0-7" }));
+            Assert.That(navigationReports["yellNAV1"], Is.EqualTo("genegoeS"));
+            Assert.That(navigationReports["yellNAV2"], Is.EqualTo("genegofS"));
+            Assert.That(navigationReports["yellNAV3"], Is.EqualTo("genegogS"));
             Assert.That(audit.Findings.Where(finding =>
                 finding.Kind == MechRewired.Missions.MissionFidelityFindingKind.MissingRuntimeContent), Is.Empty);
         });

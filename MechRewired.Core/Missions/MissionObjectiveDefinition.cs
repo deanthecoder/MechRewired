@@ -25,4 +25,5 @@ public sealed record MissionObjectiveDefinition(
     string TargetResourceName,
     bool IsOptional,
     IReadOnlyList<string> PrerequisiteIds,
-    MechWarriorMissionResourceReference SuccessReport);
+    MechWarriorMissionResourceReference SuccessReport,
+    IReadOnlyList<MissionEvent> AggregateRequirements);

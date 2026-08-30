@@ -1963,8 +1963,7 @@ public partial class Main : Node3D
         var playerNavigation = new PlayerNavigation(
             playerMech,
             navigationPoints,
-            playerMechSounds.NavigationPointTone,
-            playerMechSounds.NavigationPointReports);
+            playerMechSounds.NavigationPointTone);
         AddChild(playerNavigation);
         foreach (var navigationPoint in navigationPoints)
         {

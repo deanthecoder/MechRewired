@@ -98,6 +98,34 @@ public sealed class MissionRuntimeTests
         });
     }
 
+    [Test]
+    public void AggregateObjectiveCompletesAfterEveryAuthoredTargetAndRemainsOptional()
+    {
+        var table = MechWarriorMissionTable.Load(MechWarriorMissionTableTests.CreateAggregateTableData());
+        var definition = MissionDefinition.FromMissionTable(table);
+        var runtime = new MissionRuntime(definition);
+        var aggregate = definition.Objectives.Single(objective =>
+            objective.Kind == MissionObjectiveKind.Aggregate);
+
+        var firstTransitions = runtime.Apply(new MissionEvent(MissionEventKind.TargetDestroyed, "ENEMY1"));
+        var secondTransitions = runtime.Apply(new MissionEvent(MissionEventKind.TargetDestroyed, "enemy2"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(aggregate.IsOptional, Is.True);
+            Assert.That(aggregate.SuccessReport.Name, Is.EqualTo("gene002S"));
+            Assert.That(aggregate.AggregateRequirements.Select(requirement => requirement.TargetResourceName),
+                Is.EquivalentTo(new[] { "enemy1", "enemy2" }));
+            Assert.That(firstTransitions.Select(transition => transition.Objective.Id),
+                Does.Not.Contain(aggregate.Id));
+            Assert.That(secondTransitions.Select(transition => transition.Objective.Id),
+                Does.Contain(aggregate.Id));
+            Assert.That(runtime.GetState(aggregate.Id), Is.EqualTo(MissionObjectiveState.Completed));
+            Assert.That(runtime.Outcome, Is.EqualTo(MissionOutcome.Active),
+                "Completing an optional objective must not bypass the required mission path.");
+        });
+    }
+
     private static MissionDefinition CreateDefinition()
     {
         var table = MechWarriorMissionTable.Load(MechWarriorMissionTableTests.CreateTableData());

@@ -27,11 +27,14 @@ public partial class PlayerMission : Node
 
     private readonly MissionRuntime m_runtime;
     private readonly IReadOnlyDictionary<string, AudioStreamWav> m_completionReports;
+    private readonly IReadOnlyDictionary<string, IReadOnlyList<AudioStreamWav>> m_eventReports;
+    private readonly HashSet<string> m_reportedEvents = new(StringComparer.OrdinalIgnoreCase);
     private readonly IReadOnlyList<AudioStreamWav> m_extractionReadyReports;
     private readonly AudioStreamWav m_successReport;
     private readonly AudioStreamWav m_failureReport;
     private readonly AudioStreamPlayer m_reportPlayer;
     private readonly Queue<AudioStreamWav> m_reportQueue = new();
+    private double m_remainingMissionSeconds;
     private bool m_completionReported;
     private float m_statusMessageRemaining;
 
@@ -41,7 +44,9 @@ public partial class PlayerMission : Node
         ArgumentNullException.ThrowIfNull(definition);
         Name = "PlayerMission";
         m_runtime = new MissionRuntime(definition);
+        m_remainingMissionSeconds = definition.TimeLimitSeconds;
         m_completionReports = LoadCompletionReports(archive, definition);
+        m_eventReports = LoadEventReports(archive, definition);
         m_successReport = LoadReport(
             archive,
             definition.SuccessReport,
@@ -73,6 +78,15 @@ public partial class PlayerMission : Node
 
     public void Apply(MissionEvent missionEvent)
     {
+        var eventKey = GetEventKey(missionEvent);
+        if (m_reportedEvents.Add(eventKey) && m_eventReports.TryGetValue(eventKey, out var eventReports))
+        {
+            foreach (var report in eventReports)
+            {
+                QueueReport(report);
+            }
+        }
+
         foreach (var transition in m_runtime.Apply(missionEvent))
         {
             if (transition.State == MissionObjectiveState.Completed)
@@ -183,6 +197,15 @@ public partial class PlayerMission : Node
 
     public override void _Process(double delta)
     {
+        if (!m_runtime.IsResolved && m_remainingMissionSeconds > 0.0)
+        {
+            m_remainingMissionSeconds -= delta;
+            if (m_remainingMissionSeconds <= 0.0)
+            {
+                Fail();
+            }
+        }
+
         if (m_statusMessageRemaining <= 0.0f)
         {
             return;
@@ -201,7 +224,9 @@ public partial class PlayerMission : Node
     {
         var reports = new Dictionary<string, AudioStreamWav>(StringComparer.OrdinalIgnoreCase);
         foreach (var objective in definition.Objectives.Where(objective =>
-                     objective.Kind is MissionObjectiveKind.Destroy or MissionObjectiveKind.Inspect &&
+                     objective.Kind is MissionObjectiveKind.Destroy or
+                         MissionObjectiveKind.Inspect or
+                         MissionObjectiveKind.Aggregate &&
                      objective.SuccessReport.ResourceIndex.HasValue))
         {
             reports.Add(
@@ -213,6 +238,23 @@ public partial class PlayerMission : Node
         }
 
         return reports;
+    }
+
+    private static IReadOnlyDictionary<string, IReadOnlyList<AudioStreamWav>> LoadEventReports(
+        MechWarriorProjectArchive archive,
+        MissionDefinition definition)
+    {
+        return definition.EventReports
+            .GroupBy(report => GetEventKey(report.Trigger), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => (IReadOnlyList<AudioStreamWav>)group.Select(report => LoadReport(
+                    archive,
+                    report.Report,
+                    $"mission event report for {report.Trigger.Kind} on {report.Trigger.TargetResourceName}"))
+                    .Where(report => report != null)
+                    .ToArray(),
+                StringComparer.OrdinalIgnoreCase);
     }
 
     private static AudioStreamWav LoadReport(
@@ -265,4 +307,7 @@ public partial class PlayerMission : Node
         m_reportPlayer.Stream = m_reportQueue.Dequeue();
         m_reportPlayer.Play();
     }
+
+    private static string GetEventKey(MissionEvent missionEvent) =>
+        $"{missionEvent.Kind}:{missionEvent.TargetResourceName}";
 }

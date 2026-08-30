@@ -29,7 +29,6 @@ public sealed record PlayerMechSounds(
     AudioStreamWav EnemyPowerUpDetected,
     AudioStreamWav EnemyMechDestroyed,
     AudioStreamWav NavigationPointTone,
-    IReadOnlyList<AudioStreamWav> NavigationPointReports,
     AudioStreamWav DisplayZoom,
     AudioStreamWav ExternalCameraEngaged,
     AudioStreamWav Autopilot,
@@ -86,12 +85,6 @@ public sealed record PlayerMechSounds(
         "SNDS/MECWIMP4.SFL",
         "SNDS/MECWIMP5.SFL"
     ];
-    private static readonly string[] NavigationPointReportPaths =
-    [
-        "SNDS/GENEGOES.SFL",
-        "SNDS/GENEGOFS.SFL",
-        "SNDS/GENEGOGS.SFL"
-    ];
     private static readonly string[] WeaponFireResourceNames =
     [
         "MECSLASR.SFL",
@@ -126,13 +119,6 @@ public sealed record PlayerMechSounds(
             LoadResource(archive, EnemyPowerUpDetectedPath, false, "enemy power-up detected report"),
             LoadResource(archive, EnemyMechDestroyedPath, false, "enemy mech destroyed report"),
             LoadResource(archive, NavigationPointTonePath, false, "navigation point arrival tone"),
-            NavigationPointReportPaths
-                .Select((path, index) => LoadResource(
-                    archive,
-                    path,
-                    false,
-                    $"{missionPrefix} NAV {index + 1} arrival report"))
-                .ToArray(),
             LoadResource(archive, DisplayZoomPath, true, "cockpit display zoom motor"),
             LoadResource(archive, ExternalCameraEngagedPath, false, "external-camera engaged report"),
             LoadResource(archive, AutopilotPath, false, "autopilot report"),

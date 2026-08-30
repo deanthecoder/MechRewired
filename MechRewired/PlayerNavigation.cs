@@ -22,22 +22,18 @@ namespace MechRewired;
 public partial class PlayerNavigation : Node
 {
     private readonly PlayerMech m_playerMech;
-    private readonly IReadOnlyList<AudioStreamWav> m_reachedReports;
     private readonly bool[] m_reached;
     private readonly bool[] m_inside;
     private readonly AudioStreamPlayer m_tonePlayer;
-    private readonly AudioStreamPlayer m_reportPlayer;
 
     public PlayerNavigation(
         PlayerMech playerMech,
         IReadOnlyList<MechWarriorMissionNavigationPoint> navigationPoints,
-        AudioStreamWav reachedTone,
-        IReadOnlyList<AudioStreamWav> reachedReports)
+        AudioStreamWav reachedTone)
     {
         ArgumentNullException.ThrowIfNull(playerMech);
         ArgumentNullException.ThrowIfNull(navigationPoints);
         ArgumentNullException.ThrowIfNull(reachedTone);
-        ArgumentNullException.ThrowIfNull(reachedReports);
         if (navigationPoints.Count == 0)
         {
             throw new ArgumentException("At least one navigation point is required.", nameof(navigationPoints));
@@ -47,7 +43,6 @@ public partial class PlayerNavigation : Node
         m_playerMech = playerMech;
         MissionNavigationPoints = navigationPoints;
         NavigationPoints = navigationPoints.Select(navigationPoint => navigationPoint.Point).ToArray();
-        m_reachedReports = reachedReports;
         m_reached = new bool[navigationPoints.Count];
         m_inside = new bool[navigationPoints.Count];
         m_tonePlayer = new AudioStreamPlayer
@@ -55,12 +50,7 @@ public partial class PlayerNavigation : Node
             Name = "NavigationTone",
             Stream = reachedTone
         };
-        m_reportPlayer = new AudioStreamPlayer
-        {
-            Name = "NavigationReport"
-        };
         AddChild(m_tonePlayer);
-        AddChild(m_reportPlayer);
     }
 
     public IReadOnlyList<MechWarriorWorldNavPoint> NavigationPoints { get; }
@@ -101,12 +91,6 @@ public partial class PlayerNavigation : Node
 
         m_reached[reachedIndex] = true;
         m_tonePlayer.Play();
-        if (reachedIndex < m_reachedReports.Count)
-        {
-            m_reportPlayer.Stream = m_reachedReports[reachedIndex];
-            m_reportPlayer.Play();
-        }
-
         GD.Print(
             $"MechRewired: reached NAV '{SelectedPoint.Description}' within its " +
             $"{SelectedPoint.Radius}m proximity radius.");
