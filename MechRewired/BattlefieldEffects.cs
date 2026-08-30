@@ -348,7 +348,7 @@ public partial class BattlefieldEffects : Node3D
             ambientEffect.IsSuppressed = true;
             if (ambientEffect.IsActive)
             {
-                DeactivateAmbientEffect(ambientEffect);
+                BeginAmbientEffectDrain(ambientEffect);
             }
             suppressedCount++;
         }
@@ -356,7 +356,7 @@ public partial class BattlefieldEffects : Node3D
         if (suppressedCount > 0)
         {
             GD.Print(
-                $"MechRewired: stopped {suppressedCount} authored ambient effect(s) with destroyed " +
+                $"MechRewired: stopped spawning {suppressedCount} authored ambient effect(s) with destroyed " +
                 $"{owner.Description} object {owner.Definition.ObjectId}.");
         }
     }
@@ -378,8 +378,25 @@ public partial class BattlefieldEffects : Node3D
 
     public override void _Process(double delta)
     {
-        _ = delta;
+        UpdateAmbientEffectDrains(delta);
         UpdateDistanceBoundEffects();
+    }
+
+    private void UpdateAmbientEffectDrains(double delta)
+    {
+        foreach (var ambientEffect in m_ambientEffects.Where(effect => effect.IsDraining))
+        {
+            ambientEffect.DrainRemainingSeconds -= delta;
+            if (ambientEffect.DrainRemainingSeconds > 0.0)
+            {
+                continue;
+            }
+
+            DeactivateAmbientEffect(ambientEffect);
+            GD.Print(
+                $"MechRewired: finished draining ambient {ambientEffect.KindName} " +
+                $"'{ambientEffect.SourceName}'.");
+        }
     }
 
     private void UpdateDistanceBoundEffects()
@@ -450,6 +467,8 @@ public partial class BattlefieldEffects : Node3D
     private static void ActivateAmbientEffect(AmbientEffectState definition)
     {
         definition.IsActive = true;
+        definition.IsDraining = false;
+        definition.DrainRemainingSeconds = 0.0;
         definition.Instance.Visible = true;
         definition.Instance.ProcessMode = ProcessModeEnum.Inherit;
         foreach (var particles in definition.Instance.GetChildren().OfType<GpuParticles3D>())
@@ -464,9 +483,34 @@ public partial class BattlefieldEffects : Node3D
         }
     }
 
+    private static void BeginAmbientEffectDrain(AmbientEffectState definition)
+    {
+        var particles = definition.Instance.GetChildren().OfType<GpuParticles3D>().ToArray();
+        foreach (var emitter in particles)
+        {
+            emitter.Emitting = false;
+        }
+
+        foreach (var audio in definition.Instance.GetChildren().OfType<AudioStreamPlayer3D>())
+        {
+            audio.Stop();
+        }
+
+        definition.IsDraining = particles.Length > 0;
+        definition.DrainRemainingSeconds = particles.Length > 0
+            ? particles.Max(emitter => (double)emitter.Lifetime)
+            : 0.0;
+        if (!definition.IsDraining || definition.DrainRemainingSeconds <= 0.0)
+        {
+            DeactivateAmbientEffect(definition);
+        }
+    }
+
     private static void DeactivateAmbientEffect(AmbientEffectState definition)
     {
         definition.IsActive = false;
+        definition.IsDraining = false;
+        definition.DrainRemainingSeconds = 0.0;
         foreach (var particles in definition.Instance.GetChildren().OfType<GpuParticles3D>())
         {
             particles.Emitting = false;
@@ -1722,6 +1766,10 @@ public partial class BattlefieldEffects : Node3D
         public bool IsActive { get; set; }
 
         public bool IsSuppressed { get; set; }
+
+        public bool IsDraining { get; set; }
+
+        public double DrainRemainingSeconds { get; set; }
 
         public string KindName => IsFire ? "fire" : "smoke";
     }
