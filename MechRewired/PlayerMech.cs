@@ -269,6 +269,8 @@ public partial class PlayerMech : Node3D
 
     public event Action FireWeaponGroupRequested;
 
+    public event Action ToggleWeaponFireModeRequested;
+
     public event Action TargetRequested;
 
     public event Action NextTargetRequested;
@@ -915,6 +917,7 @@ public partial class PlayerMech : Node3D
                 break;
 
             case InputEventKey { Pressed: true, Echo: false, Keycode: Key.Backslash }:
+                ToggleWeaponFireModeRequested?.Invoke();
                 GetViewport().SetInputAsHandled();
                 break;
 

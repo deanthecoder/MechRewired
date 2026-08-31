@@ -32,11 +32,12 @@ public sealed class PlayerWeaponSelectionTests
         Assert.That(selection.SelectedWeaponIndex, Is.EqualTo(1));
 
         selection.AssignSelectedToGroup(1);
-        selection.CycleGroup(-1);
 
-        Assert.That(selection.GetFireIndices(), Is.EqualTo(new[] { 0 }));
-        selection.AdvanceAfterFire();
+        Assert.That(selection.SelectedGroup, Is.Zero);
+        selection.CycleWeapon();
         Assert.That(selection.GetFireIndices(), Is.EqualTo(new[] { 2 }));
+        selection.AdvanceAfterFire();
+        Assert.That(selection.GetFireIndices(), Is.EqualTo(new[] { 0 }));
         Assert.That(selection.SelectedGroup, Is.Zero);
         Assert.That(selection.GetFireIndices(true), Is.EqualTo(new[] { 0, 2 }));
     }
@@ -48,6 +49,8 @@ public sealed class PlayerWeaponSelectionTests
         selection.AssignSelectedToGroup(0);
         selection.CycleWeapon();
         selection.AssignSelectedToGroup(2);
+
+        selection.CycleGroup();
 
         Assert.That(selection.SelectedGroup, Is.EqualTo(2));
         Assert.That(selection.SelectedWeaponIndex, Is.EqualTo(1));
@@ -62,6 +65,25 @@ public sealed class PlayerWeaponSelectionTests
         var selection = new PlayerWeaponSelection([Weapon(2201), Weapon(2301)]);
 
         Assert.That(selection.GetFireIndices(true), Is.EqualTo(new[] { 0, 1 }));
+    }
+
+    [Test]
+    public void GroupFireTargetsTheActiveGroupAndKeepsItSelected()
+    {
+        var selection = new PlayerWeaponSelection([Weapon(2201), Weapon(2301), Weapon(1)]);
+        selection.CycleWeapon();
+        selection.AssignSelectedToGroup(1);
+        selection.CycleWeapon(-1);
+
+        Assert.That(selection.ToggleGroupFire(), Is.True);
+        Assert.That(selection.GetFireIndices(), Is.EqualTo(new[] { 0, 2 }));
+
+        selection.AdvanceAfterFire();
+
+        Assert.That(selection.SelectedGroup, Is.Zero);
+        Assert.That(selection.SelectedWeaponIndex, Is.EqualTo(0));
+        Assert.That(selection.ToggleGroupFire(), Is.False);
+        Assert.That(selection.GetFireIndices(), Is.EqualTo(new[] { 0 }));
     }
 
     [Test]

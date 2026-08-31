@@ -61,7 +61,7 @@ public partial class PlayerTargeting : Node
     private readonly List<PendingWeaponRepeat> m_pendingWeaponRepeats = [];
     private readonly Random m_missileLaunchRandom = new();
     private bool m_advanceAfterPendingWeaponFires;
-    private bool m_pendingFireWasForcedGroup;
+    private bool m_pendingFireWasGroupFire;
     private float m_missileLockProgress;
     private EnemyMech m_lockCandidate;
     private EnemyMech m_lockedEnemy;
@@ -214,6 +214,7 @@ public partial class PlayerTargeting : Node
         playerMech.AssignWeaponGroupRequested += AssignWeaponGroup;
         playerMech.CycleWeaponGroupRequested += CycleWeaponGroup;
         playerMech.FireWeaponGroupRequested += () => FireWeapons(true);
+        playerMech.ToggleWeaponFireModeRequested += ToggleWeaponFireMode;
         playerMech.TargetRequested += SelectUnderReticle;
         playerMech.NextTargetRequested += SelectNextEnemy;
         playerMech.PreviousTargetRequested += SelectPreviousEnemy;
@@ -589,12 +590,13 @@ public partial class PlayerTargeting : Node
             return;
         }
 
+        var groupFire = forceGroup || WeaponSelection.GroupFireEnabled;
         var indices = WeaponSelection.GetFireIndices(forceGroup)
             .Where(index => m_weaponCooldowns[index] <= 0.0 &&
                             IsWeaponOperational(WeaponSelection.Weapons[index]))
             .ToArray();
         var fired = false;
-        if (forceGroup && indices.Length > 0)
+        if (groupFire && indices.Length > 0)
         {
             fired = FireWeapon(indices[0]);
             if (fired && WeaponSelection.Weapons[indices[0]].Specification.Kind == MechWeaponKind.Ballistic)
@@ -652,16 +654,16 @@ public partial class PlayerTargeting : Node
         if (m_pendingWeaponFires.Count > 0 || m_pendingWeaponRepeats.Count > 0)
         {
             m_advanceAfterPendingWeaponFires = true;
-            m_pendingFireWasForcedGroup = forceGroup;
+            m_pendingFireWasGroupFire = groupFire;
             return;
         }
 
-        AdvanceAfterFire(forceGroup);
+        AdvanceAfterFire(groupFire);
     }
 
-    private void AdvanceAfterFire(bool forcedGroup)
+    private void AdvanceAfterFire(bool groupFire)
     {
-        WeaponSelection.AdvanceAfterFire(forcedGroup, IsSelectableWeapon);
+        WeaponSelection.AdvanceAfterFire(groupFire, IsSelectableWeapon);
         if (!SelectedFireSetContainsMissile())
         {
             ResetMissileLock();
@@ -749,7 +751,7 @@ public partial class PlayerTargeting : Node
             m_advanceAfterPendingWeaponFires)
         {
             m_advanceAfterPendingWeaponFires = false;
-            AdvanceAfterFire(m_pendingFireWasForcedGroup);
+            AdvanceAfterFire(m_pendingFireWasGroupFire);
         }
     }
 
@@ -1058,6 +1060,14 @@ public partial class PlayerTargeting : Node
         GD.Print(
             $"MechRewired: assigned {WeaponSelection.SelectedWeapon.Specification.Name} " +
             $"to weapon group {group + 1}.");
+    }
+
+    private void ToggleWeaponFireMode()
+    {
+        var groupFireEnabled = WeaponSelection.ToggleGroupFire();
+        m_fireModeSound.Stream = groupFireEnabled ? GroupFireSound : ChainFireSound;
+        m_fireModeSound.Play();
+        GD.Print($"MechRewired: {(groupFireEnabled ? "group" : "chain")}-fire enabled.");
     }
 
     private void CycleWeaponGroup()

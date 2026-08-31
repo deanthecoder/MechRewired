@@ -92,7 +92,16 @@ public sealed class PlayerWeaponSelection
         }
 
         m_groups[SelectedWeaponIndex] = group;
-        SelectedGroup = group;
+    }
+
+    /// <summary>
+    /// Switches between sequential chain-fire and simultaneous group-fire.
+    /// </summary>
+    /// <returns><see langword="true"/> when group-fire is now active.</returns>
+    public bool ToggleGroupFire()
+    {
+        GroupFireEnabled = !GroupFireEnabled;
+        return GroupFireEnabled;
     }
 
     public void CycleGroup(int direction = 1, Func<int, bool> canSelect = null)
@@ -120,7 +129,7 @@ public sealed class PlayerWeaponSelection
 
     public IReadOnlyList<int> GetFireIndices(bool forceGroup = false)
     {
-        if (forceGroup)
+        if (forceGroup || GroupFireEnabled)
         {
             return Enumerable.Range(0, Weapons.Count)
                 .Where(index => m_groups[index] == SelectedGroup)
@@ -130,15 +139,18 @@ public sealed class PlayerWeaponSelection
         return [SelectedWeaponIndex];
     }
 
-    public void AdvanceAfterFire(bool forcedGroup = false, Func<int, bool> canSelect = null)
+    public void AdvanceAfterFire(bool groupFire, Func<int, bool> canSelect = null)
     {
-        if (forcedGroup)
+        if (groupFire)
         {
             return;
         }
 
         CycleWeapon(1, canSelect);
     }
+
+    public void AdvanceAfterFire(Func<int, bool> canSelect = null) =>
+        AdvanceAfterFire(GroupFireEnabled, canSelect);
 
     private static int Wrap(int value, int count) => (value % count + count) % count;
 }
