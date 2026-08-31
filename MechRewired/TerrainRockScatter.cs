@@ -20,8 +20,8 @@ namespace MechRewired;
 public sealed partial class TerrainRockScatter : Node3D
 {
     private const float CellSizeMetres = 96.0f;
-    private const int OuterCellRadius = 3;
-    private const int DenseCellRadius = 2;
+    private const int OuterCellRadius = 4;
+    private const int DenseCellRadius = 3;
     private const float MaximumRockGroundEmbedMetres = 0.14f;
     private const int Seed = 0x4D573252;
     private static readonly string[] RockMeshPaths =
@@ -221,8 +221,8 @@ public sealed partial class TerrainRockScatter : Node3D
             {
                 var cell = observerCell + new Vector2I(x, z);
                 wantedCells.Add(cell);
-                // Prebuild a 5x5 dense block two cells ahead. New dense cells are therefore
-                // created around 192m away, never at the player's feet.
+                // Prebuild a 7x7 dense block three cells ahead. New dense cells are therefore
+                // created around 288m away, never at the player's feet.
                 var shouldBeDense = Mathf.Abs(x) <= DenseCellRadius && Mathf.Abs(z) <= DenseCellRadius;
                 if (m_activeCells.TryGetValue(cell, out var activeCell) &&
                     activeCell.IsDense == shouldBeDense)
