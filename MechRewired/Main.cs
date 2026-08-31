@@ -218,6 +218,10 @@ public partial class Main : Node3D
 
         try
         {
+            var missionAreaBoundaries = LoadMissionAreaBoundaries(
+                archive,
+                missionResources,
+                missionDefinition);
             BuildScene(
                 archive,
                 palette,
@@ -228,6 +232,7 @@ public partial class Main : Node3D
                 luminosityTable,
                 playerStart,
                 navigationPoints,
+                missionAreaBoundaries,
                 missionDefinition,
                 playerMechDefinition,
                 missionGamePieces,
@@ -1183,6 +1188,63 @@ public partial class Main : Node3D
         return navigationPoints.AsReadOnly();
     }
 
+    private static IReadOnlyList<MechWarriorMissionAreaBoundary> LoadMissionAreaBoundaries(
+        MechWarriorProjectArchive archive,
+        MechWarriorMissionResources missionResources,
+        MissionDefinition missionDefinition)
+    {
+        var boundaryNames = missionDefinition.EventReports
+            .Select(report => report.Trigger)
+            .Concat(missionDefinition.FailureEvents)
+            .Where(missionEvent => missionEvent.Kind == MissionEventKind.MissionAreaBoundaryExited)
+            .Select(missionEvent => missionEvent.TargetResourceName)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (boundaryNames.Length == 0)
+        {
+            return Array.Empty<MechWarriorMissionAreaBoundary>();
+        }
+
+        var resourcesByName = missionResources.MissionAreaBoundaries.ToDictionary(
+            resource => Path.GetFileNameWithoutExtension(resource.Entry.Name),
+            StringComparer.OrdinalIgnoreCase);
+        var boundaries = new List<MechWarriorMissionAreaBoundary>();
+        foreach (var boundaryName in boundaryNames)
+        {
+            if (!resourcesByName.TryGetValue(boundaryName, out var boundaryResource))
+            {
+                throw new InvalidDataException(
+                    $"{missionResources.ScenarioEntry.Path} MTBL refers to missing mission-area boundary " +
+                    $"BWD/{boundaryName}.BWD.");
+            }
+
+            var boundaryWorld = MechWarriorWorldFile.Load(
+                archive.ReadEntry(boundaryResource.Entry),
+                boundaryResource.Include.Transform);
+            if (boundaryWorld.NavPoints.Count != 1)
+            {
+                throw new InvalidDataException(
+                    $"{boundaryResource.Entry.Path} contains {boundaryWorld.NavPoints.Count} boundary points; " +
+                    "expected one.");
+            }
+
+            var point = boundaryWorld.NavPoints[0];
+            if ((point.ActionFlags & (int)MechWarriorMissionAction.Leave) == 0)
+            {
+                throw new InvalidDataException(
+                    $"{boundaryResource.Entry.Path} NAVP does not carry the authored Leave action.");
+            }
+
+            boundaries.Add(new MechWarriorMissionAreaBoundary(boundaryName, point));
+        }
+
+        var ordered = boundaries.OrderBy(boundary => boundary.Point.Radius).ToArray();
+        GD.Print(
+            $"MechRewired: loaded {ordered.Length} mission-area boundaries from " +
+            $"{missionResources.ScenarioEntry.Path}.");
+        return ordered;
+    }
+
     private void BuildScene(
         MechWarriorProjectArchive archive,
         MechWarriorPalette palette,
@@ -1193,6 +1255,7 @@ public partial class Main : Node3D
         MechWarriorLuminosityTable luminosityTable,
         MechWarriorWorldNavPoint playerStart,
         IReadOnlyList<MechWarriorMissionNavigationPoint> navigationPoints,
+        IReadOnlyList<MechWarriorMissionAreaBoundary> missionAreaBoundaries,
         MissionDefinition missionDefinition,
         MechWarriorMechFile playerMechDefinition,
         IReadOnlyList<MechWarriorMissionGamePiece> missionGamePieces,
@@ -1964,6 +2027,7 @@ public partial class Main : Node3D
         var playerNavigation = new PlayerNavigation(
             playerMech,
             navigationPoints,
+            missionAreaBoundaries,
             playerMechSounds.NavigationPointTone);
         AddChild(playerNavigation);
         foreach (var navigationPoint in navigationPoints)
@@ -1995,6 +2059,18 @@ public partial class Main : Node3D
             playerMechSounds,
             battlefieldEffects);
         AddChild(playerTargeting);
+        playerNavigation.MissionAreaBoundaryExited += boundary =>
+        {
+            var previousOutcome = playerMission.Outcome;
+            playerMission.Apply(new MissionEvent(
+                MissionEventKind.MissionAreaBoundaryExited,
+                boundary.ResourceName));
+            if (previousOutcome == MissionOutcome.Active &&
+                playerMission.Outcome == MissionOutcome.Failed)
+            {
+                playerTargeting.InitiateShutdown("mission area exited");
+            }
+        };
         ReportMissionFidelityAudit(
             missionResources,
             level,
@@ -2040,6 +2116,13 @@ public partial class Main : Node3D
         // A failure is presented only after the external death camera has concluded.
         // PlayerDeathSequence no longer reloads the scene underneath the debrief.
         playerDeathSequence.Completed += () => missionDebrief.Present(MissionOutcome.Failed);
+        playerMission.MissionResolved += outcome =>
+        {
+            if (outcome == MissionOutcome.Failed && !playerDeathSequence.IsActive)
+            {
+                missionDebrief.Present(outcome);
+            }
+        };
         playerMission.MissionCompleted += () =>
         {
             playerMech.LockMovementForExtraction();

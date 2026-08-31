@@ -27,6 +27,7 @@ public sealed class MissionDefinition
         MechWarriorMissionResourceReference failureReport,
         IReadOnlyList<MissionObjectiveDefinition> objectives,
         IReadOnlyList<MissionEventReportDefinition> eventReports,
+        IReadOnlyList<MissionEvent> failureEvents,
         IReadOnlySet<int> consumedEntryIndices)
     {
         TableIndex = tableIndex;
@@ -35,6 +36,7 @@ public sealed class MissionDefinition
         FailureReport = failureReport;
         Objectives = objectives;
         EventReports = eventReports;
+        FailureEvents = failureEvents;
         ConsumedEntryIndices = consumedEntryIndices;
     }
 
@@ -51,6 +53,9 @@ public sealed class MissionDefinition
 
     /// <summary>One-shot reports attached to direct hidden or navigation records.</summary>
     public IReadOnlyList<MissionEventReportDefinition> EventReports { get; }
+
+    /// <summary>Direct gameplay events that activate an authored MTBL mission-failure control.</summary>
+    public IReadOnlyList<MissionEvent> FailureEvents { get; }
 
     /// <summary>MTBL records represented either as player objectives or their internal dependency records.</summary>
     public IReadOnlySet<int> ConsumedEntryIndices { get; }
@@ -132,6 +137,8 @@ public sealed class MissionDefinition
             eventReports.Add(new MissionEventReportDefinition(trigger, entry.SuccessReport));
         }
 
+        var failureEvents = ResolveFailureEvents(table, consumed);
+
         return new MissionDefinition(
             table.Index,
             table.MissionTimeSeconds,
@@ -139,7 +146,44 @@ public sealed class MissionDefinition
             table.FailureReport,
             objectives.AsReadOnly(),
             eventReports.AsReadOnly(),
+            failureEvents,
             consumed);
+    }
+
+    private static IReadOnlyList<MissionEvent> ResolveFailureEvents(
+        MechWarriorMissionTable table,
+        ISet<int> consumed)
+    {
+        var events = new List<MissionEvent>();
+        foreach (var entry in table.Entries.Where(entry =>
+                     entry.ControlAction == MechWarriorMissionControlAction.FailMission))
+        {
+            var resolved = false;
+            foreach (var condition in entry.ActivationConditions.Where(condition =>
+                         condition.TableIndex == table.Index &&
+                         condition.Result == MechWarriorMissionConditionResult.Completed &&
+                         condition.ObjectiveIndex < table.Entries.Count))
+            {
+                var dependency = table.Entries[condition.ObjectiveIndex];
+                if (!TryGetMissionEvent(dependency, out var failureEvent))
+                {
+                    continue;
+                }
+
+                consumed.Add(dependency.Index);
+                events.Add(failureEvent);
+                resolved = true;
+            }
+
+            if (resolved)
+            {
+                consumed.Add(entry.Index);
+            }
+        }
+
+        return events
+            .DistinctBy(GetEventKey, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
     }
 
     private static IReadOnlyList<string> ResolveExtractionPrerequisites(
@@ -259,8 +303,9 @@ public sealed class MissionDefinition
         {
             MechWarriorMissionAction.Destroy => (MissionEventKind?)MissionEventKind.TargetDestroyed,
             MechWarriorMissionAction.Recon => MissionEventKind.TargetInspected,
-            MechWarriorMissionAction.GoTo or MechWarriorMissionAction.Return or MechWarriorMissionAction.Leave =>
+            MechWarriorMissionAction.GoTo or MechWarriorMissionAction.Return =>
                 MissionEventKind.NavigationPointReached,
+            MechWarriorMissionAction.Leave => MissionEventKind.MissionAreaBoundaryExited,
             _ => null
         };
         if (kind.HasValue && !string.IsNullOrWhiteSpace(entry.Target.Name))
@@ -272,6 +317,9 @@ public sealed class MissionDefinition
         missionEvent = null;
         return false;
     }
+
+    private static string GetEventKey(MissionEvent missionEvent) =>
+        $"{missionEvent.Kind}:{missionEvent.TargetResourceName}";
 
     private static bool TryGetKind(MechWarriorMissionTableEntry entry, out MissionObjectiveKind kind)
     {

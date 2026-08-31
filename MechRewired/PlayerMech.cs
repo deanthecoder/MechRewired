@@ -532,10 +532,14 @@ public partial class PlayerMech : Node3D
         m_shutdown = shutdown;
         if (shutdown)
         {
-            Drive.StopImmediately();
+            Drive.SelectStop();
+            m_autopilotSteering = null;
             m_aligningLegsToTorso = false;
-            ActualSpeedKph = 0.0f;
-            StopOperationalAudio();
+            if (Math.Abs(Drive.CurrentSpeedKph) < 0.001)
+            {
+                ActualSpeedKph = 0.0f;
+                StopOperationalAudio();
+            }
         }
         else
         {
@@ -683,9 +687,7 @@ public partial class PlayerMech : Node3D
         UpdateDisplayZoom((float)delta);
         if (IsShutdown)
         {
-            ActualSpeedKph = 0.0f;
-            m_mechRig.Advance(0.0f, 0.0f, 0.0f, (float)delta);
-            UpdateMotorAudio(0.0f, (float)delta);
+            AdvanceShutdownBraking(delta);
             return;
         }
 
@@ -749,6 +751,31 @@ public partial class PlayerMech : Node3D
         ApplyDamageShudder((float)delta);
         var chassisAngularSpeed = Mathf.Abs(headingChangeRadians) / (float)delta;
         UpdateMotorAudio(Mathf.Max(torsoAngularSpeed, chassisAngularSpeed), (float)delta);
+    }
+
+    private void AdvanceShutdownBraking(double delta)
+    {
+        if (IsImmobilized)
+        {
+            Drive.StopImmediately();
+        }
+
+        var driveStep = Drive.Advance(delta, 0.0);
+        var appliedDistance = TryMoveAcrossTerrain(
+            (float)driveStep.DistanceMeters * GetDebugTravelMultiplier());
+        ActualSpeedKph = Mathf.IsZeroApprox((float)delta)
+            ? 0.0f
+            : appliedDistance / (float)delta * 3.6f;
+        ApplyCockpitGait(appliedDistance, 0.0f, (float)delta);
+        ApplyDamageShudder((float)delta);
+        if (Math.Abs(Drive.CurrentSpeedKph) >= 0.001)
+        {
+            UpdateMotorAudio(0.0f, (float)delta);
+            return;
+        }
+
+        ActualSpeedKph = 0.0f;
+        StopOperationalAudio();
     }
 
     private void LockChassisForLegLoss(MechDamageSection section)

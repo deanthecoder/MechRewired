@@ -29,7 +29,8 @@ public sealed class MechWarriorMissionResources
         MechWarriorMissionResource level,
         MechWarriorMissionResource planet,
         MechWarriorMissionResource playerStart,
-        IReadOnlyList<MechWarriorMissionResource> navigationPoints)
+        IReadOnlyList<MechWarriorMissionResource> navigationPoints,
+        IReadOnlyList<MechWarriorMissionResource> missionAreaBoundaries)
     {
         MissionPrefix = missionPrefix;
         ScenarioEntry = scenarioEntry;
@@ -39,6 +40,7 @@ public sealed class MechWarriorMissionResources
         Planet = planet;
         PlayerStart = playerStart;
         NavigationPoints = navigationPoints;
+        MissionAreaBoundaries = missionAreaBoundaries;
     }
 
     /// <summary>The shared mission resource prefix, such as <c>YELL</c>.</summary>
@@ -57,6 +59,9 @@ public sealed class MechWarriorMissionResources
     public MechWarriorMissionResource PlayerStart { get; }
 
     public IReadOnlyList<MechWarriorMissionResource> NavigationPoints { get; }
+
+    /// <summary>Hidden concentric LVE markers that warn and fail a player leaving the mission area.</summary>
+    public IReadOnlyList<MechWarriorMissionResource> MissionAreaBoundaries { get; }
 
     /// <summary>The named area resources that belong to this mission's playable terrain world.</summary>
     public string AreaPrefix => MissionPrefix + "ARE";
@@ -102,6 +107,10 @@ public sealed class MechWarriorMissionResources
                 $"{scenarioEntry.Path} contains no {missionPrefix}NAV mission-resource includes.");
         }
 
+        var missionAreaBoundaries = includes
+            .Where(resource => IsNumbered(resource.Entry.Name, missionPrefix, "LVE"))
+            .ToArray();
+
         var paletteEntry = archive.GetEntry($"PAL/{missionPrefix}_DA.COL");
         return new MechWarriorMissionResources(
             missionPrefix,
@@ -111,7 +120,8 @@ public sealed class MechWarriorMissionResources
             level,
             planet,
             playerStart,
-            navigationPoints);
+            navigationPoints,
+            missionAreaBoundaries);
     }
 
     /// <summary>Gets a mission prefix from an MW2 scenario resource name.</summary>

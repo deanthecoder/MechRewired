@@ -62,6 +62,16 @@ public sealed class MissionRuntime
         }
 
         m_observedEvents.Add(GetEventKey(missionEvent));
+        if (Definition.FailureEvents.Any(failureEvent =>
+                string.Equals(
+                    GetEventKey(failureEvent),
+                    GetEventKey(missionEvent),
+                    StringComparison.OrdinalIgnoreCase)))
+        {
+            Outcome = MissionOutcome.Failed;
+            return Array.Empty<MissionObjectiveTransition>();
+        }
+
         var transitions = new List<MissionObjectiveTransition>();
         foreach (var objective in Definition.Objectives.Where(objective =>
                      GetState(objective.Id) == MissionObjectiveState.Active &&

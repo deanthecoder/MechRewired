@@ -8,18 +8,12 @@
 //
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
-namespace MechRewired.Missions;
+namespace MechRewired.Resources;
 
-/// <summary>
-/// Identifies a gameplay event that may complete a mission objective.
-/// </summary>
+/// <summary>Identifies one hidden archive-authored mission-area boundary circle.</summary>
 /// <remarks>
-/// Events form the boundary between host-engine gameplay and deterministic mission logic.
+/// LVE markers use ordinary BWD navigation-point geometry but trigger when the player exits their radius.
 /// </remarks>
-public enum MissionEventKind
-{
-    TargetDestroyed,
-    TargetInspected,
-    NavigationPointReached,
-    MissionAreaBoundaryExited
-}
+public sealed record MechWarriorMissionAreaBoundary(
+    string ResourceName,
+    MechWarriorWorldNavPoint Point);

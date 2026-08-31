@@ -167,6 +167,58 @@ public sealed class MechWarriorMissionTableTests
         return data;
     }
 
+    internal static byte[] CreateBoundaryTableData()
+    {
+        const int headerSize = 30;
+        const int recordSize = 151;
+        var baseData = CreateTableData();
+        var data = new byte[headerSize + recordSize * 6];
+        baseData.CopyTo(data, 0);
+        WriteEntry(
+            data.AsSpan(headerSize + recordSize * 3, recordSize),
+            MechWarriorMissionAction.Leave,
+            'H',
+            [new MechWarriorMissionCondition(MechWarriorMissionConditionResult.Completed, 0, 0)],
+            'O',
+            0,
+            135,
+            "gene018S",
+            1400,
+            "yelllve1",
+            "Leaving Mission Area");
+        WriteEntry(
+            data.AsSpan(headerSize + recordSize * 4, recordSize),
+            MechWarriorMissionAction.Leave,
+            'H',
+            [new MechWarriorMissionCondition(MechWarriorMissionConditionResult.Completed, 3, 0)],
+            'O',
+            0,
+            136,
+            "gene019S",
+            1401,
+            "yelllve2",
+            "Left Mission Area");
+        var failMission = data.AsSpan(headerSize + recordSize * 5, recordSize);
+        WriteEntry(
+            failMission,
+            MechWarriorMissionAction.None,
+            'H',
+            [new MechWarriorMissionCondition(MechWarriorMissionConditionResult.Completed, 4, 0)],
+            'O',
+            0,
+            -1,
+            string.Empty,
+            -1,
+            string.Empty,
+            string.Empty);
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            failMission[2..],
+            (ushort)MechWarriorMissionControlAction.FailMission);
+        BinaryPrimitives.WriteInt16LittleEndian(failMission[83..], 0);
+        BinaryPrimitives.WriteInt16LittleEndian(failMission[85..], 0);
+        return data;
+    }
+
     private static void WriteEntry(
         Span<byte> data,
         MechWarriorMissionAction action,

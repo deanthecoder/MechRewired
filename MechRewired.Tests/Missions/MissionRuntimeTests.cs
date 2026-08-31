@@ -126,6 +126,43 @@ public sealed class MissionRuntimeTests
         });
     }
 
+    [Test]
+    public void AuthoredOuterMissionBoundaryFailsTheAttemptAfterItsWarningEvent()
+    {
+        var table = MechWarriorMissionTable.Load(MechWarriorMissionTableTests.CreateBoundaryTableData());
+        var definition = MissionDefinition.FromMissionTable(table);
+        var runtime = new MissionRuntime(definition);
+        var innerBoundary = new MissionEvent(
+            MissionEventKind.MissionAreaBoundaryExited,
+            "yelllve1");
+        var outerBoundary = new MissionEvent(
+            MissionEventKind.MissionAreaBoundaryExited,
+            "yelllve2");
+
+        runtime.Apply(innerBoundary);
+        var outcomeAfterWarning = runtime.Outcome;
+        runtime.Apply(outerBoundary);
+        var ignoredTransitions = runtime.Apply(new MissionEvent(
+            MissionEventKind.TargetDestroyed,
+            "yellare6"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(definition.EventReports.Select(report => report.Trigger),
+                Does.Contain(innerBoundary));
+            Assert.That(definition.EventReports.Select(report => report.Trigger),
+                Does.Contain(outerBoundary));
+            Assert.That(definition.EventReports.Single(report => report.Trigger == innerBoundary).Report.Name,
+                Is.EqualTo("gene018S"));
+            Assert.That(definition.EventReports.Single(report => report.Trigger == outerBoundary).Report.Name,
+                Is.EqualTo("gene019S"));
+            Assert.That(definition.FailureEvents, Does.Contain(outerBoundary));
+            Assert.That(outcomeAfterWarning, Is.EqualTo(MissionOutcome.Active));
+            Assert.That(runtime.Outcome, Is.EqualTo(MissionOutcome.Failed));
+            Assert.That(ignoredTransitions, Is.Empty);
+        });
+    }
+
     private static MissionDefinition CreateDefinition()
     {
         var table = MechWarriorMissionTable.Load(MechWarriorMissionTableTests.CreateTableData());

@@ -30,12 +30,13 @@ public partial class PlayerMission : Node
     private readonly IReadOnlyDictionary<string, IReadOnlyList<AudioStreamWav>> m_eventReports;
     private readonly HashSet<string> m_reportedEvents = new(StringComparer.OrdinalIgnoreCase);
     private readonly IReadOnlyList<AudioStreamWav> m_extractionReadyReports;
+    private readonly AudioStreamWav m_timeLimitExceededReport;
     private readonly AudioStreamWav m_successReport;
     private readonly AudioStreamWav m_failureReport;
     private readonly AudioStreamPlayer m_reportPlayer;
     private readonly Queue<AudioStreamWav> m_reportQueue = new();
     private double m_remainingMissionSeconds;
-    private bool m_completionReported;
+    private bool m_resolutionReported;
     private float m_statusMessageRemaining;
 
     public PlayerMission(MechWarriorProjectArchive archive, MissionDefinition definition)
@@ -55,6 +56,11 @@ public partial class PlayerMission : Node
             archive,
             definition.FailureReport,
             "mission failure report");
+        m_timeLimitExceededReport = PlayerMechSounds.LoadResource(
+            archive,
+            "SNDS/BET68.SFL",
+            false,
+            "allowed mission time exceeded report");
         m_extractionReadyReports =
         [
             PlayerMechSounds.LoadResource(
@@ -113,9 +119,15 @@ public partial class PlayerMission : Node
             }
         }
 
-        if (m_runtime.IsComplete && !m_completionReported)
+        if (m_runtime.Outcome == MissionOutcome.Failed)
         {
-            m_completionReported = true;
+            PresentFailure();
+            return;
+        }
+
+        if (m_runtime.IsComplete && !m_resolutionReported)
+        {
+            m_resolutionReported = true;
             StatusMessage = "MISSION COMPLETE";
             m_statusMessageRemaining = StatusMessageSeconds;
             GD.Print("MechRewired: all required mission objectives complete.");
@@ -154,12 +166,23 @@ public partial class PlayerMission : Node
             return false;
         }
 
+        PresentFailure();
+        return true;
+    }
+
+    private void PresentFailure()
+    {
+        if (m_resolutionReported)
+        {
+            return;
+        }
+
+        m_resolutionReported = true;
         StatusMessage = "MISSION FAILED";
         m_statusMessageRemaining = StatusMessageSeconds;
         GD.Print("MechRewired: mission failed before all required objectives completed.");
         QueueReport(m_failureReport);
         MissionResolved?.Invoke(MissionOutcome.Failed);
-        return true;
     }
 
     public MissionObjectiveState GetState(string objectiveId) => m_runtime.GetState(objectiveId);
@@ -202,6 +225,7 @@ public partial class PlayerMission : Node
             m_remainingMissionSeconds -= delta;
             if (m_remainingMissionSeconds <= 0.0)
             {
+                QueueReport(m_timeLimitExceededReport);
                 Fail();
             }
         }

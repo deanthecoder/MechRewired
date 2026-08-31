@@ -28,6 +28,8 @@ public sealed record PlayerMechSounds(
     AudioStreamWav StopRunning,
     AudioStreamWav EnemyPowerUpDetected,
     AudioStreamWav EnemyMechDestroyed,
+    AudioStreamWav EnemyTurretDestroyed,
+    AudioStreamWav EnemyAircraftDestroyed,
     AudioStreamWav NavigationPointTone,
     AudioStreamWav DisplayZoom,
     AudioStreamWav ExternalCameraEngaged,
@@ -59,6 +61,8 @@ public sealed record PlayerMechSounds(
     private const string StopRunningPath = "SNDS/RUN2WLK.SFL";
     private const string EnemyPowerUpDetectedPath = "SNDS/BET79.SFL";
     private const string EnemyMechDestroyedPath = "SNDS/BET75.SFL";
+    private const string EnemyTurretDestroyedPath = "SNDS/GENE008S.SFL";
+    private const string EnemyAircraftDestroyedPath = "SNDS/BET77.SFL";
     private const string NavigationPointTonePath = "SNDS/MECNAVPT.SFL";
     private const string DisplayZoomPath = "SNDS/VIEWZOOM.SFL";
     private const string ExternalCameraEngagedPath = "SNDS/BET71.SFL";
@@ -118,6 +122,8 @@ public sealed record PlayerMechSounds(
             LoadResource(archive, StopRunningPath, false, "run-to-walk transition"),
             LoadResource(archive, EnemyPowerUpDetectedPath, false, "enemy power-up detected report"),
             LoadResource(archive, EnemyMechDestroyedPath, false, "enemy mech destroyed report"),
+            LoadResource(archive, EnemyTurretDestroyedPath, false, "enemy turret unit destroyed report"),
+            LoadResource(archive, EnemyAircraftDestroyedPath, false, "enemy aircraft destroyed report"),
             LoadResource(archive, NavigationPointTonePath, false, "navigation point arrival tone"),
             LoadResource(archive, DisplayZoomPath, true, "cockpit display zoom motor"),
             LoadResource(archive, ExternalCameraEngagedPath, false, "external-camera engaged report"),

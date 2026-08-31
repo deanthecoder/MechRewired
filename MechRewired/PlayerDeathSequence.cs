@@ -31,6 +31,9 @@ public partial class PlayerDeathSequence : Node
     /// <summary>Raised after the death camera has completed and the failure debrief can be shown.</summary>
     public event Action Completed;
 
+    /// <summary>Whether the external death presentation currently owns mission resolution.</summary>
+    public bool IsActive => m_active;
+
     public PlayerDeathSequence(
         PlayerMech playerMech,
         BattlefieldEffects battlefieldEffects,
@@ -100,12 +103,13 @@ public partial class PlayerDeathSequence : Node
             return;
         }
 
+        m_active = true;
         if (!m_failMission())
         {
+            m_active = false;
             return;
         }
 
-        m_active = true;
         m_timeline = new PlayerDeathTimeline();
         Input.MouseMode = Input.MouseModeEnum.Visible;
         m_playerMech.CockpitCamera.Current = false;

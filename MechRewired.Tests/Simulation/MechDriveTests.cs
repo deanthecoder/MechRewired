@@ -135,6 +135,29 @@ public sealed class MechDriveTests
     }
 
     [Test]
+    public void SelectedStopBrakesReverseMomentumWithoutMovingForward()
+    {
+        var drive = new MechDrive(Profile);
+        drive.SetThrottleKey(0);
+        drive.ToggleDirection();
+        drive.Advance(1.0, 0.0);
+        var reverseSpeedBeforeStop = drive.CurrentSpeedKph;
+
+        drive.SelectStop();
+        var firstBrakingStep = drive.Advance(0.5, 0.0);
+        var secondBrakingStep = drive.Advance(0.5, 0.0);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(reverseSpeedBeforeStop, Is.LessThan(0.0));
+            Assert.That(firstBrakingStep.DistanceMeters, Is.LessThan(0.0));
+            Assert.That(secondBrakingStep.DistanceMeters, Is.LessThanOrEqualTo(0.0));
+            Assert.That(drive.CurrentSpeedKph, Is.Zero);
+            Assert.That(drive.TargetSpeedKph, Is.Zero);
+        });
+    }
+
+    [Test]
     public void StopImmediatelyClearsMomentumAndThrottle()
     {
         var drive = new MechDrive(Profile);

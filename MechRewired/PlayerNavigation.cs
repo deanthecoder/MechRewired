@@ -22,17 +22,23 @@ namespace MechRewired;
 public partial class PlayerNavigation : Node
 {
     private readonly PlayerMech m_playerMech;
+    private readonly IReadOnlyList<MechWarriorMissionAreaBoundary> m_missionAreaBoundaries;
     private readonly bool[] m_reached;
     private readonly bool[] m_inside;
+    private readonly bool[] m_insideMissionAreaBoundaries;
+    private readonly bool[] m_triggeredMissionAreaBoundaries;
     private readonly AudioStreamPlayer m_tonePlayer;
+    private bool m_missionAreaBoundariesInitialized;
 
     public PlayerNavigation(
         PlayerMech playerMech,
         IReadOnlyList<MechWarriorMissionNavigationPoint> navigationPoints,
+        IReadOnlyList<MechWarriorMissionAreaBoundary> missionAreaBoundaries,
         AudioStreamWav reachedTone)
     {
         ArgumentNullException.ThrowIfNull(playerMech);
         ArgumentNullException.ThrowIfNull(navigationPoints);
+        ArgumentNullException.ThrowIfNull(missionAreaBoundaries);
         ArgumentNullException.ThrowIfNull(reachedTone);
         if (navigationPoints.Count == 0)
         {
@@ -41,10 +47,13 @@ public partial class PlayerNavigation : Node
 
         Name = "PlayerNavigation";
         m_playerMech = playerMech;
+        m_missionAreaBoundaries = missionAreaBoundaries;
         MissionNavigationPoints = navigationPoints;
         NavigationPoints = navigationPoints.Select(navigationPoint => navigationPoint.Point).ToArray();
         m_reached = new bool[navigationPoints.Count];
         m_inside = new bool[navigationPoints.Count];
+        m_insideMissionAreaBoundaries = new bool[missionAreaBoundaries.Count];
+        m_triggeredMissionAreaBoundaries = new bool[missionAreaBoundaries.Count];
         m_tonePlayer = new AudioStreamPlayer
         {
             Name = "NavigationTone",
@@ -59,6 +68,8 @@ public partial class PlayerNavigation : Node
 
     public event Action<int> NavigationPointReached;
 
+    public event Action<MechWarriorMissionAreaBoundary> MissionAreaBoundaryExited;
+
     public int SelectedIndex { get; private set; }
 
     public MechWarriorWorldNavPoint SelectedPoint => NavigationPoints[SelectedIndex];
@@ -69,6 +80,7 @@ public partial class PlayerNavigation : Node
 
     public override void _PhysicsProcess(double delta)
     {
+        UpdateMissionAreaBoundaries();
         if (DistanceToSelectedMeters > SelectedPoint.Radius)
         {
             m_inside[SelectedIndex] = false;
@@ -119,5 +131,29 @@ public partial class PlayerNavigation : Node
         var navigationPosition = MechWarriorCoordinateSystem.ToGodotPosition(navigationPoint.Position);
         var offset = navigationPosition - m_playerMech.GlobalPosition;
         return new Vector2(offset.X, offset.Z).Length();
+    }
+
+    private void UpdateMissionAreaBoundaries()
+    {
+        for (var index = 0; index < m_missionAreaBoundaries.Count; index++)
+        {
+            var boundary = m_missionAreaBoundaries[index];
+            var isInside = DistanceTo(boundary.Point) <= boundary.Point.Radius;
+            if (m_missionAreaBoundariesInitialized &&
+                m_insideMissionAreaBoundaries[index] &&
+                !isInside &&
+                !m_triggeredMissionAreaBoundaries[index])
+            {
+                m_triggeredMissionAreaBoundaries[index] = true;
+                GD.Print(
+                    $"MechRewired: exited mission-area boundary '{boundary.ResourceName}' at " +
+                    $"{boundary.Point.Radius}m.");
+                MissionAreaBoundaryExited?.Invoke(boundary);
+            }
+
+            m_insideMissionAreaBoundaries[index] = isInside;
+        }
+
+        m_missionAreaBoundariesInitialized = true;
     }
 }

@@ -46,6 +46,8 @@ public partial class PlayerTargeting : Node
     private readonly AudioStreamPlayer m_weaponUnavailableSound;
     private readonly AudioStreamPlayer m_enemyPowerUpSound;
     private readonly AudioStreamPlayer m_enemyMechDestroyedSound;
+    private readonly AudioStreamPlayer m_enemyTurretDestroyedSound;
+    private readonly AudioStreamPlayer m_enemyAircraftDestroyedSound;
     private readonly AudioStreamPlayer m_thermalReportSound;
     private readonly AudioStreamPlayer m_shutdownEffectSound;
     private readonly BattlefieldEffects m_battlefieldEffects;
@@ -166,6 +168,20 @@ public partial class PlayerTargeting : Node
             VolumeDb = -1.0f
         };
         AddChild(m_enemyMechDestroyedSound);
+        m_enemyTurretDestroyedSound = new AudioStreamPlayer
+        {
+            Name = "EnemyTurretDestroyedReport",
+            Stream = sounds.EnemyTurretDestroyed,
+            VolumeDb = -1.0f
+        };
+        AddChild(m_enemyTurretDestroyedSound);
+        m_enemyAircraftDestroyedSound = new AudioStreamPlayer
+        {
+            Name = "EnemyAircraftDestroyedReport",
+            Stream = sounds.EnemyAircraftDestroyed,
+            VolumeDb = -1.0f
+        };
+        AddChild(m_enemyAircraftDestroyedSound);
         m_thermalReportSound = new AudioStreamPlayer
         {
             Name = "ThermalReport",
@@ -494,10 +510,19 @@ public partial class PlayerTargeting : Node
             return;
         }
 
-        CancelPendingWeaponFires();
-        PlayThermalReport(m_playerMechSounds.ShuttingDown);
-        m_shutdownEffectSound.Play();
-        m_playerMech.SetShutdownState(true, "manual shutdown");
+        InitiateShutdown("manual shutdown", m_playerMechSounds.ShuttingDown);
+    }
+
+    /// <summary>Starts a non-thermal shutdown requested by mission or pilot state.</summary>
+    public void InitiateShutdown(string reason)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+        if (m_playerMech.IsShutdown)
+        {
+            return;
+        }
+
+        InitiateShutdown(reason, m_playerMechSounds.ShuttingDown);
     }
 
     private void ToggleShutdownOverride()
@@ -522,8 +547,13 @@ public partial class PlayerTargeting : Node
 
     private void InitiateThermalShutdown(string reason)
     {
+        InitiateShutdown(reason, m_playerMechSounds.ThermalShutdown);
+    }
+
+    private void InitiateShutdown(string reason, AudioStreamWav report)
+    {
         CancelPendingWeaponFires();
-        PlayThermalReport(m_playerMechSounds.ThermalShutdown);
+        PlayThermalReport(report);
         m_shutdownEffectSound.Play();
         m_playerMech.SetShutdownState(true, reason);
     }
@@ -1283,6 +1313,11 @@ public partial class PlayerTargeting : Node
 
     private void OnActorDestroyed(BattlefieldActor actor, Vector3 hitPosition)
     {
+        if (m_hostileActors.Contains(actor))
+        {
+            m_enemyAircraftDestroyedSound.Play();
+        }
+
         if (ReferenceEquals(SelectedActor, actor))
         {
             SelectedActor = null;
@@ -1312,10 +1347,10 @@ public partial class PlayerTargeting : Node
 
     private void OnEnemyDestroyed(EnemyMech enemyMech)
     {
-        if (!enemyMech.IsStationaryEmplacement)
-        {
-            m_enemyMechDestroyedSound.Play();
-        }
+        var destroyedReport = enemyMech.IsStationaryEmplacement
+            ? m_enemyTurretDestroyedSound
+            : m_enemyMechDestroyedSound;
+        destroyedReport.Play();
 
         m_playerMission.Apply(new MissionEvent(
             MissionEventKind.TargetDestroyed,

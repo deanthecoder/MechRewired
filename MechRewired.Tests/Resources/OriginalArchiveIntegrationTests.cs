@@ -20,6 +20,62 @@ public sealed class OriginalArchiveIntegrationTests
 {
     private const string ArchiveEnvironmentVariable = "MECHREWIRED_MW2_PRJ";
 
+    [TestCase("BWD/PINKSCN1.BWD", "pinklve1", 2000, "pinklve2", 2500)]
+    [TestCase("BWD/YELLSCN1.BWD", "yelllve1", 1720, "yelllve2", 1970)]
+    public void FirstMissionsRetainAuthoredLeaveAreaWarningAndFailure(
+        string scenarioPath,
+        string innerBoundaryName,
+        int innerRadius,
+        string outerBoundaryName,
+        int outerRadius)
+    {
+        var archive = OpenOriginalArchive();
+        var mission = MechWarriorMissionResources.Load(archive, scenarioPath);
+        var definition = MechRewired.Missions.MissionDefinition.FromMissionTable(
+            mission.Scenario.MissionTables.Single(table => table.Index == 0));
+        var boundaries = mission.MissionAreaBoundaries.ToDictionary(
+            resource => Path.GetFileNameWithoutExtension(resource.Entry.Name),
+            StringComparer.OrdinalIgnoreCase);
+        var innerPoint = MechWarriorWorldFile.Load(
+            archive.ReadEntry(boundaries[innerBoundaryName].Entry),
+            boundaries[innerBoundaryName].Include.Transform).NavPoints.Single();
+        var outerPoint = MechWarriorWorldFile.Load(
+            archive.ReadEntry(boundaries[outerBoundaryName].Entry),
+            boundaries[outerBoundaryName].Include.Transform).NavPoints.Single();
+        var boundaryReports = definition.EventReports
+            .Where(report =>
+                report.Trigger.Kind == MechRewired.Missions.MissionEventKind.MissionAreaBoundaryExited)
+            .ToDictionary(
+                report => report.Trigger.TargetResourceName,
+                report => report.Report.Name,
+                StringComparer.OrdinalIgnoreCase);
+        var runtime = new MechRewired.Missions.MissionRuntime(definition);
+        runtime.Apply(new MechRewired.Missions.MissionEvent(
+            MechRewired.Missions.MissionEventKind.MissionAreaBoundaryExited,
+            innerBoundaryName));
+        var outcomeAfterWarning = runtime.Outcome;
+        runtime.Apply(new MechRewired.Missions.MissionEvent(
+            MechRewired.Missions.MissionEventKind.MissionAreaBoundaryExited,
+            outerBoundaryName));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(mission.MissionAreaBoundaries, Has.Count.EqualTo(2));
+            Assert.That(innerPoint.Radius, Is.EqualTo(innerRadius));
+            Assert.That(outerPoint.Radius, Is.EqualTo(outerRadius));
+            Assert.That(innerPoint.Position, Is.EqualTo(outerPoint.Position));
+            Assert.That(boundaryReports[innerBoundaryName], Is.EqualTo("gene018S"));
+            Assert.That(boundaryReports[outerBoundaryName], Is.EqualTo("gene019S"));
+            Assert.That(definition.FailureEvents.Any(failureEvent =>
+                failureEvent.Kind == MechRewired.Missions.MissionEventKind.MissionAreaBoundaryExited &&
+                failureEvent.TargetResourceName.Equals(
+                    outerBoundaryName,
+                    StringComparison.OrdinalIgnoreCase)), Is.True);
+            Assert.That(outcomeAfterWarning, Is.EqualTo(MechRewired.Missions.MissionOutcome.Active));
+            Assert.That(runtime.Outcome, Is.EqualTo(MechRewired.Missions.MissionOutcome.Failed));
+        });
+    }
+
     [Test]
     public void SilentThunderMissionTableRetainsAuthoredControlSemantics()
     {
