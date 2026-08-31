@@ -222,9 +222,7 @@ public partial class DebugCamera : Camera3D
         }
         else if (ExternalCamera.Current)
         {
-            CockpitCamera.Current = false;
-            ExternalCamera.Current = false;
-            Current = true;
+            ActivatePlayerInspection();
             cameraName = "inspector";
         }
         else
@@ -237,6 +235,37 @@ public partial class DebugCamera : Camera3D
 
         Input.MouseMode = Input.MouseModeEnum.Visible;
         GD.Print($"MechRewired: switched to {cameraName} camera.");
+    }
+
+    /// <summary>
+    /// Activates the floating camera and frames the player from a repeatable front three-quarter view.
+    /// </summary>
+    public void ActivatePlayerInspection()
+    {
+        CockpitCamera.Current = false;
+        ExternalCamera.Current = false;
+        FramePlayerMech();
+        Current = true;
+        Input.MouseMode = Input.MouseModeEnum.Visible;
+    }
+
+    public void FramePlayerMech()
+    {
+        if (PlayerMech == null)
+        {
+            return;
+        }
+
+        var bounds = PlayerMech.WorldBounds;
+        var center = bounds.GetCenter();
+        var modelSize = Math.Max(bounds.Size.X, Math.Max(bounds.Size.Y, bounds.Size.Z));
+        var front = -PlayerMech.GlobalBasis.Z.Normalized();
+        var side = PlayerMech.GlobalBasis.X.Normalized();
+        var cameraDirection = (front + side * 0.42f).Normalized();
+        var cameraPosition = center + cameraDirection * Math.Max(modelSize * 0.95f, 1.0f);
+        cameraPosition.Y += modelSize * 0.12f;
+        var target = center + Vector3.Up * modelSize * 0.04f;
+        LookAtFromPosition(cameraPosition, target, Vector3.Up);
     }
 
     private void LogCamera()

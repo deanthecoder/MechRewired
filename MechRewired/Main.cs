@@ -1891,8 +1891,7 @@ public partial class Main : Node3D
                 palette,
                 luminosityTable,
                 GeneralIlluminationLevel,
-                playerMaterialImages,
-                preserveTexturePalette: isDecalModel);
+                playerMaterialImages);
             if (isDecalModel)
             {
                 MechWarriorModelMeshBuilder.ApplyMechDecalFinish(renderMesh);
@@ -2379,8 +2378,7 @@ public partial class Main : Node3D
                     palette,
                     luminosityTable,
                     GeneralIlluminationLevel,
-                    materialImages,
-                    preserveTexturePalette: isDecalModel);
+                    materialImages);
                 if (isDecalModel)
                 {
                     MechWarriorModelMeshBuilder.ApplyMechDecalFinish(mesh);

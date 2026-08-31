@@ -103,7 +103,8 @@ The application starts in the 3D cockpit. The current piloting controls follow t
 
 The camera and battlefield inspection controls are:
 
-- Press `F4` to cycle through cockpit, external and free-flight inspector cameras.
+- Press `F4` to cycle through cockpit, external and free-flight inspector cameras. Entering the
+  inspector frames the player mech from a front three-quarter view before returning control to WASDQE.
 - Press `C` to toggle between cockpit and the damped external follow camera; press `/` to centre the torso and pilot view with the legs.
 - In inspector view, use `W`/`A`/`S`/`D` to fly and `Q`/`E` to descend/ascend.
 - Hold `Shift` for an inspector-camera speed boost.

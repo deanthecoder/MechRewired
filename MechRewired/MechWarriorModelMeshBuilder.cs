@@ -24,8 +24,11 @@ namespace MechRewired;
 public static class MechWarriorModelMeshBuilder
 {
     public const float SourceUnitScale = 0.01f;
-    private const float MechSurfaceMetallic = 0.55f;
-    private const float MechSurfaceRoughness = 0.58f;
+    public const float DefaultMechSurfaceBrightness = 1.30f;
+    public const float DefaultMechSurfaceMetallic = 0.16f;
+    public const float DefaultMechSurfaceRoughness = 0.68f;
+    public const float DefaultMechCamoScale = 2.0f;
+    public const string SourceMaterialIndexMetadata = "mw2_material_index";
     private const float MechDecalRoughness = 0.72f;
     private const float StructureSurfaceMetallic = 0.28f;
     private const float StructureSurfaceRoughness = 0.78f;
@@ -57,8 +60,7 @@ public static class MechWarriorModelMeshBuilder
         MechWarriorLuminosityTable luminosityTable,
         int illuminationLevel,
         IReadOnlyDictionary<byte, MechWarriorIndexedImage> materialImages,
-        int triangleSubdivisions = 1,
-        bool preserveTexturePalette = false)
+        int triangleSubdivisions = 1)
     {
         ArgumentNullException.ThrowIfNull(model);
         ArgumentNullException.ThrowIfNull(palette);
@@ -110,7 +112,11 @@ public static class MechWarriorModelMeshBuilder
                     AlbedoColor = Colors.White,
                     Metallic = 0.0f,
                     Roughness = 0.9f,
-                    VertexColorUseAsAlbedo = true
+                    VertexColorUseAsAlbedo = true,
+                    // MW2 palettes contain nonlinear VGA display colours. Treating them as
+                    // linear vertex values gamma-lifts dark authored plates such as the
+                    // Timber Wolf's neutral-grey toe armour.
+                    VertexColorIsSrgb = true
                 },
                 generateNormals: smoothNormals == null,
                 generateTangents: true);
@@ -146,29 +152,26 @@ public static class MechWarriorModelMeshBuilder
                 }
             }
 
-            var textures = BuildMaterialTextures(
-                indexedImage,
-                palette,
-                luminosityTable,
-                illuminationLevel,
-                preserveTexturePalette);
+            var textures = BuildMaterialTextures(indexedImage, palette);
+            var material = new StandardMaterial3D
+            {
+                AlbedoTexture = textures.Albedo,
+                NormalEnabled = true,
+                NormalTexture = textures.Normal,
+                NormalScale = 0.28f,
+                RoughnessTexture = textures.Roughness,
+                MetallicTexture = textures.Metallic,
+                Metallic = 0.0f,
+                Roughness = 0.9f,
+                Transparency = BaseMaterial3D.TransparencyEnum.AlphaScissor,
+                TextureFilter = BaseMaterial3D.TextureFilterEnum.Nearest,
+                TextureRepeat = true
+            };
+            material.SetMeta(SourceMaterialIndexMetadata, (int)materialGroup.Key);
             CommitSurface(
                 surfaceTool,
                 mesh,
-                new StandardMaterial3D
-                {
-                    AlbedoTexture = textures.Albedo,
-                    NormalEnabled = true,
-                    NormalTexture = textures.Normal,
-                    NormalScale = 0.28f,
-                    RoughnessTexture = textures.Roughness,
-                    MetallicTexture = textures.Metallic,
-                    Metallic = 0.0f,
-                    Roughness = 0.9f,
-                    Transparency = BaseMaterial3D.TransparencyEnum.AlphaScissor,
-                    TextureFilter = BaseMaterial3D.TextureFilterEnum.Nearest,
-                    TextureRepeat = true
-                },
+                material,
                 generateNormals: smoothNormals == null,
                 generateTangents: true);
         }
@@ -211,7 +214,8 @@ public static class MechWarriorModelMeshBuilder
             AlbedoColor = Colors.White,
             Metallic = 0.0f,
             Roughness = 0.9f,
-            VertexColorUseAsAlbedo = true
+            VertexColorUseAsAlbedo = true,
+            VertexColorIsSrgb = true
         });
         return mesh;
     }
@@ -262,8 +266,18 @@ public static class MechWarriorModelMeshBuilder
                 continue;
             }
 
-            material.Metallic = MechSurfaceMetallic;
-            material.Roughness = MechSurfaceRoughness;
+            material.AlbedoColor = new Color(
+                DefaultMechSurfaceBrightness,
+                DefaultMechSurfaceBrightness,
+                DefaultMechSurfaceBrightness,
+                1.0f);
+            material.Metallic = DefaultMechSurfaceMetallic;
+            material.Roughness = DefaultMechSurfaceRoughness;
+            var materialIndex = material.GetMeta(SourceMaterialIndexMetadata, -1).AsInt32();
+            if (materialIndex is 0x00 or 0x70)
+            {
+                material.Uv1Scale = Vector3.One * DefaultMechCamoScale;
+            }
             ApplySurfaceMaps(material, GetPaintedSurfaceMaps(), 0.24f, false);
         }
     }
@@ -494,17 +508,9 @@ public static class MechWarriorModelMeshBuilder
 
     private static SurfaceTextureSet BuildMaterialTextures(
         MechWarriorIndexedImage indexedImage,
-        MechWarriorPalette palette,
-        MechWarriorLuminosityTable luminosityTable,
-        int illuminationLevel,
-        bool preservePalette)
+        MechWarriorPalette palette)
     {
-        var key = new IndexedTextureCacheKey(
-            indexedImage,
-            palette,
-            luminosityTable,
-            illuminationLevel,
-            preservePalette);
+        var key = new IndexedTextureCacheKey(indexedImage, palette);
         if (s_indexedTextureCache.TryGetValue(key, out var cachedTextures))
         {
             return cachedTextures;
@@ -535,9 +541,9 @@ public static class MechWarriorModelMeshBuilder
         {
             for (var x = 0; x < indexedImage.Width; x++)
             {
-                // MW2 XEL scanlines are stored bottom-to-top. Preserve the original
-                // orientation before the material samples the source UV coordinates.
-                var paletteIndex = indexedImage.GetPixel(x, indexedImage.Height - y - 1);
+                // WTB material UVs address XEL scanlines in their stored order. Keeping row zero
+                // at the texture's top preserves the authored upright clan insignia and camo.
+                var paletteIndex = indexedImage.GetPixel(x, y);
                 if (paletteIndex == byte.MaxValue)
                 {
                     albedo.SetPixel(x, y, Colors.Transparent);
@@ -547,9 +553,9 @@ public static class MechWarriorModelMeshBuilder
                     continue;
                 }
 
-                var color = palette[preservePalette
-                    ? paletteIndex
-                    : luminosityTable.GetPaletteIndex(paletteIndex, illuminationLevel)];
+                // XEL pixels already select their authored palette colours. LUMA remapping is
+                // reserved for WTB polygons whose palette index represents a flat shaded surface.
+                var color = palette[paletteIndex];
                 var resolvedColor = new Color(
                     color.R / 255.0f,
                     color.G / 255.0f,
@@ -565,7 +571,7 @@ public static class MechWarriorModelMeshBuilder
             for (var x = 0; x < indexedImage.Width; x++)
             {
                 var pixel = y * indexedImage.Width + x;
-                if (indexedImage.GetPixel(x, indexedImage.Height - y - 1) == byte.MaxValue)
+                if (indexedImage.GetPixel(x, y) == byte.MaxValue)
                 {
                     continue;
                 }
@@ -697,8 +703,5 @@ public static class MechWarriorModelMeshBuilder
 
     private readonly record struct IndexedTextureCacheKey(
         MechWarriorIndexedImage Image,
-        MechWarriorPalette Palette,
-        MechWarriorLuminosityTable LuminosityTable,
-        int IlluminationLevel,
-        bool PreservePalette);
+        MechWarriorPalette Palette);
 }

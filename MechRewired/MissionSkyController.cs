@@ -385,8 +385,14 @@ public sealed class MissionSkyController
         m_skyDome.Set("atm_day_tint", atmosphericTint);
         m_skyDome.Set("atm_horizon_light_tint", horizonTint);
         m_skyDome.Set("ground_color", m_profile.HorizonColor);
-        m_skyDome.Set("sun_light_color", m_profile.SunColor);
-        m_skyDome.Set("sun_horizon_light_color", m_profile.HorizonColor.Lerp(m_profile.SunColor, 0.45f));
+        // Palette colours already encode MW2's time-of-day lighting ramps. Applying the raw
+        // palette sun as a physical light casts its strong yellow tint over neutral authored
+        // greys (the Timber Wolf's 0x4C foot plates, for example). Keep the sky art directed by
+        // the palette, but use near-neutral daylight for modern PBR geometry.
+        var physicalSunColor = m_profile.SunColor.Lerp(Colors.White, 0.85f);
+        var physicalHorizonSunColor = m_profile.HorizonColor.Lerp(physicalSunColor, 0.75f);
+        m_skyDome.Set("sun_light_color", physicalSunColor);
+        m_skyDome.Set("sun_horizon_light_color", physicalHorizonSunColor);
         m_skyDome.Set("atm_sun_mie_tint", m_profile.HorizonColor.Lerp(Colors.White, 0.35f));
         m_skyDome.Set("atm_darkness", m_profile.UsesWarmPaletteAtmosphere ? 0.16f : 0.38f);
         m_skyDome.Set("atm_thickness", m_profile.UsesWarmPaletteAtmosphere ? 0.62f : 0.9f);
