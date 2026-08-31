@@ -16,7 +16,6 @@ namespace MechRewired;
 /// <summary>Runs an archive-authored aircraft path and its attached presentation tasks.</summary>
 public partial class AuthoredAircraftController : Node3D
 {
-    private const float WreckageGravity = 9.8f;
     // V_BHELOA's nose points down its local -X axis; its long +X extent is the tail boom.
     private static readonly Vector3 ModelForward = Vector3.Left;
 
@@ -26,13 +25,11 @@ public partial class AuthoredAircraftController : Node3D
     private readonly IList<DebugTriangle> m_sceneTriangles;
     private readonly int[] m_triangleIndices;
     private readonly AudioStreamPlayer3D m_engine;
-    private readonly TerrainSurfaceIndex m_terrainSurface;
+    private readonly BattlefieldEffects m_battlefieldEffects;
     private int m_segmentIndex;
     private float m_segmentElapsed;
     private bool m_destroyed;
-    private bool m_wreckageFalling;
     private Vector3 m_flightVelocity;
-    private Vector3 m_wreckageVelocity;
 
     public AuthoredAircraftController(
         BattlefieldActor actor,
@@ -43,7 +40,7 @@ public partial class AuthoredAircraftController : Node3D
         Node3D rotor,
         AudioStreamWav engineSound,
         float maximumSoundDistance,
-        TerrainSurfaceIndex terrainSurface)
+        BattlefieldEffects battlefieldEffects)
     {
         m_actor = actor ?? throw new ArgumentNullException(nameof(actor));
         ArgumentNullException.ThrowIfNull(motionAnchor);
@@ -56,7 +53,7 @@ public partial class AuthoredAircraftController : Node3D
         m_rotateWithPath = rotateWithPath;
         m_sceneTriangles = sceneTriangles ?? throw new ArgumentNullException(nameof(sceneTriangles));
         ConfigureRotorBlur(rotor ?? throw new ArgumentNullException(nameof(rotor)));
-        m_terrainSurface = terrainSurface ?? throw new ArgumentNullException(nameof(terrainSurface));
+        m_battlefieldEffects = battlefieldEffects ?? throw new ArgumentNullException(nameof(battlefieldEffects));
         Name = $"AuthoredFlight-{actor.SourceResourceName}";
         var componentKeys = actor.Definition.Components
             .Select(component => (component.SourceEntry.Path, component.Id))
@@ -67,6 +64,7 @@ public partial class AuthoredAircraftController : Node3D
             .Select(item => item.index)
             .ToArray();
 
+        actor.SuppressGenericExplosionDebris();
         actor.SetMotionAnchor(ToGodotTransform(motionAnchor));
         ApplyTransform(m_points.Count > 1
             ? GetSegmentTransform(0, 0.0f)
@@ -94,7 +92,6 @@ public partial class AuthoredAircraftController : Node3D
     {
         if (m_destroyed)
         {
-            AdvanceWreckage((float)delta);
             return;
         }
 
@@ -158,30 +155,15 @@ public partial class AuthoredAircraftController : Node3D
             actor.GlobalPosition += actor.DestructionBounds.GetCenter() - wreckageBounds.GetCenter();
         }
 
-        m_wreckageVelocity = m_flightVelocity * 0.35f;
-        m_wreckageFalling = true;
-    }
-
-    private void AdvanceWreckage(float delta)
-    {
-        if (!m_wreckageFalling)
+        var physicalWreckage = AircraftWreckage.TrySpawn(actor, m_flightVelocity, hitPosition);
+        if (physicalWreckage == null)
         {
+            GD.PushWarning(
+                $"MechRewired: {actor.Description} has no rendered destroyed assembly for physical wreckage.");
             return;
         }
 
-        m_wreckageVelocity += Vector3.Down * WreckageGravity * delta;
-        m_actor.GlobalPosition += m_wreckageVelocity * delta;
-        var wreckageBounds = m_actor.WorldBounds;
-        if (!m_terrainSurface.TryGetHeight(wreckageBounds.GetCenter(), out var terrainHeight) ||
-            wreckageBounds.Position.Y > terrainHeight)
-        {
-            return;
-        }
-
-        m_actor.GlobalPosition += Vector3.Up * (terrainHeight - wreckageBounds.Position.Y);
-        m_wreckageVelocity = Vector3.Zero;
-        m_wreckageFalling = false;
-        GD.Print($"MechRewired: settled {m_actor.Description} wreckage on rendered terrain.");
+        m_battlefieldEffects.FollowDestruction(actor, physicalWreckage);
     }
 
     private Transform3D GetSegmentTransform(

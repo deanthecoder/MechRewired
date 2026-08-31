@@ -1767,7 +1767,7 @@ public partial class Main : Node3D
             battlefieldActors,
             renderedRootsByObject,
             debugTriangles,
-            terrainSurface,
+            battlefieldEffects,
             runtimeContent);
         LoadAuthoredWorldPaths(
             archive,
@@ -2840,7 +2840,7 @@ public partial class Main : Node3D
         IReadOnlyList<BattlefieldActor> actors,
         IReadOnlyDictionary<(string SourcePath, int ObjectId), Node3D> renderedRootsByObject,
         IList<DebugTriangle> sceneTriangles,
-        TerrainSurfaceIndex terrainSurface,
+        BattlefieldEffects battlefieldEffects,
         MissionRuntimeContent runtimeContent)
     {
         var hostileAircraft = new List<BattlefieldActor>();
@@ -2873,7 +2873,7 @@ public partial class Main : Node3D
                 rotor,
                 engineSound,
                 plan.MaximumSoundDistance,
-                terrainSurface));
+                battlefieldEffects));
             hostileAircraft.Add(actor);
             runtimeContent.AddAircraft(plan.Actor);
             if (engineSound == null)

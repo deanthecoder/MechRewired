@@ -615,6 +615,18 @@ public partial class BattlefieldEffects : Node3D
     }
 
     /// <summary>
+    /// Keeps a just-spawned destruction effect attached to a physical wreckage body.
+    /// </summary>
+    public void FollowDestruction(BattlefieldActor actor, Node3D wreckage)
+    {
+        ArgumentNullException.ThrowIfNull(actor);
+        ArgumentNullException.ThrowIfNull(wreckage);
+        var effect = m_destructionPool.LastOrDefault(candidate =>
+            candidate.IsActive && string.Equals(candidate.Name, $"Destruction-{actor.Name}", StringComparison.Ordinal));
+        effect?.Follow(wreckage);
+    }
+
+    /// <summary>
     /// Spawns destruction effects for a dynamic combat actor such as an enemy mech.
     /// </summary>
     public void SpawnDestruction(
@@ -1929,6 +1941,8 @@ public partial class BattlefieldEffects : Node3D
         private readonly bool m_ambient;
         private readonly bool m_pooled;
         private float m_age;
+        private Node3D m_followTarget;
+        private Transform3D m_followOffset;
 
         public EffectInstance(bool ambient, bool pooled = false)
         {
@@ -1956,6 +1970,13 @@ public partial class BattlefieldEffects : Node3D
         public bool IsActive { get; private set; }
 
         public float Age => m_age;
+
+        public void Follow(Node3D target)
+        {
+            ArgumentNullException.ThrowIfNull(target);
+            m_followTarget = target;
+            m_followOffset = target.GlobalTransform.AffineInverse() * GlobalTransform;
+        }
 
         public void Activate(Vector3 position, Vector3 localHit)
         {
@@ -1996,6 +2017,7 @@ public partial class BattlefieldEffects : Node3D
             }
 
             IsActive = false;
+            m_followTarget = null;
             ExplosionFire.Emitting = false;
             ExplosionSmoke.Emitting = false;
             Sparks.Emitting = false;
@@ -2020,6 +2042,15 @@ public partial class BattlefieldEffects : Node3D
             if (!IsActive)
             {
                 return;
+            }
+
+            if (GodotObject.IsInstanceValid(m_followTarget))
+            {
+                GlobalTransform = m_followTarget.GlobalTransform * m_followOffset;
+            }
+            else
+            {
+                m_followTarget = null;
             }
 
             m_age += (float)delta;

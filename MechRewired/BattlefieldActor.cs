@@ -36,6 +36,7 @@ public partial class BattlefieldActor : Node3D
     private SceneryObstacle m_initialActiveObstacle;
     private SceneryObstacle m_initialDestroyedObstacle;
     private Transform3D m_motionAnchor = Transform3D.Identity;
+    private bool m_spawnExplosionDebris = true;
 
     public BattlefieldActor(
         MechWarriorLevelActor definition,
@@ -239,6 +240,11 @@ public partial class BattlefieldActor : Node3D
         m_terrainSurface = terrainSurface;
     }
 
+    /// <summary>
+    /// Prevents generic CHUNKER debris when an actor supplies its own physical wreckage.
+    /// </summary>
+    public void SuppressGenericExplosionDebris() => m_spawnExplosionDebris = false;
+
     public void ApplyDamage(
         int damage,
         Vector3 hitPosition)
@@ -270,11 +276,11 @@ public partial class BattlefieldActor : Node3D
             representation.Visible = true;
         }
 
-        if (IsWithinEffectPersistenceRange(explosionBounds.GetCenter()))
+        if (m_spawnExplosionDebris && IsWithinEffectPersistenceRange(explosionBounds.GetCenter()))
         {
             LaunchExplosionDebris(hitPosition, explosionBounds);
         }
-        else
+        else if (m_spawnExplosionDebris)
         {
             GD.Print(
                 $"MechRewired: skipped distant explosion debris for {Description} beyond " +
