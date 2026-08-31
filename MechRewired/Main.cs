@@ -1901,6 +1901,9 @@ public partial class Main : Node3D
             {
                 MechWarriorModelMeshBuilder.ApplyMechSurfaceFinish(renderMesh);
             }
+            // Original mech WTBs are open shells at their articulated joins. External-camera
+            // views can see their reverse faces, so render them instead of back-face culling.
+            MakeMeshDoubleSided(renderMesh);
             var modelInstance = new MeshInstance3D
             {
                 Name = modelEntry.Name,
@@ -2386,6 +2389,9 @@ public partial class Main : Node3D
                 {
                     MechWarriorModelMeshBuilder.ApplyMechSurfaceFinish(mesh);
                 }
+                // Match player mechs: articulated original shells must remain visible when
+                // viewed from inside an exposed joint or from the reverse side.
+                MakeMeshDoubleSided(mesh);
                 var partRoot = partRoots[chassisObject.Id];
                 var modelInstance = new MeshInstance3D
                 {
