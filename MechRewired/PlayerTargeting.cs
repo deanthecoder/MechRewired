@@ -40,6 +40,7 @@ public partial class PlayerTargeting : Node
     private readonly IReadOnlyList<BattlefieldActor> m_hostileActors;
     private readonly IReadOnlyList<EnemyMech> m_enemyMechs;
     private readonly IReadOnlyDictionary<(string SourcePath, int ObjectId), BattlefieldActor> m_actorsByObject;
+    private readonly IReadOnlyDictionary<BattlefieldActor, BattlefieldActor> m_objectiveRootsByActor;
     private readonly AudioStreamPlayer m_weaponSound;
     private readonly AudioStreamPlayer m_missileLockSound;
     private readonly AudioStreamPlayer m_fireModeSound;
@@ -73,6 +74,7 @@ public partial class PlayerTargeting : Node
         IReadOnlyList<BattlefieldActor> actors,
         IReadOnlyList<BattlefieldActor> hostileActors,
         IReadOnlyList<EnemyMech> enemyMechs,
+        IReadOnlyDictionary<BattlefieldActor, BattlefieldActor> objectiveRootsByActor,
         MechWarriorMechFile playerDefinition,
         PlayerMechSounds sounds,
         BattlefieldEffects battlefieldEffects)
@@ -83,6 +85,7 @@ public partial class PlayerTargeting : Node
         ArgumentNullException.ThrowIfNull(actors);
         ArgumentNullException.ThrowIfNull(hostileActors);
         ArgumentNullException.ThrowIfNull(enemyMechs);
+        ArgumentNullException.ThrowIfNull(objectiveRootsByActor);
         ArgumentNullException.ThrowIfNull(playerDefinition);
         ArgumentNullException.ThrowIfNull(sounds);
         ArgumentNullException.ThrowIfNull(battlefieldEffects);
@@ -98,6 +101,7 @@ public partial class PlayerTargeting : Node
         m_actors = actors;
         m_hostileActors = hostileActors;
         m_enemyMechs = enemyMechs;
+        m_objectiveRootsByActor = objectiveRootsByActor;
         var actorsByObject = new Dictionary<(string SourcePath, int ObjectId), BattlefieldActor>();
         foreach (var actor in actors)
         {
@@ -1459,6 +1463,8 @@ public partial class PlayerTargeting : Node
         }
 
         ObjectiveActor = m_actors
+            .Select(GetObjectiveRoot)
+            .Distinct()
             .Where(m_playerMission.IsActiveObjectiveTarget)
             .Select(actor => new
             {
@@ -1485,6 +1491,9 @@ public partial class PlayerTargeting : Node
             ObjectiveAimPosition = default;
         }
     }
+
+    private BattlefieldActor GetObjectiveRoot(BattlefieldActor actor) =>
+        m_objectiveRootsByActor.TryGetValue(actor, out var root) ? root : actor;
 
     /// <summary>
     /// Gets the objective HUD anchor by giving every source polygon equal weight.

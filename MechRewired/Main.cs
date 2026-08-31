@@ -1367,6 +1367,11 @@ public partial class Main : Node3D
             }
         }
         var destructionLinks = MechWarriorActorDestructionLinkResolver.Resolve(level);
+        var actorRoots = MechWarriorActorHierarchyResolver.ResolveRoots(level);
+        var battlefieldActorsByDefinition = battlefieldActors.ToDictionary(actor => actor.Definition);
+        var objectiveRootsByActor = battlefieldActors.ToDictionary(
+            actor => actor,
+            actor => battlefieldActorsByDefinition[actorRoots[actor.Definition]]);
         var linkedActors = destructionLinks
             .Select(link => (
                 Parent: battlefieldActors.Single(actor => ReferenceEquals(actor.Definition, link.Parent)),
@@ -2055,6 +2060,7 @@ public partial class Main : Node3D
             battlefieldActors,
             hostileAircraft,
             enemyMechs,
+            objectiveRootsByActor,
             playerMechDefinition,
             playerMechSounds,
             battlefieldEffects);

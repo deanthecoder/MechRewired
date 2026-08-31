@@ -337,6 +337,7 @@ public sealed class OriginalArchiveIntegrationTests
             mission.Scenario.MissionTables.Single(table => table.Index == 0));
         var level = MechWarriorLevel.Load(archive, mission.Level.Entry.Path);
         var links = MechWarriorActorDestructionLinkResolver.Resolve(level);
+        var roots = MechWarriorActorHierarchyResolver.ResolveRoots(level);
         var alphaActors = level.Actors.Where(actor => actor.SourceEntry.Name == "PINKARE1.BWD").ToArray();
         var alphaLinks = links.Where(link => link.Parent.SourceEntry.Name == "PINKARE1.BWD").ToArray();
         var alphaRoot = alphaActors.Single(actor => actor.ObjectId == 2);
@@ -362,6 +363,8 @@ public sealed class OriginalArchiveIntegrationTests
             Assert.That(alphaLinks, Has.Length.EqualTo(12));
             Assert.That(alphaCascade, Is.EquivalentTo(alphaActors),
                 "Destroying the HPG root must propagate through every nested gun, processor, and wall.");
+            Assert.That(alphaActors.Select(actor => roots[actor]), Is.All.SameAs(alphaRoot),
+                "Objective targeting must identify the HPG root rather than one of its component walls.");
             Assert.That(betaLinks, Has.Length.EqualTo(3));
             Assert.That(betaRootIds, Is.EqualTo(new[] { 1, 3, 12, 18 }),
                 "The communications array has four independently destroyed authored roots.");
