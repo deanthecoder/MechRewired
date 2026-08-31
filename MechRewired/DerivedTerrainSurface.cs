@@ -19,6 +19,7 @@ namespace MechRewired;
 /// </summary>
 public sealed record DerivedTerrainSurface(
     ArrayMesh RenderMesh,
+    ArrayMesh ShadowMesh,
     IReadOnlyList<DebugTriangle> CollisionTriangles,
     int SourceTriangleCount,
     int RenderTriangleCount,
@@ -35,6 +36,9 @@ public static class DerivedTerrainSurfaceBuilder
     public const float SmoothingAngleDegrees = 30.0f;
     public const float SmoothingStrength = 0.70f;
     public const float MaximumBaseSnapHeightMetres = 2.0f;
+    public const int ShadowRelaxationIterations = 2;
+    public const float ShadowRelaxationStrength = 0.65f;
+    public const float ShadowDepthOffsetMetres = 1.0f;
     // This is kept a centimetre below source terrain at Y=0 so coplanar authored surfaces do not
     // flicker, while the derived-edge sealing pass still has a single precise destination.
     public const float ImplicitGroundHeight = -0.01f;
@@ -101,8 +105,14 @@ public static class DerivedTerrainSurfaceBuilder
             collisionSkirts = TerrainMeshBoundarySealer.BuildSkirts(collision, groundHeightAt);
         }
 
+        var shadow = TerrainMeshDeriver.RelaxInteriorHeights(
+            render,
+            ShadowRelaxationIterations,
+            ShadowRelaxationStrength);
+
         return new DerivedTerrainSurface(
             BuildGodotMesh(render, renderSkirts),
+            BuildGodotShadowMesh(shadow),
             BuildDebugTriangles(collision, collisionSkirts),
             source.Length,
             render.TriangleCount,
@@ -204,6 +214,31 @@ public static class DerivedTerrainSurfaceBuilder
         if (surfaceTool.Commit(mesh) == null)
         {
             throw new InvalidOperationException("Godot did not create the derived terrain mesh.");
+        }
+
+        return mesh;
+    }
+
+    private static ArrayMesh BuildGodotShadowMesh(DerivedTerrainMesh derived)
+    {
+        var surfaceTool = new SurfaceTool();
+        surfaceTool.Begin(Mesh.PrimitiveType.Triangles);
+        foreach (var vertex in derived.Vertices)
+        {
+            surfaceTool.AddVertex(ToGodot(vertex));
+        }
+
+        for (var index = 0; index < derived.Indices.Count; index += 3)
+        {
+            surfaceTool.AddIndex(derived.Indices[index]);
+            surfaceTool.AddIndex(derived.Indices[index + 2]);
+            surfaceTool.AddIndex(derived.Indices[index + 1]);
+        }
+
+        var mesh = new ArrayMesh();
+        if (surfaceTool.Commit(mesh) == null)
+        {
+            throw new InvalidOperationException("Godot did not create the derived terrain shadow mesh.");
         }
 
         return mesh;

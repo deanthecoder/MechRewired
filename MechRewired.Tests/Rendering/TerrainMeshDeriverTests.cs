@@ -64,6 +64,43 @@ public sealed class TerrainMeshDeriverTests
     }
 
     [Test]
+    public void ConnectedSharpFacesRelaxNormalsBeyondTheAuthoredDiagonal()
+    {
+        var left = new Vector3(-1.0f, 0.0f, 0.0f);
+        var right = new Vector3(1.0f, 0.0f, 0.0f);
+        var source = new[]
+        {
+            new TerrainSourceTriangle(left, right, new Vector3(0.0f, 0.0f, -1.0f)),
+            new TerrainSourceTriangle(right, left, new Vector3(0.0f, 1.0f, 1.0f))
+        };
+
+        var derived = TerrainMeshDeriver.Build(
+            source,
+            subdivisions: 6,
+            smoothingAngleDegrees: 30.0f,
+            smoothingStrength: 0.70f);
+        var edges = new HashSet<(int First, int Second)>();
+        for (var index = 0; index < derived.Indices.Count; index += 3)
+        {
+            AddEdge(derived.Indices[index], derived.Indices[index + 1]);
+            AddEdge(derived.Indices[index + 1], derived.Indices[index + 2]);
+            AddEdge(derived.Indices[index + 2], derived.Indices[index]);
+        }
+
+        var minimumAdjacentNormalDot = edges.Min(edge => Vector3.Dot(
+            derived.Normals[edge.First],
+            derived.Normals[edge.Second]));
+
+        Assert.That(
+            minimumAdjacentNormalDot,
+            Is.GreaterThan(0.97f),
+            "Normal relaxation should prevent direct light from exposing the source diagonal.");
+
+        void AddEdge(int first, int second) =>
+            edges.Add(first < second ? (first, second) : (second, first));
+    }
+
+    [Test]
     public void DownwardAndVerticalSealingFacesAreExcluded()
     {
         var upward = new TerrainSourceTriangle(
@@ -247,6 +284,44 @@ public sealed class TerrainMeshDeriverTests
             Assert.That(snappedCount, Is.EqualTo(2));
             Assert.That(snapped.Vertices.Any(vertex => Math.Abs(vertex.Y + 0.5f) < 0.0001f), Is.True);
             Assert.That(snapped.Vertices.Any(vertex => Math.Abs(vertex.Y - 0.5f) < 0.0001f), Is.True);
+        });
+    }
+
+    [Test]
+    public void ShadowHeightRelaxationMovesOnlyInteriorVertices()
+    {
+        var vertices = new[]
+        {
+            new Vector3(-1.0f, 0.0f, -1.0f),
+            new Vector3(-1.0f, 0.0f, 1.0f),
+            new Vector3(1.0f, 0.0f, 1.0f),
+            new Vector3(1.0f, 0.0f, -1.0f),
+            new Vector3(0.0f, 10.0f, 0.0f)
+        };
+        var terrain = new DerivedTerrainMesh(
+            vertices,
+            Enumerable.Repeat(Vector3.UnitY, vertices.Length).ToArray(),
+            new[] { 0, 1, 4, 1, 2, 4, 2, 3, 4, 3, 0, 4 },
+            new[]
+            {
+                new DerivedTerrainBoundaryEdge(0, 1),
+                new DerivedTerrainBoundaryEdge(1, 2),
+                new DerivedTerrainBoundaryEdge(2, 3),
+                new DerivedTerrainBoundaryEdge(3, 0)
+            });
+
+        var relaxed = TerrainMeshDeriver.RelaxInteriorHeights(
+            terrain,
+            iterations: 1,
+            strength: 0.5f);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(relaxed.Vertices[4].Y, Is.EqualTo(5.0f).Within(0.0001f));
+            for (var index = 0; index < 4; index++)
+            {
+                Assert.That(relaxed.Vertices[index], Is.EqualTo(vertices[index]));
+            }
         });
     }
 

@@ -47,6 +47,8 @@ public static class TerrainMeshDeriver
     // a metre, despite their meaningful control points being tens of metres apart.
     private const float SourceWeldToleranceMetres = 1.0f;
     private const float DerivedWeldToleranceMetres = 0.001f;
+    private const int NormalRelaxationIterations = 2;
+    private const float NormalRelaxationStrength = 0.65f;
 
     public static DerivedTerrainMesh Build(
         IEnumerable<TerrainSourceTriangle> sourceTriangles,
@@ -232,6 +234,70 @@ public static class TerrainMeshDeriver
             };
     }
 
+    /// <summary>
+    /// Relaxes only interior heights while retaining the horizontal footprint and every exterior
+    /// edge. This is suitable for a shadow proxy that should follow the authored landform without
+    /// reproducing sharp control-triangle folds.
+    /// </summary>
+    public static DerivedTerrainMesh RelaxInteriorHeights(
+        DerivedTerrainMesh terrain,
+        int iterations,
+        float strength)
+    {
+        ArgumentNullException.ThrowIfNull(terrain);
+        if (iterations < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(iterations));
+        }
+
+        if (strength is <= 0.0f or > 1.0f)
+        {
+            throw new ArgumentOutOfRangeException(nameof(strength));
+        }
+
+        var vertices = terrain.Vertices.ToArray();
+        var boundaryVertices = terrain.BoundaryEdges
+            .SelectMany(edge => new[] { edge.FirstVertexIndex, edge.SecondVertexIndex })
+            .ToHashSet();
+        var edges = FindEdges(terrain.Indices);
+        for (var iteration = 0; iteration < iterations; iteration++)
+        {
+            var accumulatedHeights = new float[vertices.Length];
+            var weights = new float[vertices.Length];
+            foreach (var edge in edges)
+            {
+                var horizontalDelta = new Vector2(
+                    vertices[edge.A].X - vertices[edge.B].X,
+                    vertices[edge.A].Z - vertices[edge.B].Z);
+                var weight = 1.0f / Math.Max(horizontalDelta.Length(), DerivedWeldToleranceMetres);
+                accumulatedHeights[edge.A] += vertices[edge.B].Y * weight;
+                accumulatedHeights[edge.B] += vertices[edge.A].Y * weight;
+                weights[edge.A] += weight;
+                weights[edge.B] += weight;
+            }
+
+            var relaxed = vertices.ToArray();
+            for (var index = 0; index < vertices.Length; index++)
+            {
+                if (boundaryVertices.Contains(index) || weights[index] <= 0.0f)
+                {
+                    continue;
+                }
+
+                var neighbourHeight = accumulatedHeights[index] / weights[index];
+                relaxed[index].Y = float.Lerp(vertices[index].Y, neighbourHeight, strength);
+            }
+
+            vertices = relaxed;
+        }
+
+        return terrain with
+        {
+            Vertices = vertices,
+            Normals = CalculateDerivedNormals(vertices, terrain.Indices)
+        };
+    }
+
     private static List<DerivedTerrainBoundaryEdge> FindBoundaryEdges(IReadOnlyList<int> indices)
     {
         var edges = new Dictionary<Edge, DerivedTerrainBoundaryEdge>();
@@ -402,7 +468,63 @@ public static class TerrainMeshDeriver
                 : Vector3.Normalize(normals[index]);
         }
 
+        // A one-ring face average keeps shared vertices watertight, but its gradient can still
+        // change abruptly along one of MW2's very large authored diagonals. Diffuse that normal
+        // field over two derived-mesh rings so direct light no longer reveals the control
+        // triangulation as a dark crease. Positions remain untouched, preserving the authored
+        // silhouette and the separately sampled collision surface.
+        var edges = FindEdges(indices);
+
+        for (var iteration = 0; iteration < NormalRelaxationIterations; iteration++)
+        {
+            var accumulated = new Vector3[normals.Length];
+            var weights = new float[normals.Length];
+            foreach (var edge in edges)
+            {
+                var edgeLength = Vector3.Distance(vertices[edge.A], vertices[edge.B]);
+                var weight = 1.0f / Math.Max(edgeLength, DerivedWeldToleranceMetres);
+                accumulated[edge.A] += normals[edge.B] * weight;
+                accumulated[edge.B] += normals[edge.A] * weight;
+                weights[edge.A] += weight;
+                weights[edge.B] += weight;
+            }
+
+            var relaxed = new Vector3[normals.Length];
+            for (var index = 0; index < normals.Length; index++)
+            {
+                if (weights[index] <= 0.0f)
+                {
+                    relaxed[index] = normals[index];
+                    continue;
+                }
+
+                var neighbourAverage = accumulated[index] / weights[index];
+                var blended = Vector3.Lerp(
+                    normals[index],
+                    neighbourAverage,
+                    NormalRelaxationStrength);
+                relaxed[index] = blended.LengthSquared() <= 0.000001f
+                    ? normals[index]
+                    : Vector3.Normalize(blended);
+            }
+
+            normals = relaxed;
+        }
+
         return normals;
+    }
+
+    private static HashSet<Edge> FindEdges(IReadOnlyList<int> indices)
+    {
+        var edges = new HashSet<Edge>();
+        for (var index = 0; index < indices.Count; index += 3)
+        {
+            edges.Add(Edge.Create(indices[index], indices[index + 1]));
+            edges.Add(Edge.Create(indices[index + 1], indices[index + 2]));
+            edges.Add(Edge.Create(indices[index + 2], indices[index]));
+        }
+
+        return edges;
     }
 
     private static Vector3 ProjectOntoPlane(Vector3 point, Vector3 origin, Vector3 normal) =>

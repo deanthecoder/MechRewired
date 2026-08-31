@@ -3971,10 +3971,21 @@ public partial class Main : Node3D
             Name = "DerivedTerrain",
             Mesh = derived.RenderMesh,
             MaterialOverride = terrainMaterial,
-            CastShadow = GeometryInstance3D.ShadowCastingSetting.On
+            CastShadow = GeometryInstance3D.ShadowCastingSetting.Off
         };
         levelRoot.AddChild(instance);
         instance.AddToGroup(DebugCamera.SolidMeshGroup);
+        // The visible mesh receives every world shadow, while this lightly height-relaxed proxy
+        // casts the landform shadow without reproducing sharp MW2 control diagonals. One path is
+        // used for every biome, including Jade's large shadow-casting mountains.
+        var shadowCaster = new MeshInstance3D
+        {
+            Name = "DerivedTerrainShadowCaster",
+            Mesh = derived.ShadowMesh,
+            Position = Vector3.Down * DerivedTerrainSurfaceBuilder.ShadowDepthOffsetMetres,
+            CastShadow = GeometryInstance3D.ShadowCastingSetting.ShadowsOnly
+        };
+        levelRoot.AddChild(shadowCaster);
         var wireframe = new MeshInstance3D
         {
             Name = "DerivedTerrainWireframe",

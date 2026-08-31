@@ -883,13 +883,13 @@ public static class TerrainSurfaceMaterial
             if (dot(displaced_face_normal, world_geometric_normal) < 0.0) {
                 displaced_face_normal = -displaced_face_normal;
             }
-            // The source WTB faces are extremely coarse. Retain the displaced surface direction,
-            // but blend it with the shared-vertex terrain normal so lighting rolls across the new
-            // tessellation rather than revealing every original 1995 polygon boundary.
+            // The source WTB faces are extremely coarse. Retain a little of the displaced surface
+            // direction, but let the relaxed shared-vertex normal own the broad lighting. A strong
+            // face contribution exposes the original 1995 control diagonals as long dark creases.
             vec3 geometric_normal = normalize(mix(
                 world_geometric_normal,
                 displaced_face_normal,
-                0.58));
+                0.20));
             vec3 weights = triplanar_weights(geometric_normal);
             vec3 sample_position = world_position * texture_scale;
             vec3 stone_sample_position = sample_position * stone_texture_scale;
