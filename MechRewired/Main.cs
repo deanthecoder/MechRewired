@@ -373,6 +373,21 @@ public partial class Main : Node3D
             cockpit.FrameRoughness,
             "Controls cockpit-frame reflection blur from 0 to 1 (default 0.60).");
         m_debugConsole.Call(
+            "add_cvar",
+            "cockpit.glass.visibility",
+            cockpit.GlassVisibility,
+            "Controls clean cockpit-glass visibility from 0 to 0.2 (default 0.01).");
+        m_debugConsole.Call(
+            "add_cvar",
+            "cockpit.glass.grime",
+            cockpit.GlassGrimeStrength,
+            "Controls edge residue and lower-pane dust from 0 to 2 (default 1.0).");
+        m_debugConsole.Call(
+            "add_cvar",
+            "cockpit.glass.scratches",
+            cockpit.GlassScratchStrength,
+            "Controls fine cockpit-glass scratch visibility from 0 to 0.3 (default 0.10).");
+        m_debugConsole.Call(
             "add_command",
             "cockpit.inspect",
             Callable.From<string>(SetCockpitInspection),
@@ -816,6 +831,21 @@ public partial class Main : Node3D
                  m_debugCockpit != null)
         {
             m_debugCockpit.FrameRoughness = numericValue;
+        }
+        else if (string.Equals(name, "cockpit.glass.visibility", StringComparison.OrdinalIgnoreCase) &&
+                 m_debugCockpit != null)
+        {
+            m_debugCockpit.GlassVisibility = numericValue;
+        }
+        else if (string.Equals(name, "cockpit.glass.grime", StringComparison.OrdinalIgnoreCase) &&
+                 m_debugCockpit != null)
+        {
+            m_debugCockpit.GlassGrimeStrength = numericValue;
+        }
+        else if (string.Equals(name, "cockpit.glass.scratches", StringComparison.OrdinalIgnoreCase) &&
+                 m_debugCockpit != null)
+        {
+            m_debugCockpit.GlassScratchStrength = numericValue;
         }
         else if (string.Equals(name, "terrain.texture_scale", StringComparison.OrdinalIgnoreCase) &&
                  m_debugTerrain != null)

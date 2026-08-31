@@ -39,6 +39,10 @@ public partial class PlayerCockpit : Node3D
     private const float DefaultFrameTextureScale = 1.5f;
     private const float DefaultFrameMetallic = 0.75f;
     private const float DefaultFrameRoughness = 0.60f;
+    private const float DefaultGlassVisibility = 0.01f;
+    private const float DefaultGlassGrimeStrength = 1.0f;
+    private const float DefaultGlassScratchStrength = 0.10f;
+    private const float SideArmorTextureSize = 1.6f;
     private const float RailChamferRatio = 0.22f;
     private const string FrameAlbedoTexturePath =
         "res://Assets/Textures/Cockpit/Metal029/Metal029_1K-PNG_Color.png";
@@ -48,12 +52,28 @@ public partial class PlayerCockpit : Node3D
         "res://Assets/Textures/Cockpit/Metal029/Metal029_1K-PNG_NormalGL.png";
     private const string FrameRoughnessTexturePath =
         "res://Assets/Textures/Cockpit/Metal029/Metal029_1K-PNG_Roughness.png";
+    private const string GlassScratchTexturePath =
+        "res://Assets/Textures/Cockpit/Scratches003/Scratches003_1K-PNG_Color.png";
+    private const string GlassScratchNormalTexturePath =
+        "res://Assets/Textures/Cockpit/Scratches003/Scratches003_1K-PNG_NormalGL.png";
+    private const string SideArmorAlbedoTexturePath =
+        "res://Assets/Textures/Cockpit/MetalPlates013/MetalPlates013_1K-PNG_Color.png";
+    private const string SideArmorMetalnessTexturePath =
+        "res://Assets/Textures/Cockpit/MetalPlates013/MetalPlates013_1K-PNG_Metalness.png";
+    private const string SideArmorNormalTexturePath =
+        "res://Assets/Textures/Cockpit/MetalPlates013/MetalPlates013_1K-PNG_NormalGL.png";
+    private const string SideArmorRoughnessTexturePath =
+        "res://Assets/Textures/Cockpit/MetalPlates013/MetalPlates013_1K-PNG_Roughness.png";
 
     private StandardMaterial3D m_frameMaterial;
     private MeshInstance3D m_frameMesh;
+    private ShaderMaterial m_glassMaterial;
     private float m_frameTextureScale = DefaultFrameTextureScale;
     private float m_frameMetallic = DefaultFrameMetallic;
     private float m_frameRoughness = DefaultFrameRoughness;
+    private float m_glassVisibility = DefaultGlassVisibility;
+    private float m_glassGrimeStrength = DefaultGlassGrimeStrength;
+    private float m_glassScratchStrength = DefaultGlassScratchStrength;
     private CockpitFrameDiagnosticMode m_frameDiagnosticMode;
 
     public PlayerCockpit()
@@ -125,6 +145,48 @@ public partial class PlayerCockpit : Node3D
         }
     }
 
+    /// <summary>
+    /// Controls the clean glazing's baseline visibility while leaving edge reflections intact.
+    /// </summary>
+    [Export]
+    public float GlassVisibility
+    {
+        get => m_glassVisibility;
+        set
+        {
+            m_glassVisibility = Mathf.Clamp(value, 0.0f, 0.20f);
+            ApplyGlassMaterialProperties();
+        }
+    }
+
+    /// <summary>
+    /// Controls dust and dried residue, with the strongest accumulation at pane edges and below.
+    /// </summary>
+    [Export]
+    public float GlassGrimeStrength
+    {
+        get => m_glassGrimeStrength;
+        set
+        {
+            m_glassGrimeStrength = Mathf.Clamp(value, 0.0f, 2.0f);
+            ApplyGlassMaterialProperties();
+        }
+    }
+
+    /// <summary>
+    /// Controls the visibility of fine surface scratches without changing the clear glass.
+    /// </summary>
+    [Export]
+    public float GlassScratchStrength
+    {
+        get => m_glassScratchStrength;
+        set
+        {
+            m_glassScratchStrength = Mathf.Clamp(value, 0.0f, 0.30f);
+            ApplyGlassMaterialProperties();
+        }
+    }
+
     public override void _Ready()
     {
         Rebuild();
@@ -193,6 +255,10 @@ public partial class PlayerCockpit : Node3D
         var crossSectionCentreZ = RearZ - Length * 0.5f + rearwardOffset;
         var frameBuilder = new SurfaceTool();
         frameBuilder.Begin(Mesh.PrimitiveType.Triangles);
+        var glassBuilder = new SurfaceTool();
+        glassBuilder.Begin(Mesh.PrimitiveType.Triangles);
+        var sideArmorBuilder = new SurfaceTool();
+        sideArmorBuilder.Begin(Mesh.PrimitiveType.Triangles);
 
         for (var index = 0; index < vertices.Length; index++)
         {
@@ -218,7 +284,29 @@ public partial class PlayerCockpit : Node3D
             // a manufactured connector rather than a gap, without restoring overlapping caps.
             AppendJoint(frameBuilder, ToBracePosition(vertex, index, -1.0f, crossSectionCentreZ));
             AppendJoint(frameBuilder, ToBracePosition(vertex, index, 1.0f, crossSectionCentreZ));
+            AppendGlassPane(
+                glassBuilder,
+                vertex,
+                index,
+                next,
+                nextIndex,
+                crossSectionCentreZ);
         }
+
+        AppendSideClosure(
+            frameBuilder,
+            glassBuilder,
+            sideArmorBuilder,
+            vertices,
+            -1.0f,
+            crossSectionCentreZ);
+        AppendSideClosure(
+            frameBuilder,
+            glassBuilder,
+            sideArmorBuilder,
+            vertices,
+            1.0f,
+            crossSectionCentreZ);
 
         frameBuilder.GenerateNormals();
         frameBuilder.GenerateTangents();
@@ -231,6 +319,28 @@ public partial class PlayerCockpit : Node3D
             Layers = RenderLayer
         };
         AddChild(m_frameMesh);
+
+        glassBuilder.GenerateTangents();
+        var glassMesh = glassBuilder.Commit();
+        m_glassMaterial = CreateGlassMaterial();
+        glassMesh.SurfaceSetMaterial(0, m_glassMaterial);
+        AddChild(new MeshInstance3D
+        {
+            Name = "CockpitGlass",
+            Mesh = glassMesh,
+            Layers = RenderLayer,
+            CastShadow = GeometryInstance3D.ShadowCastingSetting.Off
+        });
+
+        sideArmorBuilder.GenerateTangents();
+        var sideArmorMesh = sideArmorBuilder.Commit();
+        sideArmorMesh.SurfaceSetMaterial(0, CreateSideArmorMaterial());
+        AddChild(new MeshInstance3D
+        {
+            Name = "CockpitSideArmor",
+            Mesh = sideArmorMesh,
+            Layers = RenderLayer
+        });
         ApplyFrameDiagnosticMaterial();
     }
 
@@ -255,6 +365,155 @@ public partial class PlayerCockpit : Node3D
 
     private Vector3 ToBracePosition(Vector2 vertex, int vertexIndex, float side, float centreZ) =>
         new(side * GetHalfRailWidth(vertexIndex), vertex.Y, centreZ + vertex.X);
+
+    private void AppendGlassPane(
+        SurfaceTool surfaceTool,
+        Vector2 start,
+        int startIndex,
+        Vector2 end,
+        int endIndex,
+        float centreZ)
+    {
+        var leftStart = ToBracePosition(start, startIndex, -1.0f, centreZ);
+        var rightStart = ToBracePosition(start, startIndex, 1.0f, centreZ);
+        var leftEnd = ToBracePosition(end, endIndex, -1.0f, centreZ);
+        var rightEnd = ToBracePosition(end, endIndex, 1.0f, centreZ);
+        var normal = (rightStart - leftStart).Cross(leftEnd - leftStart).Normalized();
+        var paneCentre = (leftStart + rightStart + leftEnd + rightEnd) * 0.25f;
+        if (normal.Dot(-paneCentre) < 0.0f)
+        {
+            normal = -normal;
+        }
+
+        // Vertex colour carries a per-pane dirt bias into the shader. Downward-facing glazing
+        // catches dust kicked up from the terrain while the pilot's main sight line stays clear.
+        var lowerBias = Mathf.Clamp(-paneCentre.Y / (Height * 0.5f), 0.0f, 1.0f);
+        var paneData = new Color(lowerBias, 0.0f, 0.0f);
+        AddGlassTriangle(
+            surfaceTool,
+            leftStart,
+            rightEnd,
+            rightStart,
+            new Vector2(0.0f, 0.0f),
+            new Vector2(1.0f, 1.0f),
+            new Vector2(1.0f, 0.0f),
+            normal,
+            paneData);
+        AddGlassTriangle(
+            surfaceTool,
+            leftStart,
+            leftEnd,
+            rightEnd,
+            new Vector2(0.0f, 0.0f),
+            new Vector2(0.0f, 1.0f),
+            new Vector2(1.0f, 1.0f),
+            normal,
+            paneData);
+    }
+
+    private void AppendSideClosure(
+        SurfaceTool frameBuilder,
+        SurfaceTool glassBuilder,
+        SurfaceTool sideArmorBuilder,
+        Vector2[] vertices,
+        float side,
+        float centreZ)
+    {
+        var frontTop = ToBracePosition(vertices[0], 0, side, centreZ);
+        var rearTop = ToBracePosition(vertices[1], 1, side, centreZ);
+        var rearApex = ToBracePosition(vertices[2], 2, side, centreZ);
+        var rearBottom = ToBracePosition(vertices[3], 3, side, centreZ);
+        var frontBottom = ToBracePosition(vertices[4], 4, side, centreZ);
+        var frontApex = ToBracePosition(vertices[5], 5, side, centreZ);
+        var inwardNormal = new Vector3(-side, 0.0f, 0.0f);
+
+        // The apex-to-apex member turns the open hexagonal end into a conventional armored
+        // canopy side: peripheral glazing above eye level and a protective steel panel below.
+        AppendBeamBetween(frameBuilder, frontApex, rearApex);
+
+        var glassData = new Color(0.0f, 0.0f, 0.0f);
+        AddGlassTriangle(
+            glassBuilder,
+            frontApex,
+            frontTop,
+            rearTop,
+            new Vector2(0.0f, 1.0f),
+            new Vector2(0.0f, 0.0f),
+            new Vector2(1.0f, 0.0f),
+            inwardNormal,
+            glassData);
+        AddGlassTriangle(
+            glassBuilder,
+            frontApex,
+            rearTop,
+            rearApex,
+            new Vector2(0.0f, 1.0f),
+            new Vector2(1.0f, 0.0f),
+            new Vector2(1.0f, 1.0f),
+            inwardNormal,
+            glassData);
+
+        var textureRepeatsX = Length / SideArmorTextureSize;
+        var textureRepeatsY = (Height * 0.5f) / SideArmorTextureSize;
+        AddArmorTriangle(
+            sideArmorBuilder,
+            frontApex,
+            rearApex,
+            rearBottom,
+            new Vector2(0.0f, 0.0f),
+            new Vector2(textureRepeatsX, 0.0f),
+            new Vector2(textureRepeatsX, textureRepeatsY),
+            inwardNormal);
+        AddArmorTriangle(
+            sideArmorBuilder,
+            frontApex,
+            rearBottom,
+            frontBottom,
+            new Vector2(0.0f, 0.0f),
+            new Vector2(textureRepeatsX, textureRepeatsY),
+            new Vector2(0.0f, textureRepeatsY),
+            inwardNormal);
+    }
+
+    private static void AddArmorTriangle(
+        SurfaceTool surfaceTool,
+        Vector3 a,
+        Vector3 b,
+        Vector3 c,
+        Vector2 uvA,
+        Vector2 uvB,
+        Vector2 uvC,
+        Vector3 normal)
+    {
+        surfaceTool.SetNormal(normal);
+        surfaceTool.SetUV(uvA);
+        surfaceTool.AddVertex(a);
+        surfaceTool.SetUV(uvB);
+        surfaceTool.AddVertex(b);
+        surfaceTool.SetUV(uvC);
+        surfaceTool.AddVertex(c);
+    }
+
+    private static void AddGlassTriangle(
+        SurfaceTool surfaceTool,
+        Vector3 a,
+        Vector3 b,
+        Vector3 c,
+        Vector2 uvA,
+        Vector2 uvB,
+        Vector2 uvC,
+        Vector3 normal,
+        Color paneData)
+    {
+        surfaceTool.SetNormal(normal);
+        surfaceTool.SetColor(paneData);
+        surfaceTool.SetUV(uvA);
+        surfaceTool.AddVertex(a);
+        surfaceTool.SetUV(uvB);
+        surfaceTool.AddVertex(b);
+        surfaceTool.SetUV(uvC);
+        surfaceTool.AddVertex(c);
+    }
 
     private void AppendBeamBetween(
         SurfaceTool frameBuilder,
@@ -450,6 +709,21 @@ public partial class PlayerCockpit : Node3D
         return material;
     }
 
+    private static StandardMaterial3D CreateSideArmorMaterial() => new()
+    {
+        AlbedoColor = new Color(0.58f, 0.55f, 0.52f),
+        AlbedoTexture = GD.Load<Texture2D>(SideArmorAlbedoTexturePath),
+        Metallic = 0.72f,
+        MetallicTexture = GD.Load<Texture2D>(SideArmorMetalnessTexturePath),
+        NormalEnabled = true,
+        NormalScale = 0.72f,
+        NormalTexture = GD.Load<Texture2D>(SideArmorNormalTexturePath),
+        Roughness = 0.88f,
+        RoughnessTexture = GD.Load<Texture2D>(SideArmorRoughnessTexturePath),
+        CullMode = BaseMaterial3D.CullModeEnum.Disabled,
+        TextureFilter = BaseMaterial3D.TextureFilterEnum.LinearWithMipmapsAnisotropic
+    };
+
     private void ApplyFrameMaterialProperties()
     {
         if (m_frameMaterial == null)
@@ -467,6 +741,123 @@ public partial class PlayerCockpit : Node3D
         {
             ApplyFrameDiagnosticMaterial();
         }
+    }
+
+    private ShaderMaterial CreateGlassMaterial()
+    {
+        var material = new ShaderMaterial
+        {
+            RenderPriority = 1,
+            Shader = new Shader
+            {
+                Code =
+                    """
+                    shader_type spatial;
+                    render_mode blend_mix, depth_draw_never, cull_disabled, diffuse_burley, specular_schlick_ggx;
+
+                    uniform sampler2D scratch_texture : source_color, repeat_enable, filter_linear_mipmap_anisotropic;
+                    uniform sampler2D scratch_normal_texture : hint_normal, repeat_enable, filter_linear_mipmap_anisotropic;
+                    uniform float glass_visibility : hint_range(0.0, 0.2) = 0.01;
+                    uniform float grime_strength : hint_range(0.0, 2.0) = 1.0;
+                    uniform float scratch_strength : hint_range(0.0, 0.3) = 0.10;
+
+                    float random_value(vec2 position) {
+                        return fract(sin(dot(position, vec2(127.1, 311.7))) * 43758.5453);
+                    }
+
+                    float value_noise(vec2 position) {
+                        vec2 cell = floor(position);
+                        vec2 blend = smoothstep(vec2(0.0), vec2(1.0), fract(position));
+                        float a = random_value(cell);
+                        float b = random_value(cell + vec2(1.0, 0.0));
+                        float c = random_value(cell + vec2(0.0, 1.0));
+                        float d = random_value(cell + vec2(1.0, 1.0));
+                        return mix(mix(a, b, blend.x), mix(c, d, blend.x), blend.y);
+                    }
+
+                    float residue_noise(vec2 position) {
+                        float result = 0.0;
+                        float amplitude = 0.55;
+                        for (int octave = 0; octave < 3; octave++) {
+                            result += value_noise(position) * amplitude;
+                            position = position * 2.07 + vec2(7.1, 3.4);
+                            amplitude *= 0.48;
+                        }
+                        return result;
+                    }
+
+                    void fragment() {
+                        vec2 scratch_uv = UV * vec2(1.25, 1.8) + vec2(COLOR.r * 0.37, COLOR.r * 0.19);
+                        vec2 second_scratch_uv = vec2(-scratch_uv.y, scratch_uv.x) + vec2(0.43, 0.71);
+                        float first_scratch_sample = texture(scratch_texture, scratch_uv).r;
+                        float second_scratch_sample = texture(scratch_texture, second_scratch_uv).r;
+                        float first_scratches = smoothstep(0.02, 0.30, first_scratch_sample);
+                        float second_scratches = smoothstep(0.02, 0.30, second_scratch_sample);
+                        float scratches = max(first_scratches, second_scratches);
+
+                        vec3 first_scratch_normal = texture(scratch_normal_texture, scratch_uv).rgb * 2.0 - 1.0;
+                        vec3 second_scratch_normal = texture(scratch_normal_texture, second_scratch_uv).rgb * 2.0 - 1.0;
+                        vec2 rotated_second_normal = vec2(second_scratch_normal.y, -second_scratch_normal.x);
+                        vec2 scratch_normal_xy = first_scratch_normal.xy * first_scratches +
+                            rotated_second_normal * second_scratches;
+                        vec3 scratch_normal = normalize(vec3(scratch_normal_xy * 1.65, 1.0));
+
+                        float edge_distance = min(min(UV.x, 1.0 - UV.x), min(UV.y, 1.0 - UV.y));
+                        float edge_mask = 1.0 - smoothstep(0.015, 0.14, edge_distance);
+                        float residue = residue_noise(UV * vec2(5.0, 7.0) + vec2(COLOR.r * 8.3, 1.7));
+                        float lower_pane = COLOR.r;
+                        float edge_grime = edge_mask * mix(0.42, 1.0, residue);
+                        float settled_dust = lower_pane * (0.10 + 0.25 * residue);
+                        float grime = clamp((edge_grime * mix(0.65, 1.35, lower_pane) + settled_dust) *
+                            grime_strength, 0.0, 1.0);
+
+                        // Clear glass is almost invisible head-on. Fresnel reflection, dirt and scratches
+                        // reveal the surface at grazing angles without obscuring the world or HUD.
+                        float facing = clamp(abs(dot(normalize(NORMAL), normalize(VIEW))), 0.0, 1.0);
+                        float fresnel = pow(1.0 - facing, 4.0);
+                        vec3 glass_tint = vec3(0.82, 0.88, 0.86);
+                        vec3 dust_tint = vec3(0.34, 0.27, 0.17);
+                        vec3 scratch_tint = vec3(0.86, 0.88, 0.84);
+                        ALBEDO = mix(
+                            mix(glass_tint, dust_tint, clamp(grime * 0.78, 0.0, 0.88)),
+                            scratch_tint,
+                            scratches * 0.45);
+                        NORMAL_MAP = scratch_normal * 0.5 + 0.5;
+                        NORMAL_MAP_DEPTH = 0.90;
+                        METALLIC = 0.0;
+                        SPECULAR = 0.5;
+                        float surface_roughness = mix(0.08, 0.56, clamp(grime * 0.85, 0.0, 1.0));
+                        ROUGHNESS = mix(surface_roughness, 0.08, scratches * 0.70);
+                        EMISSION = ALBEDO * (0.10 + scratches * 0.45);
+                        ALPHA = clamp(
+                            glass_visibility + fresnel * 0.035 + grime * 0.13 + scratches * scratch_strength,
+                            0.0,
+                            0.26);
+                    }
+                    """
+            }
+        };
+        material.SetShaderParameter(
+            "scratch_texture",
+            GD.Load<Texture2D>(GlassScratchTexturePath));
+        material.SetShaderParameter(
+            "scratch_normal_texture",
+            GD.Load<Texture2D>(GlassScratchNormalTexturePath));
+        m_glassMaterial = material;
+        ApplyGlassMaterialProperties();
+        return material;
+    }
+
+    private void ApplyGlassMaterialProperties()
+    {
+        if (m_glassMaterial == null)
+        {
+            return;
+        }
+
+        m_glassMaterial.SetShaderParameter("glass_visibility", GlassVisibility);
+        m_glassMaterial.SetShaderParameter("grime_strength", GlassGrimeStrength);
+        m_glassMaterial.SetShaderParameter("scratch_strength", GlassScratchStrength);
     }
 
     private void ApplyFrameDiagnosticMaterial()
