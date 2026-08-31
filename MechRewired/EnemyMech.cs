@@ -30,7 +30,6 @@ public partial class EnemyMech : Node3D
     private const float MaximumTorsoPitchRadians = Mathf.Pi / 5.0f;
     private const float SensorIntervalSeconds = 0.2f;
     private const float TargetMemorySeconds = 4.0f;
-    private const float InitialSensorHalfAngleDegrees = 70.0f;
     private const float FireDecisionIntervalSeconds = 0.60f;
     private const float MaximumSustainedHeatFraction = 0.75f;
     private const float BaseAimErrorDegrees = 0.35f;
@@ -44,7 +43,8 @@ public partial class EnemyMech : Node3D
     private readonly Func<IReadOnlyList<SceneryObstacle>> m_sceneryObstacleProvider;
     private readonly IReadOnlyList<DebugTriangle> m_sceneTriangles;
     private readonly float m_maximumSpeedMetersPerSecond;
-    private readonly float m_acquisitionRange;
+    private readonly float m_wakeRange;
+    private readonly float m_observationRange;
     private readonly float m_atmosphericVisibilityRange;
     private readonly float m_weaponRange;
     private readonly IReadOnlyDictionary<string, AudioStreamWav> m_weaponSounds;
@@ -66,7 +66,7 @@ public partial class EnemyMech : Node3D
     private float m_movementBlockedLogCooldown;
     private float m_targetMemoryRemaining;
     private int m_nextWeapon;
-    private bool m_acquired;
+    private bool m_isAlerted;
     private bool m_hasLineOfSight;
     private bool m_hasGaitSample;
     private Vector3 m_previousGaitPosition;
@@ -118,7 +118,10 @@ public partial class EnemyMech : Node3D
         m_maximumSpeedMetersPerSecond = (float)(mechDefinition.CruisingSpeedKph / 3.6);
         m_weaponRange = Math.Max(definition.Specification.TargetRange, 120);
         m_atmosphericVisibilityRange = atmosphericVisibilityRange;
-        m_acquisitionRange = (float)EnemyAwareness.GetVisualAcquisitionRange(
+        m_wakeRange = (float)EnemyAwareness.GetWakeRange(
+            definition.Specification.SleepRange,
+            definition.Specification.TargetRange);
+        m_observationRange = (float)EnemyAwareness.GetVisualAcquisitionRange(
             definition.Specification.TargetRange,
             definition.Specification.SleepRange,
             atmosphericVisibilityRange);
@@ -182,9 +185,8 @@ public partial class EnemyMech : Node3D
     /// Whether the mech's reactor is offline and therefore unavailable to target sensors.
     /// </summary>
     /// <remarks>
-    /// Until an authored initial power-state command is decoded, hostiles begin dormant. Their existing
-    /// GPS/range, sensor-cone and line-of-sight data decides when they activate; a successful weapon hit
-    /// also wakes them immediately.
+    /// Hostiles begin dormant until the player reaches their authored GPS sleep range or lands a weapon hit.
+    /// Line of sight controls visual contact and firing only; it does not keep a nearby guard asleep behind terrain.
     /// </remarks>
     public bool IsPoweredDown { get; private set; } = true;
 
@@ -245,7 +247,7 @@ public partial class EnemyMech : Node3D
         var destroyed = string.Join(", ", Enum.GetValues<MechDamageSection>()
             .Where(m_damageModel.IsSectionDestroyed));
         GD.Print(
-            $"MechRewired: {Description} tracking state: poweredDown={IsPoweredDown}; acquired={m_acquired}; " +
+            $"MechRewired: {Description} tracking state: poweredDown={IsPoweredDown}; alerted={m_isAlerted}; " +
             $"lineOfSight={m_hasLineOfSight}; immobilized={IsImmobilized}; chassis " +
             $"{Mathf.RadToDeg(Rotation.Y):F1} degrees; torso {Mathf.RadToDeg(Torso.Rotation.Y):F1} degrees; " +
             $"target relative {Mathf.RadToDeg(relativeTargetYaw):F1} degrees, limited to " +
@@ -352,7 +354,7 @@ public partial class EnemyMech : Node3D
         var playerOffset = playerTargetPosition - TargetPosition;
         var playerPlanarOffset = new Vector3(playerOffset.X, 0.0f, playerOffset.Z);
         var playerDistance = playerPlanarOffset.Length();
-        if (!m_acquired)
+        if (IsPoweredDown)
         {
             if (m_sensorCooldown > 0.0f)
             {
@@ -360,28 +362,32 @@ public partial class EnemyMech : Node3D
             }
 
             m_sensorCooldown = SensorIntervalSeconds;
-            var hasLineOfSight = HasLineOfSight(TargetPosition, playerTargetPosition);
-            if (!EnemyAwareness.CanAcquire(
-                    playerDistance,
-                    m_acquisitionRange,
-                    GetInitialSensorAlignment(playerPlanarOffset),
-                    Mathf.Cos(Mathf.DegToRad(InitialSensorHalfAngleDegrees)),
-                    hasLineOfSight))
+            if (!EnemyAwareness.CanWake(playerDistance, m_wakeRange))
             {
                 return;
             }
 
             PowerUp();
-            m_hasLineOfSight = true;
-            m_targetMemoryRemaining = TargetMemorySeconds;
-            m_lastKnownTargetPosition = playerTargetPosition;
+            m_hasLineOfSight = EnemyAwareness.CanObserve(
+                playerDistance,
+                m_observationRange,
+                HasLineOfSight(TargetPosition, playerTargetPosition));
+            if (m_hasLineOfSight)
+            {
+                m_targetMemoryRemaining = TargetMemorySeconds;
+                m_lastKnownTargetPosition = playerTargetPosition;
+            }
+
             GD.Print(
-                $"MechRewired: {Description} acquired visible PlayerMech at {playerDistance:F0}m " +
+                $"MechRewired: {Description} woke at {playerDistance:F0}m " +
                 $"(GPS target {Definition.Specification.TargetRange}m; sleep " +
-                $"{Definition.Specification.SleepRange}m; atmospheric visibility " +
-                $"{m_atmosphericVisibilityRange:F0}m; effective sensor range {m_acquisitionRange:F0}m; rubberband " +
-                $"{Definition.Specification.RubberbandRange}m; close awareness " +
-                $"{EnemyAwareness.GetCloseAwarenessRange(m_acquisitionRange):F0}m).");
+                $"{Definition.Specification.SleepRange}m; wake range {m_wakeRange:F0}m; " +
+                $"atmospheric visibility {m_atmosphericVisibilityRange:F0}m; visual range " +
+                $"{m_observationRange:F0}m; line of sight {m_hasLineOfSight}).");
+            if (!m_hasLineOfSight)
+            {
+                return;
+            }
         }
         else
         {
@@ -390,7 +396,7 @@ public partial class EnemyMech : Node3D
                 m_sensorCooldown = SensorIntervalSeconds;
                 m_hasLineOfSight = EnemyAwareness.CanObserve(
                     playerDistance,
-                    m_acquisitionRange,
+                    m_observationRange,
                     HasLineOfSight(TargetPosition, playerTargetPosition));
                 if (m_hasLineOfSight)
                 {
@@ -404,8 +410,6 @@ public partial class EnemyMech : Node3D
                 m_targetMemoryRemaining = Math.Max(0.0f, m_targetMemoryRemaining - elapsed);
                 if (m_targetMemoryRemaining <= 0.0f)
                 {
-                    m_acquired = false;
-                    GD.Print($"MechRewired: {Description} lost contact with PlayerMech behind cover.");
                     return;
                 }
 
@@ -514,15 +518,20 @@ public partial class EnemyMech : Node3D
                 DetachSection(section, hitPosition);
             }
 
-            if (!m_acquired)
+            var wasPoweredDown = IsPoweredDown;
+            if (wasPoweredDown)
             {
                 PowerUp();
-                m_hasLineOfSight = true;
-                m_targetMemoryRemaining = TargetMemorySeconds;
-                m_sensorCooldown = 0.0f;
-                m_lastKnownTargetPosition = m_playerMech.TargetPosition;
-                GD.Print($"MechRewired: {Description} alerted by weapon impact.");
             }
+
+            // A hit identifies the attacker's direction, but it does not grant a view through terrain.
+            m_hasLineOfSight = false;
+            m_targetMemoryRemaining = TargetMemorySeconds;
+            m_sensorCooldown = 0.0f;
+            m_lastKnownTargetPosition = m_playerMech.TargetPosition;
+            GD.Print(
+                $"MechRewired: {Description} {(wasPoweredDown ? "alerted" : "updated search")} by weapon impact; " +
+                "turning toward the last known attacker position.");
 
             return;
         }
@@ -760,11 +769,11 @@ public partial class EnemyMech : Node3D
     {
         if (!IsPoweredDown)
         {
-            m_acquired = true;
+            m_isAlerted = true;
             return;
         }
 
-        m_acquired = true;
+        m_isAlerted = true;
         IsPoweredDown = false;
         PoweredUp?.Invoke(this);
     }
@@ -1014,24 +1023,6 @@ public partial class EnemyMech : Node3D
                    out _,
                    out var hitDistance) ||
                hitDistance >= distance - 1.0f;
-    }
-
-    private float GetInitialSensorAlignment(Vector3 planarOffset)
-    {
-        if (IsStationaryEmplacement)
-        {
-            return 1.0f;
-        }
-
-        if (planarOffset.LengthSquared() <= 0.0001f)
-        {
-            return 1.0f;
-        }
-
-        var forward = -GlobalBasis.Z;
-        forward.Y = 0.0f;
-        forward = forward.Normalized();
-        return forward.Dot(planarOffset.Normalized());
     }
 
     private static float MoveTowardAngle(float current, float target, float maximumDelta) =>

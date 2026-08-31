@@ -59,6 +59,21 @@ public sealed class EnemyAwarenessTests
     }
 
     [Test]
+    public void SleepRangeIsUsedAsWakeThreshold()
+    {
+        Assert.That(EnemyAwareness.GetWakeRange(1100.0, 1100.0), Is.EqualTo(1100.0));
+        Assert.That(EnemyAwareness.CanWake(250.0, 1100.0), Is.True);
+        Assert.That(EnemyAwareness.CanWake(1101.0, 1100.0), Is.False);
+    }
+
+    [Test]
+    public void TargetRangeOnlyFillsInWhenSleepRangeIsMissing()
+    {
+        Assert.That(EnemyAwareness.GetWakeRange(0.0, 900.0), Is.EqualTo(900.0));
+        Assert.That(EnemyAwareness.GetWakeRange(700.0, 900.0), Is.EqualTo(700.0));
+    }
+
+    [Test]
     public void AcquisitionRangeUsesBothAuthoredGpsAndAtmosphericVisibility()
     {
         Assert.That(

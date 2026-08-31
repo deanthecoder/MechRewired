@@ -26,6 +26,21 @@ public static class EnemyAwareness
             MaximumCloseAwarenessRange);
 
     /// <summary>
+    /// Resolves the authored proximity at which a dormant game piece wakes its reactor.
+    /// </summary>
+    /// <remarks>
+    /// Sleep range is the only verified wake threshold. Target range is retained as a fallback
+    /// for incomplete mission data; terrain visibility and sensor heading do not suppress a wake.
+    /// </remarks>
+    public static double GetWakeRange(double sleepRange, double targetRange) =>
+        sleepRange > 0.0
+            ? sleepRange
+            : Math.Max(0.0, targetRange);
+
+    public static bool CanWake(double distance, double wakeRange) =>
+        wakeRange > 0.0 && distance <= wakeRange;
+
+    /// <summary>
     /// Resolves the distance at which a dormant actor can visually acquire a target.
     /// </summary>
     /// <remarks>
