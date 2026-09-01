@@ -92,6 +92,16 @@ public partial class MissionDebrief : Node
             38);
         AddLabel("MISSION DEBRIEF", Color.FromHtml("c8c8c8"), 21);
         AddSpacer(12.0f);
+        var objectiveGrid = new GridContainer
+        {
+            Name = "DebriefObjectives",
+            Columns = 2,
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+            MouseFilter = Control.MouseFilterEnum.Ignore
+        };
+        objectiveGrid.AddThemeConstantOverride("h_separation", 18);
+        objectiveGrid.AddThemeConstantOverride("v_separation", 12);
+        m_summary.AddChild(objectiveGrid);
         foreach (var objective in m_mission.Objectives)
         {
             var state = m_mission.GetState(objective.Id);
@@ -106,7 +116,7 @@ public partial class MissionDebrief : Node
                 : objective.IsOptional
                     ? Color.FromHtml("d0a020")
                     : Color.FromHtml("e0e0e0");
-            AddLabel($"{stateText,-12} {objective.Description}", color, 20);
+            AddObjectiveLabel(objectiveGrid, stateText, objective.Description, color);
         }
 
         AddSpacer(18.0f);
@@ -203,6 +213,37 @@ public partial class MissionDebrief : Node
         label.AddThemeColorOverride("font_color", color);
         label.AddThemeFontSizeOverride("font_size", size);
         m_summary.AddChild(label);
+    }
+
+    private static void AddObjectiveLabel(
+        GridContainer grid,
+        string status,
+        string description,
+        Color color)
+    {
+        var statusLabel = new Label
+        {
+            Text = status,
+            CustomMinimumSize = new Vector2(145.0f, 0.0f),
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center,
+            MouseFilter = Control.MouseFilterEnum.Ignore
+        };
+        statusLabel.AddThemeColorOverride("font_color", color);
+        statusLabel.AddThemeFontSizeOverride("font_size", 20);
+        grid.AddChild(statusLabel);
+
+        var descriptionLabel = new Label
+        {
+            Text = description,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Center,
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+            MouseFilter = Control.MouseFilterEnum.Ignore
+        };
+        descriptionLabel.AddThemeColorOverride("font_color", color);
+        descriptionLabel.AddThemeFontSizeOverride("font_size", 20);
+        grid.AddChild(descriptionLabel);
     }
 
     private void AddSpacer(float height) => m_summary.AddChild(new Control

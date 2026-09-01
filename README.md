@@ -96,19 +96,20 @@ The application starts in the 3D cockpit. The current piloting controls follow t
 - Click the viewport to capture the mouse, then move it to aim the torso. All weapons begin in green group 1; `Shift`+`1`/`2`/`3` assigns the selected weapon to green/white/yellow groups. Left-click or `Space` fires the current weapon and advances within its group; right-click, `Enter` or `Tab` selects the next usable weapon in that group. `'` selects the first usable weapon in the next populated group, and `;` fires every ready weapon in that group. `\` toggles chain-fire/group-fire and plays the corresponding original report; group-fire fires the active group without changing selection. Pyre Light's two LRM20 launchers each draw from their own authored 120-round ammunition bin; heat builds against the authored mech's heat-sink threshold. `S` manually shuts down or restarts the reactor when safe, and `O` toggles shutdown override (with the original thermal warning reports). The faithful implemented target controls are `T`/`R` for next/previous live hostile, `Ctrl`+`T` to clear targeting, `E` for nearest live hostile, `Q` (or middle-click) for the actor under the reticle, and `I` to inspect the selected or nearby active inspection objective. Friendly targeting is not implemented yet. Control-click remains a trackpad-friendly weapon-cycle alias.
 - In debug builds, selecting maximum speed with `0` applies a 3× travel multiplier to shorten mission playtesting; release builds retain the original speed.
 - Hold `Shift` and use the arrow keys for a quick, damped pilot head pivot. Releasing `Shift` or the arrows smoothly returns the pilot view to centre.
-- Press `C` or keypad `5` to centre both the torso and pilot view. Keypad `5` matches the original key map; `C` is the laptop-friendly alias.
+- Press `/` to centre both the torso and pilot view.
 - Press `M` to turn the legs and chassis smoothly towards the torso's current bearing.
 - Press `X` to reduce the radar range or `Shift`+`X` to increase it. Press `N`/`Shift`+`N` to cycle forwards/backwards through mission NAV points.
+- Press `F12`, as in the original game, to display the live mission objective summary. Press `F1` for a concise controls reference; either key toggles its page, and `Escape` closes it.
 - Press `Escape` to release the mouse.
 
 The camera and battlefield inspection controls are:
 
 - Press `F4` to cycle through cockpit, external and free-flight inspector cameras. Entering the
   inspector frames the player mech from a front three-quarter view before returning control to WASDQE.
-- Press `C` to toggle between cockpit and the damped external follow camera; press `/` to centre the torso and pilot view with the legs.
+- Press `C` to toggle between cockpit and the damped external follow camera.
 - In inspector view, use `W`/`A`/`S`/`D` to fly and `Q`/`E` to descend/ascend.
 - Hold `Shift` for an inspector-camera speed boost.
-- Press `F1` to toggle wireframe rendering or `F2` to toggle unshaded rendering.
+- Press `Ctrl`+`F1` to toggle wireframe rendering.
 - Press `F3` to log the active camera's MW2-space transform, its nearest rendered-triangle ray hit, the current cockpit dimensions and the PlayerMech movement state.
 - The on-screen **Debug** menu provides the same rendering diagnostics when function keys are unavailable.
 - In debug builds, `F5` cycles the live fire/smoke VFX parameter, `F6`/`F7` decreases/increases it, `F8` restores the default preset and `F9` logs it. Hold `Shift` with `F6`/`F7` for 5× steps.

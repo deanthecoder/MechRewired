@@ -2149,6 +2149,7 @@ public partial class Main : Node3D
 #if DEBUG
         RegisterDebugConsoleHud(playerHud);
 #endif
+        AddChild(new PilotReferenceOverlay(playerMission));
         var missionDebrief = new MissionDebrief(playerMission);
         AddChild(missionDebrief);
         // A failure is presented only after the external death camera has concluded.

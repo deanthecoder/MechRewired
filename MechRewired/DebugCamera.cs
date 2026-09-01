@@ -107,7 +107,7 @@ public partial class DebugCamera : Camera3D
     {
         switch (inputEvent)
         {
-            case InputEventKey { Pressed: false, Keycode: Key.F1 }:
+            case InputEventKey { Pressed: false, CtrlPressed: true, Keycode: Key.F1 }:
                 ToggleWireframe();
                 GetViewport().SetInputAsHandled();
                 break;
@@ -168,7 +168,7 @@ public partial class DebugCamera : Camera3D
         canvasLayer.AddChild(menuButton);
 
         m_debugMenu = menuButton.GetPopup();
-        m_debugMenu.AddCheckItem("Wireframe (F1)", WireframeMenuItemId);
+        m_debugMenu.AddCheckItem("Wireframe (Ctrl+F1)", WireframeMenuItemId);
         m_debugMenu.AddItem("Log camera (F3)", LogCameraMenuItemId);
         m_debugMenu.AddItem("Cycle camera (F4)", CycleCameraMenuItemId);
 #if DEBUG
