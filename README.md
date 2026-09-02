@@ -98,7 +98,7 @@ The application starts in the 3D cockpit. The current piloting controls follow t
 - Hold `Shift` and use the arrow keys for a quick, damped pilot head pivot. Releasing `Shift` or the arrows smoothly returns the pilot view to centre.
 - Press `/` to centre both the torso and pilot view.
 - Press `M` to turn the legs and chassis smoothly towards the torso's current bearing.
-- Press `X` to reduce the radar range or `Shift`+`X` to increase it. Press `N`/`Shift`+`N` to cycle forwards/backwards through mission NAV points.
+- Press `F2` to cycle the radar between its normal upper-left display, a centered full-screen display and hidden. Press `X` to reduce the radar range or `Shift`+`X` to increase it. Press `N`/`Shift`+`N` to cycle forwards/backwards through mission NAV points.
 - Press `F12`, as in the original game, to display the live mission objective summary. Press `F1` for a concise controls reference; either key toggles its page, and `Escape` closes it.
 - Press `Escape` to release the mouse.
 

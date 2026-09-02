@@ -28,6 +28,7 @@ public partial class PlayerHud : Control
     private const float RadarRadius = 91.0f;
     private const float RadarCenterX = 155.0f;
     private const float RadarCenterY = 145.0f;
+    private const float FullscreenRadarBorder = 48.0f;
     private const float RadarPowerTransitionSeconds = 0.35f;
     private const float HudPowerTransitionSeconds = 0.28f;
     private const float StartupRadarPowerTransitionSeconds = 1.35f;
@@ -63,6 +64,7 @@ public partial class PlayerHud : Control
     private readonly PlayerTargeting m_targeting;
     private readonly PlayerMission m_mission;
     private int m_radarRangeIndex = 1;
+    private RadarDisplayMode m_radarDisplayMode;
     private float m_scale = 1.0f;
     private Vector2 m_offset;
     private float m_radarPower = 1.0f;
@@ -196,6 +198,15 @@ public partial class PlayerHud : Control
             return;
         }
 
+        if (keyEvent.Keycode == Key.F2)
+        {
+            m_radarDisplayMode = (RadarDisplayMode)(((int)m_radarDisplayMode + 1) % 3);
+            QueueRedraw();
+            GD.Print($"MechRewired: radar display {m_radarDisplayMode.ToString().ToLowerInvariant()}.");
+            GetViewport().SetInputAsHandled();
+            return;
+        }
+
         if (keyEvent.Keycode == Key.X)
         {
             var adjustment = keyEvent.ShiftPressed ? 1 : -1;
@@ -253,8 +264,17 @@ public partial class PlayerHud : Control
 
     private void DrawRadar()
     {
-        var center = Point(RadarCenterX, RadarCenterY);
-        var radius = RadarRadius * m_scale * m_radarPower;
+        if (m_radarDisplayMode == RadarDisplayMode.Hidden)
+        {
+            return;
+        }
+
+        var fullscreen = m_radarDisplayMode == RadarDisplayMode.Fullscreen;
+        var center = fullscreen ? Size * 0.5f : Point(RadarCenterX, RadarCenterY);
+        var unpoweredRadius = fullscreen
+            ? Math.Max(Math.Min(Size.X, Size.Y) * 0.5f - FullscreenRadarBorder * m_scale, 0.0f)
+            : RadarRadius * m_scale;
+        var radius = unpoweredRadius * m_radarPower;
         if (radius <= 0.01f)
         {
             return;
@@ -268,7 +288,14 @@ public partial class PlayerHud : Control
             return;
         }
 
-        DrawText(new Vector2(24.0f, 42.0f), $"R: {RadarRanges[m_radarRangeIndex] / 1000.0f:F1}Km", HudGreen, 24);
+        var rangeLabelPosition = fullscreen
+            ? center + new Vector2(-radius, -radius - 12.0f * m_scale)
+            : Point(24.0f, 42.0f);
+        DrawScreenText(
+            rangeLabelPosition,
+            $"R: {RadarRanges[m_radarRangeIndex] / 1000.0f:F1}Km",
+            HudGreen,
+            24);
 
         DrawLine(
             playerPosition + new Vector2(-7.0f, -7.0f) * m_scale,
@@ -289,13 +316,13 @@ public partial class PlayerHud : Control
         DrawTorsoViewWedge(playerPosition, radius);
         for (var index = 0; index < m_navigation.NavigationPoints.Count; index++)
         {
-            DrawNavigationPoint(center, playerPosition, index);
+            DrawNavigationPoint(center, playerPosition, radius, index);
         }
 
-        DrawHostileContacts(center, playerPosition);
+        DrawHostileContacts(center, playerPosition, radius);
     }
 
-    private void DrawHostileContacts(Vector2 center, Vector2 playerPosition)
+    private void DrawHostileContacts(Vector2 center, Vector2 playerPosition, float radarRadius)
     {
         var radarRange = RadarRanges[m_radarRangeIndex];
         foreach (var enemyMech in m_targeting.EnemyMechs.Where(enemyMech =>
@@ -304,6 +331,7 @@ public partial class PlayerHud : Control
             DrawHostileContact(
                 center,
                 playerPosition,
+                radarRadius,
                 radarRange,
                 enemyMech.TargetPosition,
                 ReferenceEquals(enemyMech, m_targeting.SelectedEnemy));
@@ -314,6 +342,7 @@ public partial class PlayerHud : Control
             DrawHostileContact(
                 center,
                 playerPosition,
+                radarRadius,
                 radarRange,
                 actor.TargetPosition,
                 ReferenceEquals(actor, m_targeting.SelectedActor));
@@ -323,16 +352,17 @@ public partial class PlayerHud : Control
     private void DrawHostileContact(
         Vector2 center,
         Vector2 playerPosition,
+        float radarRadius,
         float radarRange,
         Vector3 targetPosition,
         bool selected)
     {
         var localPosition = m_playerMech.ToLocal(targetPosition);
         var point = playerPosition + new Vector2(
-            localPosition.X / radarRange * RadarRadius,
-            localPosition.Z / radarRange * RadarRadius) * m_scale;
+            localPosition.X / radarRange * radarRadius,
+            localPosition.Z / radarRange * radarRadius);
         var fromCenter = point - center;
-        if (fromCenter.Length() > RadarRadius * m_scale)
+        if (fromCenter.Length() > radarRadius)
         {
             return;
         }
@@ -371,17 +401,21 @@ public partial class PlayerHud : Control
         }
     }
 
-    private void DrawNavigationPoint(Vector2 center, Vector2 playerPosition, int navigationIndex)
+    private void DrawNavigationPoint(
+        Vector2 center,
+        Vector2 playerPosition,
+        float radarRadius,
+        int navigationIndex)
     {
         var navigation = m_navigation.NavigationPoints[navigationIndex];
         var worldPosition = MechWarriorCoordinateSystem.ToGodotPosition(navigation.Position);
         var localPosition = m_playerMech.ToLocal(worldPosition);
         var radarRange = RadarRanges[m_radarRangeIndex];
         var point = playerPosition + new Vector2(
-            localPosition.X / radarRange * RadarRadius,
-            localPosition.Z / radarRange * RadarRadius) * m_scale;
+            localPosition.X / radarRange * radarRadius,
+            localPosition.Z / radarRange * radarRadius);
         var fromCenter = point - center;
-        var maximumRadius = (RadarRadius - 5.0f) * m_scale;
+        var maximumRadius = radarRadius - 5.0f * m_scale;
         if (fromCenter.Length() > maximumRadius)
         {
             point = center + fromCenter.Normalized() * maximumRadius;
@@ -1360,9 +1394,14 @@ public partial class PlayerHud : Control
 
     private void DrawText(Vector2 position, string text, Color color, int fontSize)
     {
+        DrawScreenText(Point(position.X, position.Y), text, color, fontSize);
+    }
+
+    private void DrawScreenText(Vector2 position, string text, Color color, int fontSize)
+    {
         DrawString(
             HudFont,
-            Point(position.X, position.Y),
+            position,
             text,
             HorizontalAlignment.Left,
             -1.0f,
@@ -1389,4 +1428,11 @@ public partial class PlayerHud : Control
     }
 
     private static float NormalizeDegrees(float degrees) => (degrees % 360.0f + 360.0f) % 360.0f;
+
+    private enum RadarDisplayMode
+    {
+        Normal,
+        Fullscreen,
+        Hidden
+    }
 }

@@ -272,6 +272,7 @@ public partial class PilotReferenceOverlay : CanvasLayer
         AddControlSection(right, "SYSTEMS & VIEW",
             new ControlBinding(["S"], "Shutdown / restart"),
             new ControlBinding(["O"], "Shutdown override"),
+            new ControlBinding(["F2"], "Radar normal / full / hidden"),
             new ControlBinding(["X", "OR", "Shift", "+", "X"], "Radar range down / up"),
             new ControlBinding(["Z", "OR", "Shift", "+", "Z"], "Zoom / wide view"),
             new ControlBinding(["C"], "Cockpit / external view"),
