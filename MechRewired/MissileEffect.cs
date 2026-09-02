@@ -18,6 +18,8 @@ namespace MechRewired;
 public partial class MissileEffect : Node3D
 {
     private const float SpeedMetersPerSecond = 100.0f;
+    private const float GravityMetersPerSecondSquared = 9.81f;
+    private const float MaximumFlightSeconds = 30.0f;
     private const float TurnRate = 4.5f;
     private const float CloseRangeTurnRate = 8.0f;
     private const float ImpactRadius = 4.0f;
@@ -33,10 +35,12 @@ public partial class MissileEffect : Node3D
     private readonly OmniLight3D m_light;
     private readonly GpuParticles3D m_smokeTrail;
     private Vector3 m_direction;
+    private Vector3 m_velocity;
     private float m_range;
     private float m_distanceTravelled;
     private float m_smokeFadeRemaining;
     private bool m_isFlying;
+    private bool m_isPowered;
     private Vector3? m_previousTargetPosition;
     private Vector3 m_targetVelocity;
     private Func<Vector3?> m_targetPosition;
@@ -131,6 +135,10 @@ public partial class MissileEffect : Node3D
 
     public bool IsActive { get; private set; }
 
+    public bool IsFlying => m_isFlying;
+
+    public Vector3 Direction => m_direction;
+
     public float Age { get; private set; }
 
     public void Launch(
@@ -144,6 +152,7 @@ public partial class MissileEffect : Node3D
     {
         GlobalPosition = position;
         m_direction = direction.Normalized();
+        m_velocity = m_direction * SpeedMetersPerSecond;
         m_range = range;
         m_distanceTravelled = 0.0f;
         m_previousTargetPosition = null;
@@ -155,6 +164,7 @@ public partial class MissileEffect : Node3D
         Age = 0.0f;
         IsActive = true;
         m_isFlying = true;
+        m_isPowered = true;
         Visible = true;
         m_body.Visible = true;
         m_exhaust.Visible = true;
@@ -187,7 +197,7 @@ public partial class MissileEffect : Node3D
         var target = m_distanceTravelled >= m_guidanceArmingDistance
             ? m_targetPosition?.Invoke()
             : null;
-        if (target.HasValue)
+        if (m_isPowered && target.HasValue)
         {
             if (m_previousTargetPosition.HasValue && elapsed > 0.0001f)
             {
@@ -216,8 +226,19 @@ public partial class MissileEffect : Node3D
             }
         }
 
-        var distance = SpeedMetersPerSecond * elapsed;
-        var nextPosition = GlobalPosition + m_direction * distance;
+        if (m_isPowered)
+        {
+            m_velocity = m_direction * SpeedMetersPerSecond;
+        }
+        else
+        {
+            m_velocity += Vector3.Down * GravityMetersPerSecondSquared * elapsed;
+            m_direction = m_velocity.Normalized();
+        }
+
+        var movement = m_velocity * elapsed;
+        var distance = movement.Length();
+        var nextPosition = GlobalPosition + movement;
         if (TryFindTerrainImpact(GlobalPosition, nextPosition, out var terrainImpact))
         {
             m_terrainImpact?.Invoke(terrainImpact);
@@ -236,10 +257,22 @@ public partial class MissileEffect : Node3D
         GlobalPosition = nextPosition;
         m_distanceTravelled += distance;
         OrientToDirection();
-        if (m_distanceTravelled >= m_range)
+        if (m_isPowered && m_distanceTravelled >= m_range)
+        {
+            BeginBallisticFall();
+        }
+        else if (Age >= MaximumFlightSeconds)
         {
             Deactivate();
         }
+    }
+
+    private void BeginBallisticFall()
+    {
+        m_isPowered = false;
+        m_exhaust.Visible = false;
+        m_light.Visible = false;
+        m_smokeTrail.Emitting = false;
     }
 
     private void OrientToDirection()
@@ -253,6 +286,7 @@ public partial class MissileEffect : Node3D
     private void Deactivate()
     {
         m_isFlying = false;
+        m_isPowered = false;
         m_smokeFadeRemaining = SmokeLifetimeSeconds;
         m_body.Visible = false;
         m_exhaust.Visible = false;
@@ -268,6 +302,7 @@ public partial class MissileEffect : Node3D
     {
         IsActive = false;
         m_isFlying = false;
+        m_isPowered = false;
         m_body.Visible = false;
         m_exhaust.Visible = false;
         m_light.Visible = false;

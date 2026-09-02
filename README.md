@@ -107,6 +107,7 @@ The camera and battlefield inspection controls are:
 - Press `F4` to cycle through cockpit, external and free-flight inspector cameras. Entering the
   inspector frames the player mech from a front three-quarter view before returning control to WASDQE.
 - Press `C` to toggle between cockpit and the damped external follow camera.
+- Press `F10` to toggle the original-style full-screen weapon view. When enabled, firing a missile follows it from behind and above until impact, then returns to the previous pilot camera. Missiles that exhaust their powered range retain momentum, fall under gravity and detonate on terrain rather than disappearing.
 - In inspector view, use `W`/`A`/`S`/`D` to fly and `Q`/`E` to descend/ascend.
 - Hold `Shift` for an inspector-camera speed boost.
 - Press `Ctrl`+`F1` to toggle wireframe rendering.

@@ -275,6 +275,7 @@ public partial class PilotReferenceOverlay : CanvasLayer
             new ControlBinding(["X", "OR", "Shift", "+", "X"], "Radar range down / up"),
             new ControlBinding(["Z", "OR", "Shift", "+", "Z"], "Zoom / wide view"),
             new ControlBinding(["C"], "Cockpit / external view"),
+            new ControlBinding(["F10"], "Full-screen weapon view"),
             new ControlBinding(["F4"], "Cycle all cameras"),
             new ControlBinding(["Esc"], "Release mouse"));
 

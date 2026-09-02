@@ -31,6 +31,9 @@ public partial class PlayerTargeting : Node
     private const float HeatWarningFraction = 0.8f;
     private const int MissilePoolSize = 64;
     private const float GroupFireDelaySeconds = 0.12f;
+    private const float WeaponCameraTrailingDistance = 2.0f;
+    private const float WeaponCameraHeight = 0.75f;
+    private const float WeaponCameraLookAheadDistance = 5.0f;
 
     private readonly PlayerMech m_playerMech;
     private readonly PlayerMechSounds m_playerMechSounds;
@@ -66,6 +69,9 @@ public partial class PlayerTargeting : Node
     private EnemyMech m_lockCandidate;
     private EnemyMech m_lockedEnemy;
     private bool m_heatWarningReported;
+    private bool m_weaponViewEnabled;
+    private bool m_weaponViewReturnsToExternalCamera;
+    private MissileEffect m_weaponViewMissile;
 
     public PlayerTargeting(
         PlayerMech playerMech,
@@ -215,6 +221,7 @@ public partial class PlayerTargeting : Node
         playerMech.CycleWeaponGroupRequested += CycleWeaponGroup;
         playerMech.FireWeaponGroupRequested += () => FireWeapons(true);
         playerMech.ToggleWeaponFireModeRequested += ToggleWeaponFireMode;
+        playerMech.ToggleWeaponViewRequested += ToggleWeaponView;
         playerMech.TargetRequested += SelectUnderReticle;
         playerMech.NextTargetRequested += SelectNextEnemy;
         playerMech.PreviousTargetRequested += SelectPreviousEnemy;
@@ -291,6 +298,7 @@ public partial class PlayerTargeting : Node
 
         UpdateMissileLock((float)delta);
         UpdatePendingMissiles((float)delta);
+        UpdateWeaponView();
         UpdatePendingWeaponFires((float)delta);
         UpdatePendingWeaponRepeats((float)delta);
         UpdateObjectiveActor();
@@ -1195,12 +1203,13 @@ public partial class PlayerTargeting : Node
 
     private void UpdatePendingMissiles(float delta)
     {
-        for (var index = m_pendingMissiles.Count - 1; index >= 0; index--)
+        for (var index = 0; index < m_pendingMissiles.Count;)
         {
             var pending = m_pendingMissiles[index];
             pending.Delay -= delta;
             if (pending.Delay > 0.0f)
             {
+                index++;
                 continue;
             }
 
@@ -1214,7 +1223,100 @@ public partial class PlayerTargeting : Node
                 pending.Impact,
                 pending.GuidanceArmingDistance,
                 m_battlefieldEffects.SpawnWeaponImpact);
+            TryBeginWeaponView(missile);
             m_pendingMissiles.RemoveAt(index);
+        }
+    }
+
+    private void ToggleWeaponView()
+    {
+        m_weaponViewEnabled = !m_weaponViewEnabled;
+        if (!m_weaponViewEnabled)
+        {
+            EndWeaponView();
+        }
+        else
+        {
+            var newestMissile = m_missilePool
+                .Where(missile => missile.IsFlying)
+                .MinBy(missile => missile.Age);
+            TryBeginWeaponView(newestMissile);
+        }
+
+        GD.Print($"MechRewired: full-screen weapon view {(m_weaponViewEnabled ? "enabled" : "disabled")}.");
+    }
+
+    private void TryBeginWeaponView(MissileEffect missile)
+    {
+        if (!m_weaponViewEnabled || missile == null || m_weaponViewMissile?.IsFlying == true)
+        {
+            return;
+        }
+
+        m_weaponViewReturnsToExternalCamera = m_playerMech.ExternalCamera.Current;
+        m_weaponViewMissile = missile;
+        m_playerMech.CockpitCamera.Current = false;
+        m_playerMech.ExternalCamera.Current = false;
+        UpdateWeaponCameraTransform();
+        m_playerMech.WeaponCamera.Current = true;
+    }
+
+    private void UpdateWeaponView()
+    {
+        if (m_playerMech.IsDestroyed)
+        {
+            EndWeaponView(false);
+            return;
+        }
+
+        if (m_weaponViewMissile == null)
+        {
+            return;
+        }
+
+        if (!m_weaponViewMissile.IsFlying)
+        {
+            EndWeaponView();
+            return;
+        }
+
+        UpdateWeaponCameraTransform();
+    }
+
+    private void UpdateWeaponCameraTransform()
+    {
+        var direction = m_weaponViewMissile.Direction;
+        var missilePosition = m_weaponViewMissile.GlobalPosition;
+        var position = missilePosition - direction * WeaponCameraTrailingDistance + Vector3.Up * WeaponCameraHeight;
+        var up = Math.Abs(direction.Dot(Vector3.Up)) < 0.98f ? Vector3.Up : Vector3.Forward;
+        m_playerMech.WeaponCamera.LookAtFromPosition(
+            position,
+            missilePosition + direction * WeaponCameraLookAheadDistance,
+            up);
+    }
+
+    private void EndWeaponView(bool restorePilotCamera = true)
+    {
+        if (m_weaponViewMissile == null)
+        {
+            return;
+        }
+
+        var ownedActiveCamera = m_playerMech.WeaponCamera.Current;
+        m_playerMech.WeaponCamera.Current = false;
+        m_weaponViewMissile = null;
+        if (!restorePilotCamera || !ownedActiveCamera)
+        {
+            return;
+        }
+
+        if (m_weaponViewReturnsToExternalCamera)
+        {
+            m_playerMech.ExternalCamera.Current = true;
+        }
+        else
+        {
+            m_playerMech.CockpitCamera.Current = true;
         }
     }
 

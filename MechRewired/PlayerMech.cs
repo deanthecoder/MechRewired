@@ -259,6 +259,8 @@ public partial class PlayerMech : Node3D
 
     public Camera3D ExternalCamera { get; private set; }
 
+    public Camera3D WeaponCamera { get; private set; }
+
     public event Action FireRequested;
 
     public event Action CycleWeaponRequested;
@@ -270,6 +272,8 @@ public partial class PlayerMech : Node3D
     public event Action FireWeaponGroupRequested;
 
     public event Action ToggleWeaponFireModeRequested;
+
+    public event Action ToggleWeaponViewRequested;
 
     public event Action TargetRequested;
 
@@ -649,6 +653,17 @@ public partial class PlayerMech : Node3D
         AddChild(ExternalCamera);
         var target = modelBounds.GetCenter();
         ExternalCamera.GlobalPosition = ToGlobal(target);
+
+        WeaponCamera = new Camera3D
+        {
+            Name = "WeaponCamera",
+            Current = false,
+            Near = 0.03f,
+            Far = 8000.0f,
+            Fov = 75.0f,
+            CullMask = 1u | ExteriorRenderLayer
+        };
+        AddChild(WeaponCamera);
         m_startup.Play();
         m_reactorHum.Play();
         m_deploymentReport.Play();
@@ -850,7 +865,8 @@ public partial class PlayerMech : Node3D
             return;
         }
 
-        if (CockpitCamera == null || (!CockpitCamera.Current && !ExternalCamera.Current))
+        if (CockpitCamera == null ||
+            (!CockpitCamera.Current && !ExternalCamera.Current && !WeaponCamera.Current))
         {
             return;
         }
@@ -894,6 +910,11 @@ public partial class PlayerMech : Node3D
 
             case InputEventKey { Pressed: true, Echo: false, Keycode: Key.C }:
                 ToggleFollowCamera();
+                GetViewport().SetInputAsHandled();
+                break;
+
+            case InputEventKey { Pressed: true, Echo: false, Keycode: Key.F10 }:
+                ToggleWeaponViewRequested?.Invoke();
                 GetViewport().SetInputAsHandled();
                 break;
 

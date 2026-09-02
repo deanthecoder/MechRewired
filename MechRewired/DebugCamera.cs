@@ -42,6 +42,8 @@ public partial class DebugCamera : Camera3D
 
     public Camera3D ExternalCamera { get; init; }
 
+    public Camera3D WeaponCamera { get; init; }
+
     public PlayerMech PlayerMech { get; init; }
 
     public PlayerTargeting PlayerTargeting { get; init; }
@@ -274,7 +276,9 @@ public partial class DebugCamera : Camera3D
             ? CockpitCamera
             : ExternalCamera.Current
                 ? ExternalCamera
-                : this;
+                : WeaponCamera.Current
+                    ? WeaponCamera
+                    : this;
         var forward = -activeCamera.GlobalBasis.Z.Normalized();
         var sourcePosition = MechWarriorCoordinateSystem.ToSourcePosition(activeCamera.GlobalPosition);
         var sourceDirection = MechWarriorCoordinateSystem.ToSourcePosition(forward);

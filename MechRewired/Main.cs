@@ -2205,6 +2205,7 @@ public partial class Main : Node3D
             SceneTriangles = visualSceneTriangles,
             CockpitCamera = playerMech.CockpitCamera,
             ExternalCamera = playerMech.ExternalCamera,
+            WeaponCamera = playerMech.WeaponCamera,
             PlayerMech = playerMech,
             PlayerTargeting = playerTargeting
         };
