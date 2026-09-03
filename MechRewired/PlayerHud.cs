@@ -1182,7 +1182,7 @@ public partial class PlayerHud : Control
             DrawLine(
                 Point(gaugeLeft + inset, zeroY),
                 Point(gaugeLeft + gaugeWidth - inset, zeroY),
-                HudGreen,
+                m_playerMech.Drive.IsReversing ? TerrainBlue : HudGreen,
                 LineWidth(3.0f));
         }
 
