@@ -29,6 +29,7 @@ public partial class MechRig : Node
     private readonly List<RigPart> m_parts = [];
     private readonly List<FootSupport> m_footSupports = [];
     private readonly MechGait m_gait = new();
+    private readonly MechAirbornePose m_airbornePose = new();
 
     public float Phase => (float)m_gait.Phase;
 
@@ -74,7 +75,34 @@ public partial class MechRig : Node
         if (vertices.Count > 0)
         {
             m_footSupports.Add(new FootSupport(mesh, kind, vertices.ToArray()));
+            var joint = m_parts.LastOrDefault(part => part.Kind == kind && part.Node.IsAncestorOf(mesh));
+            if (joint != null)
+            {
+                ConfigureToeSag(joint, mesh, vertices);
+            }
         }
+    }
+
+    private static void ConfigureToeSag(RigPart joint, MeshInstance3D mesh, List<Vector3> vertices)
+    {
+        // Model names do not encode the pivot orientation consistently across chassis. Compare
+        // both candidate poses through the authored hierarchy without moving the live joint.
+        var center = vertices.Aggregate(Vector3.Zero, (sum, vertex) => sum + vertex) / vertices.Count;
+        var meshToJoint = joint.Node.GlobalTransform.AffineInverse() * mesh.GlobalTransform;
+        var parentTransform = joint.Node.GetParentNode3D()?.GlobalTransform ?? Transform3D.Identity;
+        var positiveBasis = Basis.FromEuler(
+                joint.RestRotation + Vector3.Right * MechAirbornePose.SagRadians,
+                joint.Node.RotationOrder)
+            .ScaledLocal(joint.Node.Scale);
+        var negativeBasis = Basis.FromEuler(
+                joint.RestRotation - Vector3.Right * MechAirbornePose.SagRadians,
+                joint.Node.RotationOrder)
+            .ScaledLocal(joint.Node.Scale);
+        var positivePose = parentTransform * new Transform3D(positiveBasis, joint.Node.Position) * meshToJoint;
+        var negativePose = parentTransform * new Transform3D(negativeBasis, joint.Node.Position) * meshToJoint;
+        joint.SagDirection = MechAirbornePose.ChooseSagDirection(
+            (positivePose * center).Y,
+            (negativePose * center).Y);
     }
 
     /// <summary>
@@ -132,14 +160,16 @@ public partial class MechRig : Node
     };
 
     /// <summary>
-    /// Advances and applies a gait frame, returning true when a foot plants.
+    /// Advances the gait and airborne toe pose, returning true when a foot plants.
     /// </summary>
     public bool Advance(
         float signedDistanceMeters,
         float headingChangeRadians,
         float speedFraction,
-        float delta)
+        float delta,
+        bool airborne = false)
     {
+        m_airbornePose.Advance(delta, airborne);
         var planted = m_gait.Advance(
             signedDistanceMeters,
             headingChangeRadians,
@@ -204,7 +234,7 @@ public partial class MechRig : Node
 
         foreach (var toe in toes)
         {
-            SetPose(toe, toePitch);
+            SetPose(toe, m_airbornePose.GetToePitch(toePitch, toe.SagDirection));
         }
     }
 
@@ -284,7 +314,10 @@ public partial class MechRig : Node
         return false;
     }
 
-    private sealed record RigPart(Node3D Node, Vector3 RestRotation, PartKind Kind);
+    private sealed record RigPart(Node3D Node, Vector3 RestRotation, PartKind Kind)
+    {
+        public float SagDirection { get; set; }
+    }
 
     private sealed record FootSupport(MeshInstance3D Mesh, PartKind Kind, Vector3[] Vertices);
 

@@ -49,7 +49,10 @@ public sealed record PlayerMechSounds(
     AudioStreamWav ShuttingDown,
     AudioStreamWav ShutdownEffect,
     AudioStreamWav DeathExplosion,
-    AudioStreamWav MissionFailed)
+    AudioStreamWav MissionFailed,
+    AudioStreamWav JumpJetThrust,
+    AudioStreamWav JumpJetLowFuel,
+    AudioStreamWav HardLanding)
 {
     private const string TorsoMotorPath = "SNDS/TORSLOOP.SFL";
     private const string FootfallPath = "SNDS/NONFOOT.SFL";
@@ -81,6 +84,9 @@ public sealed record PlayerMechSounds(
     private const string ShutdownEffectPath = "SNDS/MECSHTD1.SFL";
     private const string DeathExplosionPath = "SNDS/MECEXPBG.SFL";
     private const string MissionFailedPath = "SNDS/GENE001F.SFL";
+    private const string JumpJetThrustPath = "SNDS/MECJJRXX.SFL";
+    private const string JumpJetLowFuelPath = "SNDS/MECJFUEL.SFL";
+    private const string HardLandingPath = FootfallPath;
     private static readonly string[] WeaponImpactPaths =
     [
         "SNDS/MECWIMP1.SFL",
@@ -156,7 +162,10 @@ public sealed record PlayerMechSounds(
             LoadResource(archive, ShuttingDownPath, false, "manual shutdown report"),
             LoadResource(archive, ShutdownEffectPath, false, "mech shutdown effect"),
             LoadResource(archive, DeathExplosionPath, false, "player mech destruction explosion"),
-            LoadResource(archive, MissionFailedPath, false, "mission failed report"));
+            LoadResource(archive, MissionFailedPath, false, "mission failed report"),
+            LoadResource(archive, JumpJetThrustPath, true, "jump-jet thrust"),
+            LoadResource(archive, JumpJetLowFuelPath, false, "jump-jet low-fuel alarm"),
+            LoadResource(archive, HardLandingPath, false, "hard landing"));
     }
 
     internal static AudioStreamWav LoadResource(

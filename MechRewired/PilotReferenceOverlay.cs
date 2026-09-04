@@ -254,6 +254,7 @@ public partial class PilotReferenceOverlay : CanvasLayer
             new ControlBinding(["←", "OR", "→"], "Steer legs"),
             new ControlBinding(["↑", "OR", "↓"], "Tilt torso"),
             new ControlBinding([",", "OR", "."], "Turn torso"),
+            new ControlBinding(["Hold J"], "Jump jets"),
             new ControlBinding(["Shift", "+", "Arrows"], "Look around"),
             new ControlBinding(["/"], "Center torso and view"),
             new ControlBinding(["M"], "Align legs to torso"));

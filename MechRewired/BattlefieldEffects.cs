@@ -737,6 +737,21 @@ public partial class BattlefieldEffects : Node3D
             spread: 88.0f,
             emissionBoxExtents: new Vector3(1.15f + intensity * 0.35f, 0.14f, 1.15f + intensity * 0.35f));
 
+    /// <summary>Spawns a single broad dust poof when a mech touches down after a jump.</summary>
+    public void SpawnLandingDust(Vector3 position, float intensity)
+    {
+        intensity = Mathf.Clamp(intensity, 0.0f, 1.0f);
+        var radius = 3.25f + intensity * 0.25f;
+        SpawnDust(
+            position,
+            3.6f + intensity * 0.9f,
+            0.55f + intensity * 0.15f,
+            2.4f,
+            amountRatio: 0.9f + intensity * 0.1f,
+            spread: 88.0f,
+            emissionBoxExtents: new Vector3(radius, 0.14f, radius));
+    }
+
     /// <summary>Spawns short-lived downwash dust beneath a low-flying DropShip.</summary>
     public void SpawnDropShipDownwash(Vector3 position, float intensity)
     {
@@ -751,6 +766,23 @@ public partial class BattlefieldEffects : Node3D
             amountRatio: 0.34f,
             spread: 88.0f,
             emissionBoxExtents: new Vector3(5.0f + intensity * 7.0f, 0.18f, 5.0f + intensity * 7.0f));
+    }
+
+    /// <summary>Spawns a dense, ground-hugging dust cloud beneath active jump jets.</summary>
+    public void SpawnJumpJetWash(Vector3 position, float intensity)
+    {
+        intensity = Mathf.Clamp(intensity, 0.0f, 1.0f);
+        SpawnDust(
+            position,
+            2.8f + intensity * 2.7f,
+            0.58f + intensity * 0.34f,
+            3.2f,
+            amountRatio: 0.42f,
+            spread: 88.0f,
+            emissionBoxExtents: new Vector3(
+                3.2f + intensity * 4.8f,
+                0.16f,
+                3.2f + intensity * 4.8f));
     }
 
     private void SpawnDust(

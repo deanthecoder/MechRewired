@@ -788,6 +788,8 @@ public partial class PlayerHud : Control
         const float gaugeHeight = 15.0f;
         const float rateGaugeLeft = 655.0f;
         const float rateGaugeWidth = 150.0f;
+        const float jetsGaugeLeft = 840.0f;
+        const float jetsGaugeWidth = 150.0f;
         var heatGauge = new Rect2(
             Point(heatGaugeLeft, gaugeTop),
             new Vector2(gaugeWidth, gaugeHeight) * m_scale);
@@ -811,6 +813,19 @@ public partial class PlayerHud : Control
             gaugeHeight,
             (float)Math.Clamp(m_targeting.HeatRate / 20.0, 0.0, 2.0));
         DrawCenteredText(rateGaugeLeft + rateGaugeWidth * 0.5f, 691.0f, "dH/dT", HudGreen, 24);
+
+        var jetsGauge = new Rect2(
+            Point(jetsGaugeLeft, gaugeTop),
+            new Vector2(jetsGaugeWidth, gaugeHeight) * m_scale);
+        DrawRect(jetsGauge, GaugeRed);
+        DrawThermalStrip(
+            jetsGaugeLeft,
+            gaugeTop,
+            jetsGaugeWidth * m_playerMech.JumpJetFuelFraction,
+            gaugeHeight,
+            HudGreen);
+        DrawGaugeShading(jetsGauge);
+        DrawCenteredText(jetsGaugeLeft + jetsGaugeWidth * 0.5f, 691.0f, "Jets", HudGreen, 24);
     }
 
     private void DrawBlueGauge(Rect2 gauge)

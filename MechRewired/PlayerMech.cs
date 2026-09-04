@@ -45,6 +45,13 @@ public partial class PlayerMech : Node3D
     private const float LegAlignmentTolerance = 0.005f;
     private const float DamageShudderDuration = 0.55f;
     private const float DamageShudderFrequency = 14.0f;
+    private const float JumpJetWashMaximumHeight = 105.0f;
+    private const float JumpJetWashEmissionInterval = 0.10f;
+    private const float SignificantLandingHeight = 8.0f;
+    private const float DamagingLandingHeight = 45.0f;
+    private const float LandingDipDuration = 0.42f;
+    private const float MaximumLandingDip = 0.28f;
+    private const float MaximumLandingLegDamageFraction = 0.35f;
     private const float ExternalCameraDistance = 11.76f;
     private const float ExternalCameraHeight = 7.28f;
     private const float ExternalCameraPullBackResponse = 2.2f;
@@ -77,6 +84,9 @@ public partial class PlayerMech : Node3D
     private float m_damageShudderRemaining;
     private float m_damageShudderStrength;
     private float m_gaitGroundElevation;
+    private float m_jumpJetWashElapsed;
+    private float m_landingDipRemaining;
+    private float m_landingDipStrength;
     private int m_nextDamageImpact;
     private bool m_shutdown;
     private bool m_shutdownOverride;
@@ -91,6 +101,9 @@ public partial class PlayerMech : Node3D
     private readonly AudioStreamPlayer m_driveTransition;
     private readonly AudioStreamPlayer m_damageImpact;
     private readonly AudioStreamPlayer m_criticalHit;
+    private readonly AudioStreamPlayer m_jumpJetThrust;
+    private readonly AudioStreamPlayer m_jumpJetLowFuel;
+    private readonly AudioStreamPlayer m_hardLanding;
     private readonly IReadOnlyList<AudioStreamWav> m_damageImpactSounds;
     private readonly AudioStreamWav m_startWalking;
     private readonly AudioStreamWav m_stopWalking;
@@ -98,6 +111,7 @@ public partial class PlayerMech : Node3D
     private readonly AudioStreamWav m_stopRunning;
     private readonly double m_cruisingSpeedKph;
     private readonly MechDamageModel m_damageModel;
+    private readonly MechJumpJets m_jumpJets = new();
     private readonly List<(MeshInstance3D Mesh, string PartName)> m_destructibleParts = new();
     private readonly Dictionary<MechDamageSection, Marker3D> m_weaponMounts = new();
     private Aabb m_localBounds;
@@ -199,6 +213,25 @@ public partial class PlayerMech : Node3D
             Stream = sounds.CriticalHit,
             VolumeDb = -0.5f
         };
+        m_jumpJetThrust = new AudioStreamPlayer
+        {
+            Name = "JumpJetThrust",
+            Stream = sounds.JumpJetThrust,
+            VolumeDb = -2.0f
+        };
+        m_jumpJetLowFuel = new AudioStreamPlayer
+        {
+            Name = "JumpJetLowFuel",
+            Stream = sounds.JumpJetLowFuel,
+            VolumeDb = -1.0f
+        };
+        m_hardLanding = new AudioStreamPlayer
+        {
+            Name = "HardLanding",
+            Stream = sounds.HardLanding,
+            VolumeDb = -1.0f,
+            PitchScale = 0.72f
+        };
         AddChild(m_torsoMotor);
         AddChild(m_footfall);
         AddChild(m_startup);
@@ -209,6 +242,9 @@ public partial class PlayerMech : Node3D
         AddChild(m_driveTransition);
         AddChild(m_damageImpact);
         AddChild(m_criticalHit);
+        AddChild(m_jumpJetThrust);
+        AddChild(m_jumpJetLowFuel);
+        AddChild(m_hardLanding);
     }
 
     public MechDrive Drive { get; }
@@ -228,6 +264,12 @@ public partial class PlayerMech : Node3D
     public bool IsShutdown => m_shutdown;
 
     public bool IsShutdownOverride => m_shutdownOverride;
+
+    public float JumpJetFuelFraction => (float)m_jumpJets.FuelFraction;
+
+    public bool IsJumpJetThrusting { get; private set; }
+
+    public bool IsAirborne => m_jumpJets.IsAirborne;
 
     public bool IsTranslationLocked => m_translationLocked;
 
@@ -308,12 +350,20 @@ public partial class PlayerMech : Node3D
     /// <summary>Raised at each planted foot so shared battlefield effects can follow the authored gait.</summary>
     public event Action<Vector3, float> FootfallLanded;
 
+    /// <summary>Raised while nearby terrain should receive visible jump-jet wash.</summary>
+    public event Action<Vector3, float> JumpJetWashRequested;
+
+    /// <summary>Raised once at touchdown to kick up dust beneath the mech.</summary>
+    public event Action<Vector3, float> LandingDustRequested;
+
     public void ApplyDamage(
         int damage,
         string attacker,
         MechDamageSection section,
         bool fromRear,
-        Vector3 hitPosition)
+        Vector3 hitPosition,
+        bool playImpactSound = true,
+        bool applyShudder = true)
     {
         if (damage <= 0 || IsDestroyed)
         {
@@ -323,9 +373,15 @@ public partial class PlayerMech : Node3D
         var previousHealth = Health;
         var result = m_damageModel.ApplyDamage(section, damage, fromRear);
         DamageReceived?.Invoke(damage);
-        PlayDamageImpact();
-        m_damageShudderRemaining = DamageShudderDuration;
-        m_damageShudderStrength = Mathf.Clamp(damage / 8.0f, 0.5f, 1.25f);
+        if (playImpactSound)
+        {
+            PlayDamageImpact();
+        }
+        if (applyShudder)
+        {
+            m_damageShudderRemaining = DamageShudderDuration;
+            m_damageShudderStrength = Mathf.Clamp(damage / 8.0f, 0.5f, 1.25f);
+        }
         GD.Print(
             $"MechRewired: PlayerMech {section}{(result.RearArmorHit ? " rear" : string.Empty)} " +
             $"hit by {attacker} for {damage} damage ({Health}/{MaximumHealth} aggregate; " +
@@ -702,6 +758,9 @@ public partial class PlayerMech : Node3D
 
         var isPilotCamera = CockpitCamera.Current || ExternalCamera.Current;
         UpdateDisplayZoom((float)delta);
+        var thrustRequested = !IsShutdown &&
+                              !IsImmobilized &&
+                              Input.IsPhysicalKeyPressed(Key.J);
         if (IsShutdown)
         {
             AdvanceShutdownBraking(delta);
@@ -739,9 +798,11 @@ public partial class PlayerMech : Node3D
         var torsoAngularSpeed = ApplySmoothedTorsoAim((float)delta);
         if (IsImmobilized)
         {
+            AdvanceJumpJets((float)delta, false);
             m_aligningLegsToTorso = false;
             ActualSpeedKph = 0.0f;
-            m_mechRig.Advance(0.0f, 0.0f, 0.0f, (float)delta);
+            m_mechRig.Advance(0.0f, 0.0f, 0.0f, (float)delta, IsAirborne);
+            ApplyLandingDip((float)delta);
             ApplyDamageShudder((float)delta);
             UpdateMotorAudio(torsoAngularSpeed, (float)delta);
             return;
@@ -758,6 +819,7 @@ public partial class PlayerMech : Node3D
         RotateY(headingChangeRadians);
         var appliedDistance = TryMoveAcrossTerrain(
             (float)driveStep.DistanceMeters * GetDebugTravelMultiplier());
+        AdvanceJumpJets((float)delta, thrustRequested);
         ActualSpeedKph = Mathf.IsZeroApprox((float)delta)
             ? 0.0f
             : appliedDistance / (float)delta * 3.6f;
@@ -765,6 +827,7 @@ public partial class PlayerMech : Node3D
             appliedDistance,
             Mathf.Abs(headingChangeRadians),
             (float)delta);
+        ApplyLandingDip((float)delta);
         ApplyDamageShudder((float)delta);
         var chassisAngularSpeed = Mathf.Abs(headingChangeRadians) / (float)delta;
         UpdateMotorAudio(Mathf.Max(torsoAngularSpeed, chassisAngularSpeed), (float)delta);
@@ -780,10 +843,12 @@ public partial class PlayerMech : Node3D
         var driveStep = Drive.Advance(delta, 0.0);
         var appliedDistance = TryMoveAcrossTerrain(
             (float)driveStep.DistanceMeters * GetDebugTravelMultiplier());
+        AdvanceJumpJets((float)delta, false);
         ActualSpeedKph = Mathf.IsZeroApprox((float)delta)
             ? 0.0f
             : appliedDistance / (float)delta * 3.6f;
         ApplyCockpitGait(appliedDistance, 0.0f, (float)delta);
+        ApplyLandingDip((float)delta);
         ApplyDamageShudder((float)delta);
         if (Math.Abs(Drive.CurrentSpeedKph) >= 0.001)
         {
@@ -1049,7 +1114,7 @@ public partial class PlayerMech : Node3D
             Key.Key6 or Key.Key7 or Key.Key8 or Key.Key9 or
             Key.Equal or Key.Plus or Key.Minus or Key.Backspace or Key.Quoteleft or
             Key.Left or Key.Right or
-            Key.S or Key.O or Key.M or
+            Key.S or Key.O or Key.M or Key.J or
             Key.Enter or Key.Backslash or Key.Apostrophe or Key.Semicolon or
             Key.T or Key.R or Key.E or Key.Q or Key.I or Key.Space),
         _ => false
@@ -1073,7 +1138,8 @@ public partial class PlayerMech : Node3D
             $"{Mathf.RadToDeg(m_targetTorsoYaw):F1}, {Mathf.RadToDeg(m_targetTorsoPitch):F1}); " +
             $"health {Health}/{MaximumHealth}; power {(IsShutdown ? "shutdown" : "online")}" +
             $"{(IsShutdownOverride ? ", override" : string.Empty)}; translation lock " +
-            $"{(m_translationLocked ? m_translationLockReason : "none")}.");
+            $"{(m_translationLocked ? m_translationLockReason : "none")}; " +
+            $"jump jets {JumpJetFuelFraction:P0}, {(IsAirborne ? "airborne" : "grounded")}.");
         if (m_slopeBlocked || m_sceneryBlocked)
         {
             var scenery = m_lastBlockingObstacle == null
@@ -1261,6 +1327,8 @@ public partial class PlayerMech : Node3D
         m_startup.Stop();
         m_displayZoom.Stop();
         m_driveTransition.Stop();
+        m_jumpJetThrust.Stop();
+        m_jumpJetLowFuel.Stop();
     }
 
     private void PlayDriveTransition(double previousTargetSpeedKph)
@@ -1469,7 +1537,7 @@ public partial class PlayerMech : Node3D
         }
 
         var obstacles = m_sceneryObstacleProvider();
-        if (SceneryCollision.TryResolveOverlap(
+        if (!IsAirborne && SceneryCollision.TryResolveOverlap(
                 new System.Numerics.Vector2(Position.X, Position.Z),
                 m_footprintRadius,
                 obstacles,
@@ -1494,7 +1562,7 @@ public partial class PlayerMech : Node3D
             return 0.0f;
         }
 
-        if (slopeDegrees > MaximumSlopeDegrees)
+        if (!IsAirborne && slopeDegrees > MaximumSlopeDegrees)
         {
             if (!m_slopeBlocked)
             {
@@ -1508,7 +1576,7 @@ public partial class PlayerMech : Node3D
             return 0.0f;
         }
 
-        var elevationGain = surfaceHeight - FeetElevation;
+        var elevationGain = IsAirborne ? 0.0f : surfaceHeight - FeetElevation;
         var uphillAngle = elevationGain > 0.0f
             ? Mathf.RadToDeg(Mathf.Atan2(elevationGain, Mathf.Abs(distanceMeters)))
             : 0.0f;
@@ -1517,13 +1585,19 @@ public partial class PlayerMech : Node3D
         var appliedDistance = distanceMeters * speedMultiplier;
         candidate = Position - GlobalBasis.Z * appliedDistance;
         if (!TryGetSurface(candidate, out surfaceHeight, out slopeDegrees) ||
-            slopeDegrees > MaximumSlopeDegrees)
+            !IsAirborne && slopeDegrees > MaximumSlopeDegrees)
         {
             NotifyMovementBlocked("terrain ahead");
             return 0.0f;
         }
 
-        if (SceneryCollision.TryFindBlockingObstacle(
+        if (IsAirborne && surfaceHeight - m_modelBottomY + m_gaitGroundElevation >= Position.Y)
+        {
+            NotifyMovementBlocked("terrain above flight path");
+            return 0.0f;
+        }
+
+        if (!IsAirborne && SceneryCollision.TryFindBlockingObstacle(
                 new System.Numerics.Vector2(Position.X, Position.Z),
                 new System.Numerics.Vector2(candidate.X, candidate.Z),
                 m_footprintRadius,
@@ -1546,7 +1620,9 @@ public partial class PlayerMech : Node3D
         m_slopeBlocked = false;
         m_sceneryBlocked = false;
         m_lastBlockingObstacle = null;
-        candidate.Y = surfaceHeight - m_modelBottomY + m_gaitGroundElevation;
+        candidate.Y = IsAirborne
+            ? Position.Y
+            : surfaceHeight - m_modelBottomY + m_gaitGroundElevation;
         Position = candidate;
         return appliedDistance;
     }
@@ -1575,8 +1651,134 @@ public partial class PlayerMech : Node3D
         return true;
     }
 
+    private void AdvanceJumpJets(float delta, bool thrustRequested)
+    {
+        if (!TryGetSurface(Position, out var surfaceHeight, out _))
+        {
+            IsJumpJetThrusting = false;
+            m_jumpJetThrust.Stop();
+            m_jumpJetLowFuel.Stop();
+            return;
+        }
+
+        var groundPositionY = surfaceHeight - m_modelBottomY + m_gaitGroundElevation;
+        var heightAboveGround = Math.Max(0.0f, Position.Y - groundPositionY);
+        var step = m_jumpJets.Advance(delta, thrustRequested, heightAboveGround);
+        Position += Vector3.Up * (float)step.VerticalDisplacementMeters;
+        if (step.Landed)
+        {
+            Position = new Vector3(Position.X, groundPositionY, Position.Z);
+            HandleLanding(step);
+        }
+
+        var thrustStarted = step.IsThrusting && !IsJumpJetThrusting;
+        IsJumpJetThrusting = step.IsThrusting;
+        if (step.IsThrusting)
+        {
+            if (!m_jumpJetThrust.Playing)
+            {
+                m_jumpJetThrust.Play();
+            }
+
+            m_jumpJetWashElapsed += delta;
+            if (heightAboveGround <= JumpJetWashMaximumHeight &&
+                (thrustStarted || m_jumpJetWashElapsed >= JumpJetWashEmissionInterval))
+            {
+                m_jumpJetWashElapsed = 0.0f;
+                var intensity = 1.0f - heightAboveGround / JumpJetWashMaximumHeight;
+                JumpJetWashRequested?.Invoke(GlobalPosition, intensity);
+            }
+        }
+        else
+        {
+            m_jumpJetThrust.Stop();
+            m_jumpJetWashElapsed = 0.0f;
+        }
+
+        if (step.LowFuelWarning)
+        {
+            m_jumpJetLowFuel.Play();
+        }
+    }
+
+    private void HandleLanding(JumpJetStep step)
+    {
+        var maximumHeight = (float)step.MaximumHeightMeters;
+        var equivalentFallHeight = (float)(
+            step.ImpactSpeedMetersPerSecond * step.ImpactSpeedMetersPerSecond /
+            (2.0 * MechJumpJets.GravityMetersPerSecondSquared));
+        LandingDustRequested?.Invoke(
+            GlobalPosition,
+            Mathf.Clamp((float)step.ImpactSpeedMetersPerSecond / 55.0f, 0.0f, 1.0f));
+        if (equivalentFallHeight < SignificantLandingHeight)
+        {
+            return;
+        }
+
+        m_hardLanding.Play();
+        var severity = Mathf.Clamp(
+            (equivalentFallHeight - SignificantLandingHeight) /
+            (DamagingLandingHeight - SignificantLandingHeight),
+            0.0f,
+            1.0f);
+        m_landingDipRemaining = LandingDipDuration;
+        m_landingDipStrength = Mathf.Lerp(0.08f, MaximumLandingDip, severity);
+        GD.Print(
+            $"MechRewired: PlayerMech landed after a {maximumHeight:F1}m drop " +
+            $"at {step.ImpactSpeedMetersPerSecond:F1}m/s.");
+
+        if (equivalentFallHeight < DamagingLandingHeight)
+        {
+            return;
+        }
+
+        var damageSeverity = Mathf.Clamp(
+            (equivalentFallHeight - DamagingLandingHeight) /
+            ((float)MechJumpJets.WolfMaximumHeightMeters - DamagingLandingHeight),
+            0.0f,
+            1.0f);
+        var hitPosition = GlobalPosition + Vector3.Down * -m_modelBottomY;
+        ApplyLandingLegDamage(MechDamageSection.LeftLeg, damageSeverity, hitPosition);
+        ApplyLandingLegDamage(MechDamageSection.RightLeg, damageSeverity, hitPosition);
+    }
+
+    private void ApplyLandingLegDamage(
+        MechDamageSection section,
+        float severity,
+        Vector3 hitPosition)
+    {
+        var maximum = m_damageModel.GetMaximum(section);
+        var maximumHealth = maximum.FrontArmor + maximum.RearArmor + maximum.InternalStructure;
+        var damage = Math.Max(
+            1,
+            (int)MathF.Ceiling(maximumHealth * MaximumLandingLegDamageFraction * severity));
+        ApplyDamage(damage, "hard landing", section, false, hitPosition, false, false);
+    }
+
+    private void ApplyLandingDip(float delta)
+    {
+        if (m_landingDipRemaining <= 0.0f)
+        {
+            return;
+        }
+
+        m_landingDipRemaining = Math.Max(0.0f, m_landingDipRemaining - delta);
+        var progress = 1.0f - m_landingDipRemaining / LandingDipDuration;
+        var dip = Mathf.Sin(progress * Mathf.Pi) * m_landingDipStrength;
+        ViewBobMount.Position += Vector3.Down * dip;
+    }
+
     private void ApplyCockpitGait(float distanceMeters, float headingChangeRadians, float delta)
     {
+        if (IsAirborne)
+        {
+            m_mechRig.Advance(0.0f, 0.0f, 0.0f, delta, airborne: true);
+            ViewBobMount.Position = Vector3.Zero;
+            ViewBobMount.Rotation = Vector3.Zero;
+            Cockpit.SetPose(CockpitPitchDegrees, m_torsoYaw * CockpitTorsoYawFactor, Vector3.Zero, 0.0f);
+            return;
+        }
+
         var speedFraction = (float)Drive.SpeedFraction;
         if (m_mechRig.Advance(distanceMeters, headingChangeRadians, speedFraction, delta))
         {

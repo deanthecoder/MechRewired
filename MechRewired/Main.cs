@@ -2005,6 +2005,8 @@ public partial class Main : Node3D
             playerMission.Fail);
         AddChild(playerDeathSequence);
         battlefieldEffects.ConfigureObserver(playerMech);
+        playerMech.JumpJetWashRequested += battlefieldEffects.SpawnJumpJetWash;
+        playerMech.LandingDustRequested += battlefieldEffects.SpawnLandingDust;
         if (missionSky.EnableLocalizedVolumetricFog(usesDesertTerrain ? 160.0f : 280.0f))
         {
             if (usesDesertTerrain)
