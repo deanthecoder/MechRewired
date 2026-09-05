@@ -78,6 +78,14 @@ dotnet test MechRewired.Tests/MechRewired.Tests.csproj --no-build
 
 Open `MechRewired/project.godot` with the .NET edition of Godot to run the application.
 
+The cockpit uses [the editable Blender model](Art/Cockpit/cockpit.blend), exported to
+`MechRewired/Assets/Models/Cockpit/cockpit.glb`. After editing source parts, refresh the
+hidden `07 | Optimized game export - hidden in source` collection with evaluated meshes
+grouped by material, then export only that collection as GLB with Y-up and active vertex
+colors. Keep `CockpitFrame`, `CockpitArmor`, and `CockpitGlass` mesh names for the runtime
+material controls; exclude guides, cameras, and lights. The game supplies the cockpit pitch
+and lighting. The enclosed interior supports looking behind, but VR still needs headset testing.
+
 Pass a campaign after Godot's `--` separator to bypass clan selection during development:
 
 ```shell

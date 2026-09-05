@@ -27,23 +27,19 @@ public enum CockpitFrameDiagnosticMode
 }
 
 /// <summary>
-/// Provides the native 3D interpretation of the original cockpit shell.
+/// Loads the Blender cockpit model and applies its runtime materials, lighting, and pose.
 /// </summary>
 public partial class PlayerCockpit : Node3D
 {
     public const uint RenderLayer = 1u << 2;
 
-    private const float RearZ = 0.6f;
-    private const float FrameOffsetZ = 0.5f;
-    private const float RearwardOffsetFactor = 0.25f;
+    private const string CockpitModelPath = "res://Assets/Models/Cockpit/cockpit.glb";
     private const float DefaultFrameTextureScale = 1.5f;
     private const float DefaultFrameMetallic = 0.75f;
     private const float DefaultFrameRoughness = 0.60f;
     private const float DefaultGlassVisibility = 0.01f;
     private const float DefaultGlassGrimeStrength = 1.0f;
     private const float DefaultGlassScratchStrength = 0.10f;
-    private const float SideArmorTextureSize = 1.6f;
-    private const float RailChamferRatio = 0.22f;
     private const string FrameAlbedoTexturePath =
         "res://Assets/Textures/Cockpit/Metal029/Metal029_1K-PNG_Color.png";
     private const string FrameMetalnessTexturePath =
@@ -80,16 +76,6 @@ public partial class PlayerCockpit : Node3D
     {
         Name = "CockpitInterior";
     }
-
-    public float Width { get; } = 0.75f;
-
-    public float Height { get; } = 0.7f;
-
-    public float Length { get; } = 2.25f;
-
-    public float PostThickness { get; } = 0.04f;
-
-    public float SideTaper { get; }
 
     public CockpitFrameDiagnosticMode FrameDiagnosticMode
     {
@@ -189,7 +175,7 @@ public partial class PlayerCockpit : Node3D
 
     public override void _Ready()
     {
-        Rebuild();
+        LoadCockpitModel();
     }
 
     /// <summary>
@@ -237,455 +223,75 @@ public partial class PlayerCockpit : Node3D
         Rotation = new Vector3(Mathf.DegToRad(pitchDegrees), yaw, gaitRoll);
     }
 
-    private void Rebuild()
+    /// <summary>
+    /// Loads the editable Blender enclosure while retaining the game's material controls and glazing.
+    /// </summary>
+    private void LoadCockpitModel()
     {
-        foreach (var child in GetChildren())
+        var scene = GD.Load<PackedScene>(CockpitModelPath)
+            ?? throw new InvalidOperationException($"Unable to load cockpit model: {CockpitModelPath}");
+
+        var model = scene.Instantiate<Node3D>();
+        var frame = model.FindChild("CockpitFrame", true, false) as MeshInstance3D;
+        var glass = model.FindChild("CockpitGlass", true, false) as MeshInstance3D;
+        var armor = model.FindChild("CockpitArmor", true, false) as MeshInstance3D;
+        if (frame == null || glass == null || armor == null)
         {
-            RemoveChild(child);
-            child.QueueFree();
+            model.Free();
+            throw new InvalidOperationException(
+                "Cockpit model requires CockpitFrame, CockpitGlass, and CockpitArmor meshes.");
         }
 
-        // Keep the cockpit as one PBR mesh.  This is not merely an optimisation: the old
-        // construction used individual, deliberately over-long meshes for every brace.  At
-        // each joint their end caps occupied the same space, which made reflected highlights
-        // flicker as the depth buffer chose a different cap from frame to frame.
         m_frameMaterial = CreateFrameMaterial();
-        var vertices = GetCrossSectionVertices();
-        var rearwardOffset = FrameOffsetZ + Length * RearwardOffsetFactor;
-        var crossSectionCentreZ = RearZ - Length * 0.5f + rearwardOffset;
-        var frameBuilder = new SurfaceTool();
-        frameBuilder.Begin(Mesh.PrimitiveType.Triangles);
-        var glassBuilder = new SurfaceTool();
-        glassBuilder.Begin(Mesh.PrimitiveType.Triangles);
-        var sideArmorBuilder = new SurfaceTool();
-        sideArmorBuilder.Begin(Mesh.PrimitiveType.Triangles);
-
-        for (var index = 0; index < vertices.Length; index++)
+        m_frameMesh = frame;
+        for (var surface = 0; surface < frame.Mesh.GetSurfaceCount(); surface++)
         {
-            var vertex = vertices[index];
-            var halfRailWidth = GetHalfRailWidth(index);
-            AppendRailAlongX(
-                frameBuilder,
-                halfRailWidth * 2.0f,
-                new Vector3(0.0f, vertex.Y, crossSectionCentreZ + vertex.X));
-
-            var nextIndex = (index + 1) % vertices.Length;
-            var next = vertices[nextIndex];
-            AppendBeamBetween(
-                frameBuilder,
-                ToBracePosition(vertex, index, -1.0f, crossSectionCentreZ),
-                ToBracePosition(next, nextIndex, -1.0f, crossSectionCentreZ));
-            AppendBeamBetween(
-                frameBuilder,
-                ToBracePosition(vertex, index, 1.0f, crossSectionCentreZ),
-                ToBracePosition(next, nextIndex, 1.0f, crossSectionCentreZ));
-
-            // A compact shared joint cap covers the deliberately open rail ends.  It reads as
-            // a manufactured connector rather than a gap, without restoring overlapping caps.
-            AppendJoint(frameBuilder, ToBracePosition(vertex, index, -1.0f, crossSectionCentreZ));
-            AppendJoint(frameBuilder, ToBracePosition(vertex, index, 1.0f, crossSectionCentreZ));
-            AppendGlassPane(
-                glassBuilder,
-                vertex,
-                index,
-                next,
-                nextIndex,
-                crossSectionCentreZ);
+            frame.SetSurfaceOverrideMaterial(surface, m_frameMaterial);
         }
 
-        AppendSideClosure(
-            frameBuilder,
-            glassBuilder,
-            sideArmorBuilder,
-            vertices,
-            -1.0f,
-            crossSectionCentreZ);
-        AppendSideClosure(
-            frameBuilder,
-            glassBuilder,
-            sideArmorBuilder,
-            vertices,
-            1.0f,
-            crossSectionCentreZ);
-
-        frameBuilder.GenerateNormals();
-        frameBuilder.GenerateTangents();
-        var frameMesh = frameBuilder.Commit();
-        frameMesh.SurfaceSetMaterial(0, m_frameMaterial);
-        m_frameMesh = new MeshInstance3D
-        {
-            Name = "CockpitFrame",
-            Mesh = frameMesh,
-            Layers = RenderLayer
-        };
-        AddChild(m_frameMesh);
-
-        glassBuilder.GenerateTangents();
-        var glassMesh = glassBuilder.Commit();
         m_glassMaterial = CreateGlassMaterial();
-        glassMesh.SurfaceSetMaterial(0, m_glassMaterial);
-        AddChild(new MeshInstance3D
+        glass.MaterialOverride = m_glassMaterial;
+        glass.CastShadow = GeometryInstance3D.ShadowCastingSetting.Off;
+        armor.MaterialOverride = CreateSideArmorMaterial();
+        foreach (var node in model.FindChildren("*", "MeshInstance3D", true, false))
         {
-            Name = "CockpitGlass",
-            Mesh = glassMesh,
-            Layers = RenderLayer,
-            CastShadow = GeometryInstance3D.ShadowCastingSetting.Off
-        });
+            ((MeshInstance3D)node).Layers = RenderLayer;
+        }
 
-        sideArmorBuilder.GenerateTangents();
-        var sideArmorMesh = sideArmorBuilder.Commit();
-        sideArmorMesh.SurfaceSetMaterial(0, CreateSideArmorMaterial());
-        AddChild(new MeshInstance3D
+        model.Name = "AuthoredCockpit";
+        AddChild(model);
+        model.AddChild(new OmniLight3D
         {
-            Name = "CockpitSideArmor",
-            Mesh = sideArmorMesh,
-            Layers = RenderLayer
+            Name = "PortRailLamp",
+            Position = new Vector3(-0.30f, -0.016f, -0.42f),
+            LightColor = new Color(1.0f, 0.40f, 0.12f),
+            LightEnergy = 0.035f,
+            OmniRange = 0.45f,
+            LightCullMask = RenderLayer,
+            ShadowEnabled = false
+        });
+        model.AddChild(new OmniLight3D
+        {
+            Name = "RearCanopyLamp",
+            Position = new Vector3(0.0f, 0.24f, 0.70f),
+            LightColor = new Color(1.0f, 0.68f, 0.40f),
+            LightEnergy = 0.065f,
+            OmniRange = 1.6f,
+            LightCullMask = RenderLayer,
+            ShadowEnabled = false
+        });
+        model.AddChild(new OmniLight3D
+        {
+            Name = "PhaseModuleGlow",
+            Position = new Vector3(0.285f, -0.168f, -0.0555f),
+            LightColor = new Color(0.38f, 0.73f, 1.0f),
+            LightEnergy = 0.016f,
+            OmniRange = 0.38f,
+            LightCullMask = RenderLayer,
+            ShadowEnabled = false
         });
         ApplyFrameDiagnosticMaterial();
     }
-
-    private Vector2[] GetCrossSectionVertices()
-    {
-        var halfLength = Length * 0.5f;
-        var shoulderLength = Length * 0.32f;
-        var halfHeight = Height * 0.5f;
-        return
-        [
-            new Vector2(-shoulderLength, halfHeight),
-            new Vector2(shoulderLength, halfHeight),
-            new Vector2(halfLength, 0.0f),
-            new Vector2(shoulderLength, -halfHeight),
-            new Vector2(-shoulderLength, -halfHeight),
-            new Vector2(-halfLength, 0.0f)
-        ];
-    }
-
-    private float GetHalfRailWidth(int vertexIndex) =>
-        Width * 0.5f - (vertexIndex is 2 or 5 ? 0.0f : SideTaper);
-
-    private Vector3 ToBracePosition(Vector2 vertex, int vertexIndex, float side, float centreZ) =>
-        new(side * GetHalfRailWidth(vertexIndex), vertex.Y, centreZ + vertex.X);
-
-    private void AppendGlassPane(
-        SurfaceTool surfaceTool,
-        Vector2 start,
-        int startIndex,
-        Vector2 end,
-        int endIndex,
-        float centreZ)
-    {
-        var leftStart = ToBracePosition(start, startIndex, -1.0f, centreZ);
-        var rightStart = ToBracePosition(start, startIndex, 1.0f, centreZ);
-        var leftEnd = ToBracePosition(end, endIndex, -1.0f, centreZ);
-        var rightEnd = ToBracePosition(end, endIndex, 1.0f, centreZ);
-        var normal = (rightStart - leftStart).Cross(leftEnd - leftStart).Normalized();
-        var paneCentre = (leftStart + rightStart + leftEnd + rightEnd) * 0.25f;
-        if (normal.Dot(-paneCentre) < 0.0f)
-        {
-            normal = -normal;
-        }
-
-        // Vertex colour carries a per-pane dirt bias into the shader. Downward-facing glazing
-        // catches dust kicked up from the terrain while the pilot's main sight line stays clear.
-        var lowerBias = Mathf.Clamp(-paneCentre.Y / (Height * 0.5f), 0.0f, 1.0f);
-        var paneData = new Color(lowerBias, 0.0f, 0.0f);
-        AddGlassTriangle(
-            surfaceTool,
-            leftStart,
-            rightEnd,
-            rightStart,
-            new Vector2(0.0f, 0.0f),
-            new Vector2(1.0f, 1.0f),
-            new Vector2(1.0f, 0.0f),
-            normal,
-            paneData);
-        AddGlassTriangle(
-            surfaceTool,
-            leftStart,
-            leftEnd,
-            rightEnd,
-            new Vector2(0.0f, 0.0f),
-            new Vector2(0.0f, 1.0f),
-            new Vector2(1.0f, 1.0f),
-            normal,
-            paneData);
-    }
-
-    private void AppendSideClosure(
-        SurfaceTool frameBuilder,
-        SurfaceTool glassBuilder,
-        SurfaceTool sideArmorBuilder,
-        Vector2[] vertices,
-        float side,
-        float centreZ)
-    {
-        var frontTop = ToBracePosition(vertices[0], 0, side, centreZ);
-        var rearTop = ToBracePosition(vertices[1], 1, side, centreZ);
-        var rearApex = ToBracePosition(vertices[2], 2, side, centreZ);
-        var rearBottom = ToBracePosition(vertices[3], 3, side, centreZ);
-        var frontBottom = ToBracePosition(vertices[4], 4, side, centreZ);
-        var frontApex = ToBracePosition(vertices[5], 5, side, centreZ);
-        var inwardNormal = new Vector3(-side, 0.0f, 0.0f);
-
-        // The apex-to-apex member turns the open hexagonal end into a conventional armored
-        // canopy side: peripheral glazing above eye level and a protective steel panel below.
-        AppendBeamBetween(frameBuilder, frontApex, rearApex);
-
-        var glassData = new Color(0.0f, 0.0f, 0.0f);
-        AddGlassTriangle(
-            glassBuilder,
-            frontApex,
-            frontTop,
-            rearTop,
-            new Vector2(0.0f, 1.0f),
-            new Vector2(0.0f, 0.0f),
-            new Vector2(1.0f, 0.0f),
-            inwardNormal,
-            glassData);
-        AddGlassTriangle(
-            glassBuilder,
-            frontApex,
-            rearTop,
-            rearApex,
-            new Vector2(0.0f, 1.0f),
-            new Vector2(1.0f, 0.0f),
-            new Vector2(1.0f, 1.0f),
-            inwardNormal,
-            glassData);
-
-        var textureRepeatsX = Length / SideArmorTextureSize;
-        var textureRepeatsY = (Height * 0.5f) / SideArmorTextureSize;
-        AddArmorTriangle(
-            sideArmorBuilder,
-            frontApex,
-            rearApex,
-            rearBottom,
-            new Vector2(0.0f, 0.0f),
-            new Vector2(textureRepeatsX, 0.0f),
-            new Vector2(textureRepeatsX, textureRepeatsY),
-            inwardNormal);
-        AddArmorTriangle(
-            sideArmorBuilder,
-            frontApex,
-            rearBottom,
-            frontBottom,
-            new Vector2(0.0f, 0.0f),
-            new Vector2(textureRepeatsX, textureRepeatsY),
-            new Vector2(0.0f, textureRepeatsY),
-            inwardNormal);
-    }
-
-    private static void AddArmorTriangle(
-        SurfaceTool surfaceTool,
-        Vector3 a,
-        Vector3 b,
-        Vector3 c,
-        Vector2 uvA,
-        Vector2 uvB,
-        Vector2 uvC,
-        Vector3 normal)
-    {
-        surfaceTool.SetNormal(normal);
-        surfaceTool.SetUV(uvA);
-        surfaceTool.AddVertex(a);
-        surfaceTool.SetUV(uvB);
-        surfaceTool.AddVertex(b);
-        surfaceTool.SetUV(uvC);
-        surfaceTool.AddVertex(c);
-    }
-
-    private static void AddGlassTriangle(
-        SurfaceTool surfaceTool,
-        Vector3 a,
-        Vector3 b,
-        Vector3 c,
-        Vector2 uvA,
-        Vector2 uvB,
-        Vector2 uvC,
-        Vector3 normal,
-        Color paneData)
-    {
-        surfaceTool.SetNormal(normal);
-        surfaceTool.SetColor(paneData);
-        surfaceTool.SetUV(uvA);
-        surfaceTool.AddVertex(a);
-        surfaceTool.SetUV(uvB);
-        surfaceTool.AddVertex(b);
-        surfaceTool.SetUV(uvC);
-        surfaceTool.AddVertex(c);
-    }
-
-    private void AppendBeamBetween(
-        SurfaceTool frameBuilder,
-        Vector3 start,
-        Vector3 end)
-    {
-        var difference = end - start;
-        var midpoint = (start + end) * 0.5f;
-        var zAxis = difference.Normalized();
-        var reference = Mathf.Abs(zAxis.Dot(Vector3.Up)) > 0.95f ? Vector3.Right : Vector3.Up;
-        var xAxis = reference.Cross(zAxis).Normalized();
-        var yAxis = zAxis.Cross(xAxis).Normalized();
-        AppendChamferedRail(
-            frameBuilder,
-            difference.Length(),
-            new Transform3D(new Basis(xAxis, yAxis, zAxis), midpoint));
-    }
-
-    private void AppendRailAlongX(
-        SurfaceTool frameBuilder,
-        float length,
-        Vector3 position)
-    {
-        AppendChamferedRail(
-            frameBuilder,
-            length,
-            new Transform3D(new Basis(Vector3.Up, Mathf.Pi * 0.5f), position));
-    }
-
-    /// <summary>
-    /// Builds an octagonal rail with long flat faces and small clipped corners. It is an
-    /// engineered chamfered square rather than a regular cylinder, so it still reads as a
-    /// sturdy cockpit spar while catching a useful highlight along its edges.
-    /// </summary>
-    private void AppendChamferedRail(
-        SurfaceTool surfaceTool,
-        float length,
-        Transform3D transform)
-    {
-        // Rail faces are deliberately planar. Do not average their normals with adjacent
-        // chamfers or with another member that happens to meet at the same position.
-        surfaceTool.SetSmoothGroup(uint.MaxValue);
-        var halfThickness = PostThickness * 0.5f;
-        var chamfer = PostThickness * RailChamferRatio;
-        var halfLength = length * 0.5f;
-        var profile = new[]
-        {
-            new Vector2(-halfThickness + chamfer, -halfThickness),
-            new Vector2(halfThickness - chamfer, -halfThickness),
-            new Vector2(halfThickness, -halfThickness + chamfer),
-            new Vector2(halfThickness, halfThickness - chamfer),
-            new Vector2(halfThickness - chamfer, halfThickness),
-            new Vector2(-halfThickness + chamfer, halfThickness),
-            new Vector2(-halfThickness, halfThickness - chamfer),
-            new Vector2(-halfThickness, -halfThickness + chamfer)
-        };
-        for (var index = 0; index < profile.Length; index++)
-        {
-            var nextIndex = (index + 1) % profile.Length;
-            var a = profile[index];
-            var b = profile[nextIndex];
-            var u0 = index / (float)profile.Length;
-            var u1 = (index + 1) / (float)profile.Length;
-            AddTransformedTriangle(
-                surfaceTool,
-                transform,
-                a,
-                -halfLength,
-                b,
-                -halfLength,
-                b,
-                halfLength,
-                new Vector2(u0, 0.0f),
-                new Vector2(u1, 0.0f),
-                new Vector2(u1, 1.0f));
-            AddTransformedTriangle(
-                surfaceTool,
-                transform,
-                a,
-                -halfLength,
-                b,
-                halfLength,
-                a,
-                halfLength,
-                new Vector2(u0, 0.0f),
-                new Vector2(u1, 1.0f),
-                new Vector2(u0, 1.0f));
-        }
-
-        // Rails meet at every end. Leaving the ends open removes coplanar caps at those
-        // intersections; the adjoining faces form a continuous-looking welded frame.
-    }
-
-    private void AppendJoint(SurfaceTool surfaceTool, Vector3 centre)
-    {
-        const int LongitudeSegments = 10;
-        const int LatitudeSegments = 6;
-        // Unlike the engineered rails, the connector is rounded and should shade smoothly.
-        // Its distinct group also prevents Godot blending its normals into the rail faces.
-        surfaceTool.SetSmoothGroup(0);
-        var radius = PostThickness * 0.78f;
-
-        for (var latitude = 0; latitude < LatitudeSegments; latitude++)
-        {
-            var theta0 = Mathf.Pi * latitude / LatitudeSegments;
-            var theta1 = Mathf.Pi * (latitude + 1) / LatitudeSegments;
-            for (var longitude = 0; longitude < LongitudeSegments; longitude++)
-            {
-                var phi0 = Mathf.Tau * longitude / LongitudeSegments;
-                var phi1 = Mathf.Tau * (longitude + 1) / LongitudeSegments;
-                var a = centre + ToSpherePoint(radius, theta0, phi0);
-                var b = centre + ToSpherePoint(radius, theta0, phi1);
-                var c = centre + ToSpherePoint(radius, theta1, phi1);
-                var d = centre + ToSpherePoint(radius, theta1, phi0);
-                var u0 = longitude / (float)LongitudeSegments;
-                var u1 = (longitude + 1) / (float)LongitudeSegments;
-                var v0 = latitude / (float)LatitudeSegments;
-                var v1 = (latitude + 1) / (float)LatitudeSegments;
-                AddTriangle(surfaceTool, a, b, c, new Vector2(u0, v0), new Vector2(u1, v0), new Vector2(u1, v1));
-                AddTriangle(surfaceTool, a, c, d, new Vector2(u0, v0), new Vector2(u1, v1), new Vector2(u0, v1));
-            }
-        }
-    }
-
-    private static Vector3 ToSpherePoint(float radius, float theta, float phi) =>
-        new(
-            radius * Mathf.Sin(theta) * Mathf.Cos(phi),
-            radius * Mathf.Cos(theta),
-            radius * Mathf.Sin(theta) * Mathf.Sin(phi));
-
-    private static void AddTransformedTriangle(
-        SurfaceTool surfaceTool,
-        Transform3D transform,
-        Vector2 a,
-        float az,
-        Vector2 b,
-        float bz,
-        Vector2 c,
-        float cz,
-        Vector2 uvA,
-        Vector2 uvB,
-        Vector2 uvC)
-    {
-        // SurfaceTool treats clockwise triangles as front-facing.  Keep the generated
-        // cockpit normals pointing out of its rails rather than into them by reversing
-        // the conventional counter-clockwise order used by the profile construction.
-        surfaceTool.SetUV(uvA);
-        surfaceTool.AddVertex(transform * new Vector3(a.X, a.Y, az));
-        surfaceTool.SetUV(uvC);
-        surfaceTool.AddVertex(transform * new Vector3(c.X, c.Y, cz));
-        surfaceTool.SetUV(uvB);
-        surfaceTool.AddVertex(transform * new Vector3(b.X, b.Y, bz));
-    }
-
-    private static void AddTriangle(
-        SurfaceTool surfaceTool,
-        Vector3 a,
-        Vector3 b,
-        Vector3 c,
-        Vector2 uvA,
-        Vector2 uvB,
-        Vector2 uvC)
-    {
-        surfaceTool.SetUV(uvA);
-        surfaceTool.AddVertex(a);
-        surfaceTool.SetUV(uvC);
-        surfaceTool.AddVertex(c);
-        surfaceTool.SetUV(uvB);
-        surfaceTool.AddVertex(b);
-    }
-
-    private static Vector2 ToUv(Vector2 point, float thickness) => point / thickness + Vector2.One * 0.5f;
 
     private StandardMaterial3D CreateFrameMaterial()
     {
