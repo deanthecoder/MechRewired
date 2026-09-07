@@ -8,23 +8,22 @@
 //
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
-using System.Diagnostics;
 using Godot;
 using MechRewired.Resources;
+using SmackerSharp;
+using StbImageSharp;
 
 namespace MechRewired;
 
 /// <summary>Composes the original 31st Century Combat title-screen layers and handles clan selection.</summary>
 /// <remarks>
 /// All visible artwork comes from the player's locally installed game files or the supplied original
-/// screen reference. This control supplies only placement and invisible selection regions; it
-/// intentionally draws no substitute text, frames, flames, or insignia.
+/// screen reference. The original title media is decoded in memory without external tools.
 /// </remarks>
 public sealed partial class ClanSelectionScreen : Control
 {
     private const int OriginalWidth = 640;
     private const int OriginalHeight = 480;
-    private const double TitleFramesPerSecond = 11.25;
     private const string JadeFalconInsigniaPath = "CEL/L2JADEFN.XEL";
     private const string WolfInsigniaPath = "CEL/L2WOLFCL.XEL";
     private const string InsigniaPalettePath = "PAL/CIND_DA.COL";
@@ -34,18 +33,23 @@ public sealed partial class ClanSelectionScreen : Control
     private static readonly Rect2 WolfHitArea = new(405.0f, 195.0f, 225.0f, 220.0f);
 
     private readonly MechWarriorProjectArchive m_archive;
+    private readonly DirectoryInfo m_dataDirectory;
     private readonly List<Texture2D> m_titleFrames = [];
     private Texture2D m_titlePlate;
     private Texture2D m_falconInsignia;
     private Texture2D m_wolfInsignia;
     private Texture2D m_mech;
+    private Font m_font;
     private AudioStreamPlayer m_firePlayer;
     private Rect2 m_compositionBounds;
     private double m_elapsedSeconds;
+    private double m_titleFramesPerSecond;
+    private ClanCampaignSelection m_hoveredCampaign;
 
-    public ClanSelectionScreen(MechWarriorProjectArchive archive)
+    public ClanSelectionScreen(MechWarriorProjectArchive archive, DirectoryInfo dataDirectory)
     {
         m_archive = archive ?? throw new ArgumentNullException(nameof(archive));
+        m_dataDirectory = dataDirectory ?? throw new ArgumentNullException(nameof(dataDirectory));
     }
 
     public event Action<ClanCampaignSelection> CampaignSelected;
@@ -55,9 +59,18 @@ public sealed partial class ClanSelectionScreen : Control
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         MouseFilter = MouseFilterEnum.Stop;
         Input.MouseMode = Input.MouseModeEnum.Visible;
+        m_font = GD.Load<FontFile>("res://Assets/Fonts/Orbitron-Variable.ttf") ?? ThemeDB.FallbackFont;
         m_falconInsignia = LoadIndexedTexture(JadeFalconInsigniaPath);
         m_wolfInsignia = LoadIndexedTexture(WolfInsigniaPath);
-        LoadOriginalTitleMedia();
+        // Presentation extras must not prevent a valid DOS archive from reaching a campaign.
+        try
+        {
+            LoadOriginalTitleMedia();
+        }
+        catch (Exception exception)
+        {
+            GD.PushWarning($"Optional original title media could not be decoded: {exception.Message}");
+        }
         m_mech = LoadReferenceCenterpiece();
         m_firePlayer = new AudioStreamPlayer
         {
@@ -68,6 +81,7 @@ public sealed partial class ClanSelectionScreen : Control
         AddChild(m_firePlayer);
         m_firePlayer.Play();
         Resized += UpdateCompositionBounds;
+        MouseExited += () => SetHoveredCampaign(ClanCampaignSelection.None);
         UpdateCompositionBounds();
         QueueRedraw();
     }
@@ -100,21 +114,30 @@ public sealed partial class ClanSelectionScreen : Control
         DrawSetTransform(m_compositionBounds.Position, 0.0f, new Vector2(scale, scale));
 
         // The static title plate supplies the original subtitle; the SMK supplies the animated title itself.
-        DrawTextureRectRegion(m_titlePlate, new Rect2(116.0f, 20.0f, 408.0f, 104.0f), new Rect2(116.0f, 180.0f, 408.0f, 104.0f));
+        if (m_titlePlate != null)
+            DrawTextureRectRegion(m_titlePlate, new Rect2(116.0f, 20.0f, 408.0f, 104.0f), new Rect2(116.0f, 180.0f, 408.0f, 104.0f));
         if (m_titleFrames.Count > 0)
         {
-            var frameIndex = (int)(m_elapsedSeconds * TitleFramesPerSecond) % m_titleFrames.Count;
+            var frameIndex = (int)(m_elapsedSeconds * m_titleFramesPerSecond) % m_titleFrames.Count;
             DrawTextureRect(m_titleFrames[frameIndex], new Rect2(116.0f, 20.0f, 408.0f, 76.0f), false);
         }
 
         DrawTextureRect(m_falconInsignia, new Rect2(0.0f, 185.0f, 255.0f, 255.0f), false);
         DrawTextureRect(m_wolfInsignia, new Rect2(385.0f, 190.0f, 255.0f, 255.0f), false);
-        DrawTextureRect(m_mech, new Rect2(217.0f, 190.0f, 169.0f, 290.0f), false);
+        if (m_mech != null)
+            DrawTextureRect(m_mech, new Rect2(217.0f, 190.0f, 169.0f, 290.0f), false);
+        DrawHoveredClanName();
         DrawSetTransform(Vector2.Zero);
     }
 
     public override void _GuiInput(InputEvent inputEvent)
     {
+        if (inputEvent is InputEventMouseMotion mouseMotion)
+        {
+            SetHoveredCampaign(GetCampaignAt(mouseMotion.Position));
+            return;
+        }
+
         if (inputEvent is not InputEventMouseButton
             {
                 ButtonIndex: MouseButton.Left,
@@ -136,20 +159,38 @@ public sealed partial class ClanSelectionScreen : Control
 
     private void LoadOriginalTitleMedia()
     {
-        var dataDirectory = ResolveGameDataDirectory();
-        m_titlePlate = DecodeEmbeddedGif(Path.Combine(dataDirectory, "DEMODATA", "FIRELOGO.MW2"), "firelogo");
-        m_titleFrames.AddRange(DecodeSmackerFrames(Path.Combine(dataDirectory, "DEMODATA", "AMWLOGO1.SMK")));
+        var titlePath = Path.Combine(m_dataDirectory.FullName, "DEMODATA", "FIRELOGO.MW2");
+        var animationPath = Path.Combine(m_dataDirectory.FullName, "DEMODATA", "AMWLOGO1.SMK");
+        if (File.Exists(titlePath))
+            m_titlePlate = DecodeEmbeddedGif(titlePath);
+        if (File.Exists(animationPath))
+            m_titleFrames.AddRange(DecodeSmackerFrames(animationPath, out m_titleFramesPerSecond));
     }
 
-    private static Texture2D LoadReferenceCenterpiece()
+    private Texture2D LoadReferenceCenterpiece()
     {
-        var filePath = Path.Combine(ResolveGameDataDirectory(), "DEMODATA", "CLANSELECT_CENTER.png");
+        var filePath = Path.Combine(m_dataDirectory.FullName, "DEMODATA", "CLANSELECT_CENTER.png");
+#if DEBUG
         if (!File.Exists(filePath))
         {
-            throw new FileNotFoundException("The supplied original clan-selection centerpiece is missing.", filePath);
+            var projectDirectory = new DirectoryInfo(ProjectSettings.GlobalizePath("res://"));
+            var repositoryDirectory = projectDirectory.Parent;
+            if (repositoryDirectory != null)
+            {
+                filePath = Path.Combine(repositoryDirectory.FullName, "local", "game-data", "DEMODATA",
+                    "CLANSELECT_CENTER.png");
+            }
         }
-
-        return LoadTexture(filePath);
+#endif
+        try
+        {
+            return File.Exists(filePath) ? LoadTexture(filePath) : null;
+        }
+        catch (Exception exception)
+        {
+            GD.PushWarning($"Optional clan-selection reference could not be loaded: {exception.Message}");
+            return null;
+        }
     }
 
     private Texture2D LoadIndexedTexture(string resourcePath)
@@ -180,7 +221,7 @@ public sealed partial class ClanSelectionScreen : Control
         return ImageTexture.CreateFromImage(image);
     }
 
-    private static Texture2D DecodeEmbeddedGif(string sourcePath, string cacheName)
+    private static Texture2D DecodeEmbeddedGif(string sourcePath)
     {
         if (!File.Exists(sourcePath))
         {
@@ -194,70 +235,48 @@ public sealed partial class ClanSelectionScreen : Control
             throw new InvalidDataException($"{sourcePath} does not contain a GIF payload.");
         }
 
-        var cacheDirectory = CreateCacheDirectory();
-        var gifPath = Path.Combine(cacheDirectory, $"{cacheName}.gif");
-        var outputPath = Path.Combine(cacheDirectory, $"{cacheName}.png");
-        if (!File.Exists(outputPath))
-        {
-            File.WriteAllBytes(gifPath, sourceData[gifStart..]);
-            RunFfmpeg(gifPath, outputPath, true);
-        }
-
-        return LoadTexture(outputPath);
+        var decoded = ImageResult.FromMemory(sourceData[gifStart..], ColorComponents.RedGreenBlueAlpha);
+        return CreateTexture(decoded.Width, decoded.Height, decoded.Data);
     }
 
-    private static IReadOnlyList<Texture2D> DecodeSmackerFrames(string sourcePath)
+    private static IReadOnlyList<Texture2D> DecodeSmackerFrames(string sourcePath, out double framesPerSecond)
     {
         if (!File.Exists(sourcePath))
         {
             throw new FileNotFoundException("The original animated title artwork is missing.", sourcePath);
         }
 
-        var cacheDirectory = CreateCacheDirectory();
-        var cachedFrames = Directory.GetFiles(cacheDirectory, "title-*.png").OrderBy(path => path).ToArray();
-        if (cachedFrames.Length == 0)
+        using var reader = SmackerReader.Open(sourcePath);
+        reader.SetEnabled(SmackerTrackMask.Video);
+        framesPerSecond = 1_000_000.0 / reader.Info.MicrosecondsPerFrame;
+        var width = checked((int)reader.VideoInfo.Width);
+        var height = checked((int)reader.VideoInfo.Height);
+        var frames = new List<Texture2D>(checked((int)reader.Info.FrameCount));
+        for (var result = reader.First(); result != SmackerFrameResult.Done; result = reader.Next())
         {
-            RunFfmpeg(sourcePath, Path.Combine(cacheDirectory, "title-%04d.png"), false);
-            cachedFrames = Directory.GetFiles(cacheDirectory, "title-*.png").OrderBy(path => path).ToArray();
+            var indices = reader.VideoFrame8;
+            var palette = reader.PaletteRgb;
+            var pixels = new byte[checked(width * height * 4)];
+            for (var pixelIndex = 0; pixelIndex < indices.Length; pixelIndex++)
+            {
+                var paletteOffset = indices[pixelIndex] * 3;
+                var destinationOffset = pixelIndex * 4;
+                pixels[destinationOffset] = palette[paletteOffset];
+                pixels[destinationOffset + 1] = palette[paletteOffset + 1];
+                pixels[destinationOffset + 2] = palette[paletteOffset + 2];
+                pixels[destinationOffset + 3] = byte.MaxValue;
+            }
+
+            frames.Add(CreateTexture(width, height, pixels));
         }
 
-        return cachedFrames.Select(LoadTexture).ToArray();
+        return frames;
     }
 
-    private static void RunFfmpeg(string inputPath, string outputPath, bool oneFrame)
+    private static Texture2D CreateTexture(int width, int height, byte[] pixels)
     {
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = "ffmpeg",
-            UseShellExecute = false,
-            RedirectStandardError = true,
-            CreateNoWindow = true
-        };
-        startInfo.ArgumentList.Add("-hide_banner");
-        startInfo.ArgumentList.Add("-loglevel");
-        startInfo.ArgumentList.Add("error");
-        startInfo.ArgumentList.Add("-y");
-        startInfo.ArgumentList.Add("-i");
-        startInfo.ArgumentList.Add(inputPath);
-        if (oneFrame)
-        {
-            startInfo.ArgumentList.Add("-frames:v");
-            startInfo.ArgumentList.Add("1");
-        }
-        else
-        {
-            startInfo.ArgumentList.Add("-vsync");
-            startInfo.ArgumentList.Add("0");
-        }
-
-        startInfo.ArgumentList.Add(outputPath);
-        using var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Could not start ffmpeg.");
-        var error = process.StandardError.ReadToEnd();
-        process.WaitForExit();
-        if (process.ExitCode != 0)
-        {
-            throw new InvalidOperationException($"ffmpeg could not decode original title media: {error}");
-        }
+        var image = Image.CreateFromData(width, height, false, Image.Format.Rgba8, pixels);
+        return ImageTexture.CreateFromImage(image);
     }
 
     private static Texture2D LoadTexture(string filePath)
@@ -284,18 +303,37 @@ public sealed partial class ClanSelectionScreen : Control
         return -1;
     }
 
-    private static string ResolveGameDataDirectory()
+    private void DrawHoveredClanName()
     {
-        var projectDirectory = new DirectoryInfo(ProjectSettings.GlobalizePath("res://"));
-        var repositoryDirectory = projectDirectory.Parent ?? throw new DirectoryNotFoundException("Could not resolve the repository directory.");
-        return Path.Combine(repositoryDirectory.FullName, "local", "game-data");
+        var (name, area) = m_hoveredCampaign switch
+        {
+            ClanCampaignSelection.JadeFalcon => ("CLAN JADE FALCON", new Rect2(0.0f, 0.0f, 255.0f, 0.0f)),
+            ClanCampaignSelection.Wolf => ("CLAN WOLF", new Rect2(385.0f, 0.0f, 255.0f, 0.0f)),
+            _ => (null, default)
+        };
+        if (name == null)
+            return;
+
+        const int maximumFontSize = 20;
+        var measuredWidth = m_font.GetStringSize(name, HorizontalAlignment.Left, -1.0f, maximumFontSize).X;
+        var fontSize = measuredWidth <= area.Size.X
+            ? maximumFontSize
+            : Math.Max(12, Mathf.FloorToInt(maximumFontSize * area.Size.X / measuredWidth));
+        var position = new Vector2(area.Position.X, 466.0f);
+        DrawString(m_font, position + Vector2.One * 2.0f, name, HorizontalAlignment.Center, area.Size.X, fontSize, Colors.Black);
+        DrawString(m_font, position, name, HorizontalAlignment.Center, area.Size.X, fontSize, Colors.White);
     }
 
-    private static string CreateCacheDirectory()
+    private void SetHoveredCampaign(ClanCampaignSelection campaign)
     {
-        var cacheDirectory = Path.Combine(ProjectSettings.GlobalizePath("user://"), "original-title-media");
-        Directory.CreateDirectory(cacheDirectory);
-        return cacheDirectory;
+        if (m_hoveredCampaign == campaign)
+            return;
+
+        m_hoveredCampaign = campaign;
+        MouseDefaultCursorShape = campaign == ClanCampaignSelection.None
+            ? CursorShape.Arrow
+            : CursorShape.PointingHand;
+        QueueRedraw();
     }
 
     private void UpdateCompositionBounds()
@@ -307,7 +345,7 @@ public sealed partial class ClanSelectionScreen : Control
 
     private ClanCampaignSelection GetCampaignAt(Vector2 screenPosition)
     {
-        if (!m_compositionBounds.HasPoint(screenPosition))
+        if (m_compositionBounds.Size.X <= 0.0f || !m_compositionBounds.HasPoint(screenPosition))
         {
             return ClanCampaignSelection.None;
         }

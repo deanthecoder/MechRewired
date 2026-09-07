@@ -9,5 +9,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../MechRewired.Core/MechRewired.Core.csproj" />
+    <PackageReference Include="SmackerSharp" Version="1.0.0" />
+    <PackageReference Include="StbImageSharp" Version="2.30.16" />
   </ItemGroup>
 </Project>

@@ -75,6 +75,7 @@ public partial class Main : Node3D
     ];
 
     private BattlefieldEffects m_battlefieldEffects;
+    private DirectoryInfo m_gameDataDirectory;
     private static ClanCampaignSelection s_pendingCampaignRestart;
 #if DEBUG
     private Node m_debugConsole;
@@ -95,11 +96,39 @@ public partial class Main : Node3D
 #if DEBUG
         ConfigureDebugConsole();
 #endif
-        if (!TryOpenGameArchive(out var archive))
+        if (OS.GetCmdlineUserArgs().Contains("--setup"))
         {
+            ShowDataSetup(string.Empty);
             return;
         }
 
+        if (!TryOpenGameArchive(out var archive, out var error))
+        {
+            ShowDataSetup(error);
+            return;
+        }
+
+        ContinueStartup(archive);
+    }
+
+    private void ShowDataSetup(string error)
+    {
+        var setup = new GameDataSetupScreen(ImportedDataDirectory, error);
+        setup.DataInstalled += file =>
+        {
+            m_gameDataDirectory = file.Directory;
+            setup.Hide();
+            setup.QueueFree();
+            ContinueStartup(MechWarriorDataInstaller.OpenValidatedArchive(file));
+        };
+        AddChild(setup);
+    }
+
+    private static DirectoryInfo ImportedDataDirectory =>
+        new(ProjectSettings.GlobalizePath("user://game-data"));
+
+    private void ContinueStartup(MechWarriorProjectArchive archive)
+    {
         if (s_pendingCampaignRestart != ClanCampaignSelection.None)
         {
             var restartCampaign = s_pendingCampaignRestart;
@@ -116,7 +145,7 @@ public partial class Main : Node3D
             return;
         }
 
-        var clanSelection = new ClanSelectionScreen(archive)
+        var clanSelection = new ClanSelectionScreen(archive, m_gameDataDirectory)
         {
             Name = "ClanSelection"
         };
@@ -248,23 +277,30 @@ public partial class Main : Node3D
         clanSelection?.QueueFree();
     }
 
-    private static bool TryOpenGameArchive(out MechWarriorProjectArchive archive)
+    private bool TryOpenGameArchive(out MechWarriorProjectArchive archive, out string error)
     {
         archive = null;
+        error = string.Empty;
         try
         {
+            m_gameDataDirectory = ImportedDataDirectory;
+#if DEBUG
             var projectDirectory = new DirectoryInfo(ProjectSettings.GlobalizePath("res://"));
-            var repositoryDirectory = projectDirectory.Parent ??
-                                      throw new DirectoryNotFoundException("The MechRewired repository directory could not be resolved.");
-            var dataDirectory = new DirectoryInfo(Path.Combine(repositoryDirectory.FullName, "local", "game-data"));
-            var projectArchive = MechWarriorResourceCheck.CheckDosFiles(dataDirectory);
-            archive = MechWarriorProjectArchive.Open(projectArchive);
+            var localData = new DirectoryInfo(Path.Combine(projectDirectory.FullName, "..", "local", "game-data"));
+            if (!m_gameDataDirectory.Exists && localData.Exists)
+                m_gameDataDirectory = localData;
+#endif
+            if (!m_gameDataDirectory.Exists)
+                return false;
+            var projectArchive = MechWarriorResourceCheck.CheckDosFiles(m_gameDataDirectory);
+            archive = MechWarriorDataInstaller.OpenValidatedArchive(projectArchive);
             GD.Print($"MechRewired: indexed {archive.Entries.Count:N0} resources from {projectArchive.Name} ({projectArchive.Length:N0} bytes).");
             return true;
         }
         catch (Exception exception)
         {
-            GD.PushError($"MechRewired cannot load original game data: {exception}");
+            error = exception.Message;
+            GD.PushWarning($"MechRewired cannot load original game data: {error}");
             return false;
         }
     }

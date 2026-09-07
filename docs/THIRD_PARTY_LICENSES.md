@@ -129,3 +129,46 @@ albedo, metalness, roughness and OpenGL normal maps.
 
 Metal029 is released under [Creative Commons CC0](https://docs.ambientcg.com/license/),
 which permits use, modification and redistribution without attribution.
+
+## SharpCompress
+
+MechRewired uses [SharpCompress](https://github.com/adamhathcock/sharpcompress) 0.50.4
+for managed 7z import on Windows, macOS, and Linux.
+
+The MIT License (MIT)
+
+Copyright (c) 2014  Adam Hathcock
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
+## SmackerSharp
+
+MechRewired uses [SmackerSharp](https://github.com/aaron-henselin/SmackerSharp) 1.0.0
+to decode the original Smacker title animation in memory. SmackerSharp is a managed
+.NET port of Greg Kennedy's libsmacker by Aaron Henselin and is distributed under the
+GNU Lesser General Public License v2.1 only. The complete license is included at
+[`docs/licenses/SmackerSharp-COPYING.txt`](licenses/SmackerSharp-COPYING.txt).
+
+## StbImageSharp
+
+MechRewired uses [StbImageSharp](https://github.com/StbSharp/StbImageSharp) 2.30.16
+to decode the GIF payload embedded in the original title artwork. StbImageSharp is a
+C# port of Sean Barrett's stb_image and is distributed under the Unlicense or MIT;
+MechRewired uses it under the MIT option. The complete license is included at
+[`docs/licenses/StbImageSharp-LICENSE.txt`](licenses/StbImageSharp-LICENSE.txt).

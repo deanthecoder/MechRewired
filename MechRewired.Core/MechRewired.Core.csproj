@@ -8,4 +8,8 @@
   <ItemGroup>
     <ProjectReference Include="../DTC.Core/DTC.Core/DTC.Core.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="SharpCompress" Version="0.50.4" />
+  </ItemGroup>
 </Project>

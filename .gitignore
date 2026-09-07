@@ -35,3 +35,7 @@ export_credentials.cfg
 *.dmg
 *.exe
 *.zip
+
+# Download packages and original game archives
+*.7z
+**/[Mm][Ww]2.[Pp][Rr][Jj]

@@ -52,13 +52,25 @@ This separation keeps gameplay testable and leaves room for desktop, VR and tool
 
 MechRewired does not include or distribute Activision's game data, executable code, music, models or textures. You will need a legitimate installation of a supported edition of MechWarrior 2.
 
-For local development, place private reference files under:
+On first launch, MechRewired shows a setup screen. Drop a supported `.7z` or `.zip` package,
+an extracted game folder, or `MW2.PRJ` onto the window, or use the file/folder picker.
+It checks the archive, copies the required data into your user-data folder, and opens clan
+selection. Later launches reuse that copy.
 
-```text
-local/game-data/
-```
+The setup screen links to the [GamesNostalgia DOS files page](https://gamesnostalgia.net/game/mechwarrior-2-31st-century-combat/files#ms-dos).
+The **PC / English MS-DOS v1.1** package, `mechwarrior2_dos_win.7z`, has been verified with
+MechRewired. Use that package on macOS and Linux too; MechRewired reads the DOS data directly.
+This is a third-party source, and publisher authorization for its distribution has not been
+verified. Supply files you have the right to use.
 
-That directory is ignored by Git apart from its README.
+See [original game setup and compatibility](docs/GAME_DATA.md) for exact steps, storage
+locations, supported resources, and the download checks. The original title media is decoded
+in memory, so FFmpeg is not required. A locally prepared clan-selection reference image remains
+an optional presentation extra.
+
+For development, `local/game-data/` remains an ignored fallback in debug builds when no
+imported data directory exists. Start with `--setup` after Godot's `--` separator to reopen
+the importer, including when development data is already present.
 
 ## Build
 
