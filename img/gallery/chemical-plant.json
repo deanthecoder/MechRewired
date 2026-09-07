@@ -1,0 +1,20 @@
+{
+  "mission": "YELLSCN1",
+  "fixture": "chemical-plant",
+  "width": 1920,
+  "height": 1080,
+  "position": [
+    3311.72,
+    52.40618,
+    -2366.7798
+  ],
+  "rotation": [
+    -16.036848,
+    32.050137,
+    0
+  ],
+  "fov": 55,
+  "sky": "time 15.00h; authored 15.00h; fog x1.00, depth cue 250m, visibility 500m, aerial 0.72, sun scatter 0.09; cirrus coverage 0.40, density 1.00, scale 1.80; sun azimuth offset 0.0 degrees; shadow distance 1800m, opacity 0.90, angular distance 0.25 degrees; flare 3.00, god rays 0.006; exposure 1.00.",
+  "stagedSalvo": false,
+  "engine": "4.7.1-stable (official)"
+}

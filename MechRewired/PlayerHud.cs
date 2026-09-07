@@ -48,7 +48,7 @@ public partial class PlayerHud : Control
     private static readonly float[] RadarRanges = [500.0f, 1000.0f, 2000.0f, 4000.0f];
     private static readonly Color HudGreen = Color.FromHtml("00f000");
     private static readonly Color RadarAmber = Color.FromHtml("d7a900");
-    private static readonly Color RadarBackground = new(0.0f, 0.0f, 0.0f, 0.4f);
+    private static readonly Color InstrumentBackground = new(0.0f, 0.0f, 0.0f, 0.4f);
     private static readonly Color ReachedNavigationAmber = Color.FromHtml("796000");
     private static readonly Color TerrainBlue = Color.FromHtml("1828e8");
     private static readonly Color GaugeRed = Color.FromHtml("e00000");
@@ -281,7 +281,7 @@ public partial class PlayerHud : Control
         }
 
         var playerPosition = center;
-        DrawCircle(center, radius, RadarBackground);
+        DrawCircle(center, radius, InstrumentBackground);
         DrawArc(center, radius, 0.0f, Mathf.Tau, 64, RadarAmber, LineWidth(2.0f), false);
         if (m_targeting.IsShutdown || m_radarPower < 0.999f)
         {
@@ -531,7 +531,7 @@ public partial class PlayerHud : Control
         var panel = new Rect2(
             Point(panelLeft, panelTop),
             new Vector2(panelWidth, panelHeight) * m_scale);
-        DrawRect(panel, Colors.Black);
+        DrawRect(panel, InstrumentBackground);
         DrawRect(panel, TargetFrame, false, LineWidth(4.0f));
 
         var enemyMech = m_targeting.SelectedEnemy;

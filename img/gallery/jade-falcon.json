@@ -1,0 +1,20 @@
+{
+  "mission": "PINKSCN1",
+  "fixture": "jade-falcon",
+  "width": 1920,
+  "height": 1080,
+  "position": [
+    150,
+    75,
+    -550
+  ],
+  "rotation": [
+    7.5040407,
+    160.20111,
+    0
+  ],
+  "fov": 75,
+  "sky": "time 11.83h; authored 11.83h; fog x1.35, depth cue 500m, visibility 1000m, aerial 0.32, sun scatter 0.05; cirrus coverage 0.16, density 0.52, scale 2.40; sun azimuth offset 0.0 degrees; shadow distance 1800m, opacity 0.85, angular distance 0.90 degrees; flare 3.00, god rays 0.018; exposure 1.00.",
+  "stagedSalvo": false,
+  "engine": "4.7.1-stable (official)"
+}

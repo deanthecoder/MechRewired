@@ -1,153 +1,45 @@
-[![Twitter URL](https://img.shields.io/twitter/url/https/twitter.com/deanthecoder.svg?style=social&label=Follow%20%40deanthecoder)](https://twitter.com/deanthecoder) [![GitHub Repo stars](https://img.shields.io/github/stars/deanthecoder/MechRewired?style=social&label=Star)](https://github.com/deanthecoder/MechRewired/stargazers)
+[![Follow @deanthecoder](https://img.shields.io/twitter/url/https/twitter.com/deanthecoder.svg?style=social&label=Follow%20%40deanthecoder)](https://twitter.com/deanthecoder) [![GitHub stars](https://img.shields.io/github/stars/deanthecoder/MechRewired?style=social&label=Star)](https://github.com/deanthecoder/MechRewired/stargazers)
 
 # MechRewired
 
-**A modern, cross-platform reimplementation of the classic MechWarrior 2 combat experience.**
+**Pilot *MechWarrior 2* again, with its original missions and a modern cockpit.**
 
-MechRewired is an independent engine written in C# with Godot. Its first target is the in-mission experience of the original DOS release of *MechWarrior 2: 31st Century Combat*.
+MechRewired brings the DOS classic *MechWarrior 2: 31st Century Combat* into a modern cockpit. Choose Jade Falcon or Wolf, power up your BattleMech, and step into the original battlefields with detailed terrain, atmospheric lighting, and the familiar green HUD.
 
-![Timber Wolf cockpit overlooking the battlefield](img/Cockpit.png)
+![A desert battlefield seen through the green HUD and weathered cockpit canopy](img/gallery/cockpit.png)
 
-![Chemical Plant objective at Nav Epsilon](img/ChemPlant.png)
+Twist your torso to track an enemy while steering across the dunes. Leap with jump jets, launch a missile salvo, and balance your weapons against rising reactor heat. Original mech models, mission objectives, and cockpit reports meet windblown dust, smoke trails, and a canopy of scratched glass.
 
-![Pyre Light cockpit with palette-driven Sky3D atmosphere](img/PyreLightSky.png)
+## Gallery
 
-The immediate goal is intentionally narrow: load original game data, enter a battlefield, pilot a BattleMech, target enemies, manage heat and weapons, and complete a mission. Intro videos, menus, the mech lab and campaign presentation come later.
+Every image below is a 1920×1080 render captured from the game.
 
-## Project status
+| | |
+| --- | --- |
+| ![Open desert terrain under a blue mission sky](img/gallery/desert-terrain.png)<br>*Rippling sand, scattered rocks, and distant desert ridgelines.* | ![A BattleMech standing in the desert](img/gallery/external-mech.png)<br>*The Mad Dog, with twin missile racks and original Clan markings.* |
+| ![Sunlight flaring across the desert hills](img/gallery/lens-flare.png)<br>*Sunlight, high clouds, and lens flare across the dunes.* | ![Chemical plant structures in the desert](img/gallery/chemical-plant.png)<br>*The chemical plant at Nav Epsilon, guarded by enemy mechs.* |
+| ![Missile smoke trails crossing a desert valley](img/gallery/missile-trails.png)<br>*LRM trails and smoke over the Wolf mission terrain.* | ![Towering mountains beneath the red sky of the Jade Falcon mission](img/gallery/jade-falcon.png)<br>*Jade Falcon's towering mountains and fiery mission sky.* |
 
-MechRewired reads the original DOS project archive, palettes, WTB model geometry, MEK movement data, BWD world placement data and MTBL mission objectives. It currently renders Pyre Light's terrain, palette-derived atmosphere, scenery and ground-settled wreckage; identifies targetable gameplay actors and alternate destroyed representations; and deploys a controllable PlayerMech at the original Dropsite with cockpit, external and inspector cameras. The initial gameplay slice includes original-style movement, objective targeting, a medium laser, building damage, low-gravity original-model explosion debris and the original mission reports.
+## Get in the cockpit
 
-The first vertical slice will establish:
+Bring your own game data from a legitimate DOS installation of *MechWarrior 2: 31st Century Combat*. On first launch, drop its `.7z` or `.zip` package, extracted game folder, or `MW2.PRJ` onto the setup screen. The importer validates the data, keeps the files in your user-data folder, and opens clan selection.
 
-- Detection and validation of an original DOS installation.
-- Readers for `MW2.PRJ` and the resource formats needed by the first mission.
-- DOS-inspired terrain, skies and articulated BattleMechs.
-- Throttle, steering, torso twist and cockpit movement.
-- Targeting, radar, weapons, heat and location-based damage.
-- One completable mission with basic friendly and hostile AI.
+To run from this checkout, follow the [build and launch guide](docs/DEVELOPMENT.md#build-and-run).
 
-The remaster will preserve the DOS version's stark geometry, colors and atmosphere while adding modern lighting, particles, depth fog, bloom, shadows and material detail.
+The verified package is **PC / English / MS-DOS v1.1** (`mechwarrior2_dos_win.7z`); use the PC package on macOS and Linux too. For detailed compatibility, storage, and setup help, see [original game setup](docs/GAME_DATA.md).
 
-The longer-term visual direction is captured in [the visual target](docs/VISUAL_TARGET.md): a cinematic, dusty desert cockpit with physically richer materials and atmosphere, while retaining the original HUD layout, retro-vector character and gameplay readability.
+## Essential controls
 
-Battlefield fire and smoke use an adapted GPU flipbook shader and smoke atlas from [GodotExplosionVFX](https://github.com/memo1918/GodotExplosionVFX); the required MIT attribution is in [THIRD_PARTY_LICENSES.md](docs/THIRD_PARTY_LICENSES.md).
+| Action | Controls |
+| --- | --- |
+| Drive | `1` stops; `2`–`9` set 20–90% throttle; `0` sets full throttle; `-`/`=` adjust in steps. `Backspace` or backtick changes direction. |
+| Steer and aim | Arrow keys steer legs and tilt the torso; `,`/`.` turn the torso. Click the viewport, then move the mouse to aim. `/` recenters. |
+| Fight | Left-click or `Space` fires; right-click, `Enter`, or `Tab` cycles weapons. `T`/`R` choose the next/previous hostile, `E` selects the nearest, and `Q` selects under the reticle. |
+| Jump and navigate | Hold `J` for jump jets. `F2` changes radar view; `X`/`Shift`+`X` change range; `N`/`Shift`+`N` cycle NAV points. |
+| Know the mission | `F12` shows objectives, `F1` shows the full controls reference, and `Escape` releases the mouse or closes a panel. |
 
-Mission skies are rendered with the [Sky3D](https://github.com/TokisanGames/Sky3D) atmosphere under its MIT licence. MW2's mission palette, `INIT`, `LITE` and `VIEW` data provide the colour language, starting time of day, lighting balance and visibility range; `INIT` supplies the fixed sun time, and the palette is converted into a brightness-safe atmospheric tint before Sky3D's physically based scattering. Sky3D supplies the modern atmosphere, sparse drifting desert cirrus, fog, sunlight and moon/stars; the sun stays at the mission-authored time while clouds continue drifting independently.
+`C` switches between cockpit and follow cameras; `F4` also reaches a free-flight inspector view. See [development notes](docs/DEVELOPMENT.md) for full controls, building from source, diagnostics, and screenshot capture.
 
-See the [development roadmap](docs/ROADMAP.md) for the planned sequence of playable milestones.
+## About the project
 
-## Architecture
-
-The repository separates the original-game implementation from the host engine:
-
-- `MechRewired.Core` contains data readers, simulation, mission logic and deterministic tests. It has no dependency on Godot.
-- `MechRewired` is the Godot 4.7 .NET application responsible for rendering, input, audio and platform integration.
-- `MechRewired.Tests` contains NUnit tests for the independent core.
-- `DTC.Core` is included as a submodule for shared logging, filesystem and general-purpose infrastructure.
-
-This separation keeps gameplay testable and leaves room for desktop, VR and tooling hosts to share the same simulation.
-
-## Original game data
-
-MechRewired does not include or distribute Activision's game data, executable code, music, models or textures. You will need a legitimate installation of a supported edition of MechWarrior 2.
-
-On first launch, MechRewired shows a setup screen. Drop a supported `.7z` or `.zip` package,
-an extracted game folder, or `MW2.PRJ` onto the window, or use the file/folder picker.
-It checks the archive, copies the required data into your user-data folder, and opens clan
-selection. Later launches reuse that copy.
-
-The setup screen links to the [GamesNostalgia DOS files page](https://gamesnostalgia.net/game/mechwarrior-2-31st-century-combat/files#ms-dos).
-The **PC / English MS-DOS v1.1** package, `mechwarrior2_dos_win.7z`, has been verified with
-MechRewired. Use that package on macOS and Linux too; MechRewired reads the DOS data directly.
-This is a third-party source, and publisher authorization for its distribution has not been
-verified. Supply files you have the right to use.
-
-See [original game setup and compatibility](docs/GAME_DATA.md) for exact steps, storage
-locations, supported resources, and the download checks. The original title media is decoded
-in memory, so FFmpeg is not required. A locally prepared clan-selection reference image remains
-an optional presentation extra.
-
-For development, `local/game-data/` remains an ignored fallback in debug builds when no
-imported data directory exists. Start with `--setup` after Godot's `--` separator to reopen
-the importer, including when development data is already present.
-
-## Build
-
-Requirements:
-
-- [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0) (the projects target .NET 8 for Godot compatibility)
-- [Godot 4.7.1 .NET](https://godotengine.org/download/archive/4.7.1-stable/)
-
-Restore, build and test the managed projects:
-
-```shell
-git submodule update --init --recursive
-dotnet restore MechRewired.sln
-dotnet build MechRewired.sln --no-restore
-dotnet test MechRewired.Tests/MechRewired.Tests.csproj --no-build
-```
-
-Open `MechRewired/project.godot` with the .NET edition of Godot to run the application.
-
-The cockpit uses [the editable Blender model](Art/Cockpit/cockpit.blend), exported to
-`MechRewired/Assets/Models/Cockpit/cockpit.glb`. After editing source parts, refresh the
-hidden `07 | Optimized game export - hidden in source` collection with evaluated meshes
-grouped by material, then export only that collection as GLB with Y-up and active vertex
-colors. Keep `CockpitFrame`, `CockpitArmor`, and `CockpitGlass` mesh names for the runtime
-material controls; exclude guides, cameras, and lights. The game supplies the cockpit pitch
-and lighting. The enclosed interior supports looking behind, but VR still needs headset testing.
-
-Pass a campaign after Godot's `--` separator to bypass clan selection during development:
-
-```shell
-/Applications/Godot.app/Contents/MacOS/Godot --path MechRewired -- --campaign jade
-/Applications/Godot.app/Contents/MacOS/Godot --path MechRewired -- --campaign wolf
-```
-
-`--jade` and `--wolf` are shorthand aliases. Other arguments, including debug capture arguments,
-can follow the campaign selection.
-
-The application starts in the 3D cockpit. The current piloting controls follow the original game's defaults:
-
-- Press `1` to stop, `2`–`9` for 20–90% throttle, or `0` for full throttle. Press `-`/`=` to adjust the throttle in 10% steps.
-- Press `Backspace` or the backtick key to toggle forward/reverse. Reverse is limited to half the forward speed.
-- Use `Left`/`Right` to steer the legs, `Up`/`Down` to tilt the torso, and `,`/`.` to turn the torso.
-- Hold `J` to fire the jump jets. On the ground, jets build dust and thrust sound for 0.75 seconds before lifting; this is included in the seven-second fuel burn. Fuel recharges while the jets are idle; hard landings shake the cockpit and sufficiently high drops damage both legs. In the external view, toes sag gently while airborne and return to their walking pose on landing.
-- Click the viewport to capture the mouse, then move it to aim the torso. All weapons begin in green group 1; `Shift`+`1`/`2`/`3` assigns the selected weapon to green/white/yellow groups. Left-click or `Space` fires the current weapon and advances within its group; right-click, `Enter` or `Tab` selects the next usable weapon in that group. `'` selects the first usable weapon in the next populated group, and `;` fires every ready weapon in that group. `\` toggles chain-fire/group-fire and plays the corresponding original report; group-fire fires the active group without changing selection. Pyre Light's two LRM20 launchers each draw from their own authored 120-round ammunition bin; heat builds against the authored mech's heat-sink threshold. `S` manually shuts down or restarts the reactor when safe, and `O` toggles shutdown override (with the original thermal warning reports). The faithful implemented target controls are `T`/`R` for next/previous live hostile, `Ctrl`+`T` to clear targeting, `E` for nearest live hostile, `Q` (or middle-click) for the actor under the reticle, and `I` to inspect the selected or nearby active inspection objective. Friendly targeting is not implemented yet. Control-click remains a trackpad-friendly weapon-cycle alias.
-- In debug builds, selecting maximum speed with `0` applies a 3× travel multiplier to shorten mission playtesting; release builds retain the original speed.
-- Hold `Shift` and use the arrow keys for a quick, damped pilot head pivot. Releasing `Shift` or the arrows smoothly returns the pilot view to centre.
-- Press `/` to centre both the torso and pilot view.
-- Press `M` to turn the legs and chassis smoothly towards the torso's current bearing.
-- Press `F2` to cycle the radar between its normal upper-left display, a centered full-screen display and hidden. Press `X` to reduce the radar range or `Shift`+`X` to increase it. Press `N`/`Shift`+`N` to cycle forwards/backwards through mission NAV points.
-- Press `F12`, as in the original game, to display the live mission objective summary. Press `F1` for a concise controls reference; either key toggles its page, and `Escape` closes it.
-- Press `Escape` to release the mouse.
-
-The camera and battlefield inspection controls are:
-
-- Press `F4` to cycle through cockpit, external and free-flight inspector cameras. Entering the
-  inspector frames the player mech from a front three-quarter view before returning control to WASDQE.
-- Press `C` to toggle between cockpit and the damped external follow camera.
-- Press `F10` to toggle the original-style full-screen weapon view. When enabled, firing a missile follows it from behind and above until impact, then returns to the previous pilot camera. Missiles that exhaust their powered range retain momentum, fall under gravity and detonate on terrain rather than disappearing.
-- In inspector view, use `W`/`A`/`S`/`D` to fly and `Q`/`E` to descend/ascend.
-- Hold `Shift` for an inspector-camera speed boost.
-- Press `Ctrl`+`F1` to toggle wireframe rendering.
-- Press `F3` to log the active camera's MW2-space transform, its nearest rendered-triangle ray hit, the current cockpit dimensions and the PlayerMech movement state.
-- The on-screen **Debug** menu provides the same rendering diagnostics when function keys are unavailable.
-- In debug builds, `F5` cycles the live fire/smoke VFX parameter, `F6`/`F7` decreases/increases it, `F8` restores the default preset and `F9` logs it. Hold `Shift` with `F6`/`F7` for 5× steps.
-- In debug builds, press the backtick key to open the developer console. Type `help` for its built-in commands, `commands_list` for registered MechRewired commands, and `version` for the application version. Press `Esc` or the backtick key to close it. Type `hud.glow` to read the HUD halo strength, or `hud.glow 0.8` to change it while running. Type `hud.glow.radius` to read the spread, or `hud.glow.radius 9` for a larger, softer halo. The cockpit-frame material supports `cockpit.texture_scale`, `cockpit.metallic`, and `cockpit.roughness` for live PBR tuning; use `cockpit.glass.visibility`, `cockpit.glass.grime`, and `cockpit.glass.scratches` to tune the canopy without recompiling.
-- Sky tuning is also debug-only: `sky.time`, `sky.cloud.coverage`, `sky.cloud.density`, `sky.cloud.height`, `sky.fog.multiplier`, `sky.fog.start`, `sky.sun.azimuth_offset`, `sky.shadow.distance`, `sky.shadow.opacity`, and `sky.exposure` all report their current value when entered without an argument. Use `visual.capture authored` (or `day`, `dusk`, `night`) to write a PNG and JSON manifest to Godot's `user://visual-captures` directory; `visual.capture_all` writes all four. `snap` closes the console and saves a timestamped PNG directly to Downloads. `cockpit.inspect lit|albedo|normal|normalmap|roughness|metallic|directsun` temporarily replaces the cockpit frame material with the named diagnostic view. `cockpit.inspect_all` captures the complete cockpit set automatically. `cockpit.material_sweep` writes 12 metallic/roughness comparisons whose filenames and manifests contain the exact values. The reliable no-argument terrain views are `terrain.inspect_lit`, `terrain.inspect_albedo`, `terrain.inspect_raw`, `terrain.inspect_normal`, `terrain.inspect_rock`, `terrain.inspect_directsun`, and `terrain.inspect_roughness`; `terrain.inspect_all` captures all seven from the current view, while `terrain.capture_stones` recreates the fixed scattered-rock regression view and records its surface tuning in the manifest. `terrain.parallax_sweep` captures that view with parallax off, at its default and at a stronger reference value. `terrain.texture_scale`, `terrain.detail`, `terrain.normal`, `terrain.stones`, `terrain.stone_scale`, `terrain.parallax`, `terrain.rock_start`, and `terrain.rock_end` tune the triplanar surface at runtime. The console automatically hides while a comparison capture is made and reopens afterwards. These captures preserve the active camera transform in the manifest so a named view can be recreated deliberately after later rendering changes.
-
-## VR
-
-Godot supports OpenXR and Meta Quest devices. VR is not part of the first playable milestone, but the cockpit camera and input layers will be designed so a Quest mode can be added without changing the simulation. Desktop OpenXR streaming and a native Quest build are both potential targets.
-
-## Relationship to MechWarrior 2
-
-MechRewired is an unofficial, independently written compatibility engine. MechWarrior, BattleTech and related names and assets belong to their respective owners. No affiliation or endorsement is implied.
-
-Community reverse-engineering projects and historical documentation may be consulted to understand file formats and observable behaviour, but MechRewired's implementation is independently written.
-
-## License
-
-MechRewired's original source code is licensed under the MIT License. This licence does not apply to any original game data supplied by users.
+MechRewired is unofficial and independently written. *MechWarrior*, *BattleTech*, and the original game assets belong to their respective owners; no affiliation or endorsement is implied. The source code is available under the [MIT License](LICENSE), while user-supplied game data remains the property of its owners. See [third-party licenses](docs/THIRD_PARTY_LICENSES.md) for included asset and dependency attributions.

@@ -2261,6 +2261,15 @@ public partial class Main : Node3D
         };
 #endif
         AddChild(camera);
+#if DEBUG
+        var gallery = new DebugFeatureGallery();
+        AddChild(gallery);
+        m_debugConsole?.Call("add_command", "visual.gallery", Callable.From(gallery.Refresh),
+            0, 0, "Refreshes the README gallery in separate Wolf and Jade Falcon renderers.");
+        if (OS.GetCmdlineUserArgs().Contains("--gallery-worker"))
+            gallery.CaptureMission(playerMech, playerHud, missionSky, battlefieldActors, enemyMechs,
+                Path.GetFileNameWithoutExtension(missionResources.ScenarioEntry.Name));
+#endif
     }
 
 #if DEBUG
