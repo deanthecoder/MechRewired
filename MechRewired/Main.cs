@@ -393,6 +393,8 @@ public partial class Main : Node3D
             return;
         }
 
+        m_debugConsole.Call("add_cvar", "cockpit.lighting", cockpit.LightingStrength,
+            "Controls local cockpit light lift: 0 original, 1 default, 2 stronger. Exterior lighting is unchanged.");
         m_debugConsole.Call(
             "add_cvar",
             "cockpit.texture_scale",
@@ -867,6 +869,11 @@ public partial class Main : Node3D
                  m_debugCockpit != null)
         {
             m_debugCockpit.FrameRoughness = numericValue;
+        }
+        else if (string.Equals(name, "cockpit.lighting", StringComparison.OrdinalIgnoreCase) &&
+                 m_debugCockpit != null)
+        {
+            m_debugCockpit.LightingStrength = numericValue;
         }
         else if (string.Equals(name, "cockpit.glass.visibility", StringComparison.OrdinalIgnoreCase) &&
                  m_debugCockpit != null)
@@ -2266,7 +2273,8 @@ public partial class Main : Node3D
         AddChild(gallery);
         m_debugConsole?.Call("add_command", "visual.gallery", Callable.From(gallery.Refresh),
             0, 0, "Refreshes the README gallery in separate Wolf and Jade Falcon renderers.");
-        if (OS.GetCmdlineUserArgs().Contains("--gallery-worker"))
+        if (OS.GetCmdlineUserArgs().Contains("--gallery-worker") ||
+            OS.GetCmdlineUserArgs().Contains("--capture-cockpit-lighting"))
             gallery.CaptureMission(playerMech, playerHud, missionSky, battlefieldActors, enemyMechs,
                 Path.GetFileNameWithoutExtension(missionResources.ScenarioEntry.Name));
 #endif

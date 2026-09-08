@@ -54,12 +54,19 @@ In debug builds, `F5` cycles the live fire/smoke VFX parameter, `F6`/`F7` decrea
 In a debug build, backtick opens the developer console. `help`, `commands_list`, and `version` provide the starting inventory; `Esc` or backtick closes it.
 
 - HUD: `hud.glow`, `hud.glow.radius`.
+- Cockpit lighting: `cockpit.lighting 1` uses the default gentle cabin fill; `0` restores the original instrument-light levels, and `2` doubles the added light. This affects cockpit meshes only, without changing exterior exposure or fog.
 - Cockpit PBR: `cockpit.texture_scale`, `cockpit.metallic`, `cockpit.roughness`, `cockpit.glass.visibility`, `cockpit.glass.grime`, `cockpit.glass.scratches`; use `cockpit.inspect lit|albedo|normal|normalmap|roughness|metallic|directsun`, `cockpit.inspect_all`, or `cockpit.material_sweep` for diagnostics.
 - Sky: `sky.time`, `sky.cloud.coverage`, `sky.cloud.density`, `sky.cloud.height`, `sky.fog.multiplier`, `sky.fog.start`, `sky.sun.azimuth_offset`, `sky.shadow.distance`, `sky.shadow.opacity`, and `sky.exposure` report their current setting with no argument and update it with one.
 - Terrain: `terrain.inspect_lit`, `terrain.inspect_albedo`, `terrain.inspect_raw`, `terrain.inspect_normal`, `terrain.inspect_rock`, `terrain.inspect_directsun`, `terrain.inspect_roughness`, `terrain.inspect_all`, `terrain.capture_stones`, and `terrain.parallax_sweep`; tune with `terrain.texture_scale`, `terrain.detail`, `terrain.normal`, `terrain.stones`, `terrain.stone_scale`, `terrain.parallax`, `terrain.rock_start`, and `terrain.rock_end`.
 - `visual.capture authored|day|dusk|night` writes a PNG and manifest to `user://visual-captures`; `visual.capture_all` writes all four. `snap` saves a timestamped PNG to Downloads.
 
-`visual.gallery` refreshes the README gallery from a Godot source checkout. It launches disposable Wolf and Jade Falcon renderers at fixed 1920×1080 resolution, waits for the deployment DropShip to depart, uses fixed camera fixtures, and writes PNGs plus manifests to `img/gallery/`. The seven images replace the previous gallery only after both renderers succeed and every expected output exists. Allow a few minutes on slower GPUs; the console reports completion. The missile-trail image uses a repeatable staged six-missile salvo, but each projectile, mesh, and smoke effect is the ordinary in-game `MissileEffect` implementation. The command is debug-only and does not move the pilot or fire weapons in the active session. Re-running it updates the same filenames, so the README needs no editing.
+`visual.gallery` refreshes the README gallery from a Godot source checkout. It launches disposable Wolf and Jade Falcon renderers at fixed 1920×1080 resolution, waits for the deployment DropShip to depart, uses fixed camera fixtures, and writes PNGs plus manifests to `img/gallery/`. The eight images, including the starboard flux-capacitor close-up, replace the previous gallery only after both renderers succeed and every expected output exists. Allow a few minutes on slower GPUs; the console reports completion. The missile-trail image uses a repeatable staged six-missile salvo, but each projectile, mesh, and smoke effect is the ordinary in-game `MissileEffect` implementation. The command is debug-only and does not move the pilot or fire weapons in the active session. Re-running it updates the same filenames, so the README needs no editing.
+
+To capture matched original/new lighting views (cockpit and flux capacitor), run this from the repository root. Repeat with `--campaign jade` for the darker mission; the filenames include the mission ID.
+
+```shell
+/Applications/Godot.app/Contents/MacOS/Godot --path MechRewired --resolution 1920x1080 --fixed-fps 60 -- --campaign wolf --capture-cockpit-lighting --gallery-output /tmp/mech-lighting-compare
+```
 
 ## Cockpit asset workflow
 

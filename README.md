@@ -20,6 +20,10 @@ Every image below is a 1920×1080 render captured from the game.
 | ![Sunlight flaring across the desert hills](img/gallery/lens-flare.png)<br>*Sunlight, high clouds, and lens flare across the dunes.* | ![Chemical plant structures in the desert](img/gallery/chemical-plant.png)<br>*The chemical plant at Nav Epsilon, guarded by enemy mechs.* |
 | ![Missile smoke trails crossing a desert valley](img/gallery/missile-trails.png)<br>*LRM trails and smoke over the Wolf mission terrain.* | ![Towering mountains beneath the red sky of the Jade Falcon mission](img/gallery/jade-falcon.png)<br>*Jade Falcon's towering mountains and fiery mission sky.* |
 
+![The flux capacitor tucked into the cockpit’s lower-right panel](img/gallery/flux-capacitor.png)
+
+*Flux capacitor: for when jump jets just aren’t enough.*
+
 ## Get in the cockpit
 
 Bring your own game data from a legitimate DOS installation of *MechWarrior 2: 31st Century Combat*. On first launch, drop its `.7z` or `.zip` package, extracted game folder, or `MW2.PRJ` onto the setup screen. The importer validates the data, keeps the files in your user-data folder, and opens clan selection.

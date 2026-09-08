@@ -27,7 +27,7 @@ public partial class DebugFeatureGallery : Node
     private static readonly string[] ImageNames =
     [
         "cockpit", "desert-terrain", "external-mech", "lens-flare",
-        "chemical-plant", "missile-trails", "jade-falcon"
+        "chemical-plant", "missile-trails", "jade-falcon", "flux-capacitor"
     ];
     private bool m_running;
     private Process m_renderer;
@@ -58,7 +58,7 @@ public partial class DebugFeatureGallery : Node
         try
         {
             Directory.CreateDirectory(staging);
-            GD.Print("MechRewired: capturing seven README images; two temporary game windows will open.");
+            GD.Print($"MechRewired: capturing {ImageNames.Length} README images; two temporary game windows will open.");
             foreach (var campaign in new[] { "wolf", "jade" })
             {
                 GD.Print($"MechRewired: capturing {campaign} gallery fixtures...");
@@ -130,6 +130,12 @@ public partial class DebugFeatureGallery : Node
             foreach (var effect in Descendants(GetTree().Root).OfType<SunLensFlare>())
                 effect.ProcessMode = ProcessModeEnum.Always;
             var jade = mission.StartsWith("PINK", StringComparison.OrdinalIgnoreCase);
+            if (OS.GetCmdlineUserArgs().Contains("--capture-cockpit-lighting"))
+            {
+                await CaptureLightingComparison(player, hud, sky, mission);
+                GetTree().Quit();
+                return;
+            }
             if (jade)
             {
                 hud.Hide();
@@ -159,6 +165,18 @@ public partial class DebugFeatureGallery : Node
                 };
                 AddChild(camera);
                 camera.Current = true;
+                // Frame the existing starboard instrument through its glass, in cockpit-local space.
+                camera.CullMask = 1u | PlayerCockpit.RenderLayer;
+                camera.Near = 0.01f;
+                camera.Fov = 55;
+                camera.LookAtFromPosition(
+                    player.Cockpit.ToGlobal(new Vector3(-0.02f, 0.0f, 0.12f)),
+                    player.Cockpit.ToGlobal(new Vector3(0.326f, -0.172f, -0.055f)),
+                    player.Cockpit.GlobalBasis.Y);
+                await Save("flux-capacitor", camera, sky, mission);
+                camera.CullMask = 1u | PlayerMech.ExteriorRenderLayer;
+                camera.Near = 0.05f;
+                camera.Fov = 65;
                 Frame(camera, new Vector3(3665.61f, 8.52f, -3357.93f),
                     new Vector3(0.4836f, -0.3709f, 0.7928f));
                 await Save("desert-terrain", camera, sky, mission);
@@ -209,6 +227,31 @@ public partial class DebugFeatureGallery : Node
         }
     }
 
+    private async System.Threading.Tasks.Task CaptureLightingComparison(
+        PlayerMech player, PlayerHud hud, MissionSkyController sky, string mission)
+    {
+        var camera = new Camera3D
+        {
+            Name = "LightingComparisonCamera", Near = 0.01f, Far = 8000, Fov = 55,
+            CullMask = 1u | PlayerCockpit.RenderLayer
+        };
+        AddChild(camera);
+        foreach (var strength in new[] { 0.0f, 1.0f })
+        {
+            player.Cockpit.LightingStrength = strength;
+            player.CockpitCamera.Current = true;
+            hud.Show();
+            await Save($"{mission}-cockpit-lighting-{strength:0}", player.CockpitCamera, sky, mission);
+            hud.Hide();
+            camera.Current = true;
+            camera.LookAtFromPosition(
+                player.Cockpit.ToGlobal(new Vector3(-0.02f, 0.0f, 0.12f)),
+                player.Cockpit.ToGlobal(new Vector3(0.326f, -0.172f, -0.055f)),
+                player.Cockpit.GlobalBasis.Y);
+            await Save($"{mission}-module-lighting-{strength:0}", camera, sky, mission);
+        }
+    }
+
     private async System.Threading.Tasks.Task Save(string name, Camera3D camera,
         MissionSkyController sky, string mission, int settleFrames = 60)
     {
@@ -231,6 +274,7 @@ public partial class DebugFeatureGallery : Node
             position = new[] { camera.GlobalPosition.X, camera.GlobalPosition.Y, camera.GlobalPosition.Z },
             rotation = new[] { camera.GlobalRotationDegrees.X, camera.GlobalRotationDegrees.Y, camera.GlobalRotationDegrees.Z },
             fov = camera.Fov, sky = sky.Describe(),
+            cockpitLighting = Descendants(GetTree().Root).OfType<PlayerCockpit>().FirstOrDefault()?.LightingStrength,
             stagedSalvo = name == "missile-trails", engine = Engine.GetVersionInfo()["string"].ToString()
         };
         File.WriteAllText(Path.ChangeExtension(path, ".json"),

@@ -61,6 +61,8 @@ public partial class PlayerCockpit : Node3D
     private const string SideArmorRoughnessTexturePath =
         "res://Assets/Textures/Cockpit/MetalPlates013/MetalPlates013_1K-PNG_Roughness.png";
 
+    private readonly List<(OmniLight3D Light, float Baseline, float Lift)> m_interiorLights = new();
+    private float m_lightingStrength = 1.0f;
     private StandardMaterial3D m_frameMaterial;
     private MeshInstance3D m_frameMesh;
     private ShaderMaterial m_glassMaterial;
@@ -75,6 +77,23 @@ public partial class PlayerCockpit : Node3D
     public PlayerCockpit()
     {
         Name = "CockpitInterior";
+    }
+
+    /// <summary>
+    /// Blends the original instrument lighting toward a gentle cabin fill; 1 is the default.
+    /// </summary>
+    /// <remarks>Only cockpit meshes receive these lights; exterior exposure and fog stay independent.</remarks>
+    public float LightingStrength
+    {
+        get => m_lightingStrength;
+        set
+        {
+            m_lightingStrength = Mathf.Clamp(value, 0.0f, 2.0f);
+            foreach (var (light, baseline, lift) in m_interiorLights)
+            {
+                light.LightEnergy = baseline + lift * m_lightingStrength;
+            }
+        }
     }
 
     public CockpitFrameDiagnosticMode FrameDiagnosticMode
@@ -260,37 +279,34 @@ public partial class PlayerCockpit : Node3D
 
         model.Name = "AuthoredCockpit";
         AddChild(model);
-        model.AddChild(new OmniLight3D
-        {
-            Name = "PortRailLamp",
-            Position = new Vector3(-0.30f, -0.016f, -0.42f),
-            LightColor = new Color(1.0f, 0.40f, 0.12f),
-            LightEnergy = 0.035f,
-            OmniRange = 0.45f,
-            LightCullMask = RenderLayer,
-            ShadowEnabled = false
-        });
-        model.AddChild(new OmniLight3D
-        {
-            Name = "RearCanopyLamp",
-            Position = new Vector3(0.0f, 0.24f, 0.70f),
-            LightColor = new Color(1.0f, 0.68f, 0.40f),
-            LightEnergy = 0.065f,
-            OmniRange = 1.6f,
-            LightCullMask = RenderLayer,
-            ShadowEnabled = false
-        });
-        model.AddChild(new OmniLight3D
-        {
-            Name = "PhaseModuleGlow",
-            Position = new Vector3(0.285f, -0.168f, -0.0555f),
-            LightColor = new Color(0.38f, 0.73f, 1.0f),
-            LightEnergy = 0.016f,
-            OmniRange = 0.38f,
-            LightCullMask = RenderLayer,
-            ShadowEnabled = false
-        });
+        AddInteriorLight(model, "PortRailLamp", new Vector3(-0.30f, -0.016f, -0.42f),
+            new Color(1.0f, 0.40f, 0.12f), 0.035f, 0.025f, 0.45f);
+        AddInteriorLight(model, "RearCanopyLamp", new Vector3(0.0f, 0.24f, 0.70f),
+            new Color(1.0f, 0.68f, 0.40f), 0.065f, 0.035f, 1.6f);
+        AddInteriorLight(model, "PhaseModuleGlow", new Vector3(0.285f, -0.168f, -0.0555f),
+            new Color(0.38f, 0.73f, 1.0f), 0.016f, 0.024f, 0.38f);
+        // Approximate instrument light bouncing through the cabin, without lighting the landscape.
+        AddInteriorLight(model, "CabinBounce", new Vector3(0.0f, 0.10f, 0.10f),
+            new Color(0.72f, 0.80f, 1.0f), 0.0f, 0.08f, 1.4f);
         ApplyFrameDiagnosticMaterial();
+    }
+
+    private void AddInteriorLight(Node3D model, string name, Vector3 position, Color color,
+        float baseline, float lift, float range)
+    {
+        var light = new OmniLight3D
+        {
+            Name = name,
+            Position = position,
+            LightColor = color,
+            LightEnergy = baseline + lift * m_lightingStrength,
+            OmniRange = range,
+            LightCullMask = RenderLayer,
+            LightVolumetricFogEnergy = 0.0f,
+            ShadowEnabled = false
+        };
+        model.AddChild(light);
+        m_interiorLights.Add((light, baseline, lift));
     }
 
     private StandardMaterial3D CreateFrameMaterial()
