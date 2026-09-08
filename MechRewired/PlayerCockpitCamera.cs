@@ -18,18 +18,20 @@ namespace MechRewired;
 public partial class PlayerCockpitCamera : Camera3D
 {
     private const float HeadLookSpeed = Mathf.Tau / 3.0f;
+    private const float MouseSensitivity = 0.002f;
     private const float HeadLookResponse = 6.0f;
-    private const float MaximumYaw = Mathf.Pi / 3.0f;
-    private const float MinimumPitch = 0.23f * Mathf.Pi / 180.0f;
-    private const float MaximumPitch = Mathf.Pi / 4.0f;
+    private const float CenterPitch = 0.23f * Mathf.Pi / 180.0f;
+    private const float MaximumYaw = Mathf.Pi / 2.0f;
+    private const float MinimumPitch = -Mathf.Pi / 4.0f;
+    private const float MaximumPitch = Mathf.Pi / 3.0f;
 
     private float m_targetYaw;
-    private float m_targetPitch = MinimumPitch;
+    private float m_targetPitch = CenterPitch;
     private bool m_wasPivoting;
 
     public override void _Ready()
     {
-        Rotation = new Vector3(MinimumPitch, 0.0f, 0.0f);
+        Rotation = new Vector3(CenterPitch, 0.0f, 0.0f);
     }
 
     public override void _Process(double delta)
@@ -65,20 +67,14 @@ public partial class PlayerCockpitCamera : Camera3D
             }
         }
 
-        var isPivoting = yawInput != 0.0f || pitchInput != 0.0f;
-        if (isPivoting)
+        if (yawInput != 0.0f || pitchInput != 0.0f)
         {
-            m_targetYaw = Mathf.Clamp(
-                m_targetYaw + yawInput * HeadLookSpeed * (float)delta,
-                -MaximumYaw,
-                MaximumYaw);
-            m_targetPitch = Mathf.Clamp(
-                m_targetPitch + pitchInput * HeadLookSpeed * (float)delta,
-                MinimumPitch,
-                MaximumPitch);
+            ApplyLookDelta(
+                yawInput * HeadLookSpeed * (float)delta,
+                pitchInput * HeadLookSpeed * (float)delta);
             m_wasPivoting = true;
         }
-        else if (m_wasPivoting)
+        else if (!shiftHeld && m_wasPivoting)
         {
             CenterView();
         }
@@ -90,10 +86,27 @@ public partial class PlayerCockpitCamera : Camera3D
             0.0f);
     }
 
+    /// <summary>
+    /// Pivots the pilot's view using captured mouse movement while head-look is held.
+    /// </summary>
+    public void ApplyMouseLook(Vector2 relativeMotion)
+    {
+        ApplyLookDelta(
+            -relativeMotion.X * MouseSensitivity,
+            -relativeMotion.Y * MouseSensitivity);
+        m_wasPivoting = true;
+    }
+
     public void CenterView()
     {
-        m_targetPitch = MinimumPitch;
+        m_targetPitch = CenterPitch;
         m_targetYaw = 0.0f;
         m_wasPivoting = false;
+    }
+
+    private void ApplyLookDelta(float yaw, float pitch)
+    {
+        m_targetYaw = Mathf.Clamp(m_targetYaw + yaw, -MaximumYaw, MaximumYaw);
+        m_targetPitch = Mathf.Clamp(m_targetPitch + pitch, MinimumPitch, MaximumPitch);
     }
 }

@@ -38,7 +38,7 @@ Start a campaign directly when testing:
 | Area | Controls |
 | --- | --- |
 | Throttle | `1` stops, `2`–`9` select 20–90%, and `0` selects full. `-`/`=` adjust by 10%. `Backspace` or backtick toggles forward/reverse; reverse is limited to half speed. |
-| Movement | `Left`/`Right` steer legs, `Up`/`Down` tilt the torso, `,`/`.` turn the torso, `M` brings the chassis to the torso bearing, and `/` centers torso and pilot view. Hold `Shift` plus arrow keys for a temporary pilot-head pivot. |
+| Movement | `Left`/`Right` steer legs, `Up`/`Down` tilt the torso, `,`/`.` turn the torso, `M` brings the chassis to the torso bearing, and `/` centers torso and pilot view. Hold `Shift` and use the mouse or arrow keys for a temporary, wider pilot-head pivot; releasing `Shift` recenters the view. |
 | Jump jets | Hold `J`. Jets spool dust and thrust for 0.75 seconds before lift, consume seven seconds of fuel, recharge while idle, and hard landings can damage both legs. |
 | Weapons | Click the viewport to capture the mouse, then aim with it. Left-click or `Space` fires and advances the selected weapon. Right-click, `Enter`, or `Tab` select the next usable weapon. `Shift`+`1`/`2`/`3` assign the selected weapon to green/white/yellow groups; `'` selects the next populated group; `;` fires its ready weapons; `\` toggles chain fire/group fire. `S` shuts down or restarts the reactor when safe; `O` toggles shutdown override. |
 | Targeting | `T`/`R` select next/previous live hostile, `Ctrl`+`T` clears target, `E` selects nearest live hostile, and `Q` or middle-click selects under the reticle. `I` inspects a selected or nearby active inspection objective. |

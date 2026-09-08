@@ -37,7 +37,7 @@ The verified package is **PC / English / MS-DOS v1.1** (`mechwarrior2_dos_win.7z
 | Action | Controls |
 | --- | --- |
 | Drive | `1` stops; `2`–`9` set 20–90% throttle; `0` sets full throttle; `-`/`=` adjust in steps. `Backspace` or backtick changes direction. |
-| Steer and aim | Arrow keys steer legs and tilt the torso; `,`/`.` turn the torso. Click the viewport, then move the mouse to aim. `/` recenters. |
+| Steer and aim | Arrow keys steer legs and tilt the torso; `,`/`.` turn the torso. Click the viewport, then move the mouse to aim. Hold `Shift` and use the mouse or arrows to look around the cockpit; release it to recenter. `/` recenters the torso and view. |
 | Fight | Left-click or `Space` fires; right-click, `Enter`, or `Tab` cycles weapons. `T`/`R` choose the next/previous hostile, `E` selects the nearest, and `Q` selects under the reticle. |
 | Jump and navigate | Hold `J` for jump jets. `F2` changes radar view; `X`/`Shift`+`X` change range; `N`/`Shift`+`N` cycle NAV points. |
 | Know the mission | `F12` shows objectives, `F1` shows the full controls reference, and `Escape` releases the mouse or closes a panel. |

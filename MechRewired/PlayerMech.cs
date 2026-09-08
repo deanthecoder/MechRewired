@@ -1085,16 +1085,25 @@ public partial class PlayerMech : Node3D
                 break;
 
             case InputEventMouseMotion mouseMotion
-                when Input.MouseMode == Input.MouseModeEnum.Captured && !IsShutdown:
-                m_targetTorsoYaw = Mathf.Clamp(
-                    m_targetTorsoYaw - mouseMotion.Relative.X * MouseSensitivity,
-                    -MaximumTorsoYaw,
-                    MaximumTorsoYaw);
-                m_targetTorsoPitch = Mathf.Clamp(
-                    m_targetTorsoPitch - mouseMotion.Relative.Y * MouseSensitivity,
-                    MinimumTorsoPitch,
-                    MaximumTorsoPitch);
-                GetViewport().SetInputAsHandled();
+                when Input.MouseMode == Input.MouseModeEnum.Captured:
+                if (CockpitCamera.Current && Input.IsPhysicalKeyPressed(Key.Shift))
+                {
+                    CockpitCamera.ApplyMouseLook(mouseMotion.Relative);
+                    GetViewport().SetInputAsHandled();
+                }
+                else if (!IsShutdown)
+                {
+                    m_targetTorsoYaw = Mathf.Clamp(
+                        m_targetTorsoYaw - mouseMotion.Relative.X * MouseSensitivity,
+                        -MaximumTorsoYaw,
+                        MaximumTorsoYaw);
+                    m_targetTorsoPitch = Mathf.Clamp(
+                        m_targetTorsoPitch - mouseMotion.Relative.Y * MouseSensitivity,
+                        MinimumTorsoPitch,
+                        MaximumTorsoPitch);
+                    GetViewport().SetInputAsHandled();
+                }
+
                 break;
 
             case InputEventKey { Pressed: true, Keycode: Key.Escape }:
