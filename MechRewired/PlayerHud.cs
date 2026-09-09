@@ -39,6 +39,7 @@ public partial class PlayerHud : Control
     private const float CompassScale = 0.75f;
     private const float CompassPixelsPerDegree = 3.2f * CompassScale;
     private const float AltimeterPixelsPerMeter = 14.0f;
+    private const float ReticleProjectionDistance = 1000.0f;
     private const float MaximumTargetFrameSize = 160.0f;
     private const float ObjectiveTargetFrameSize = 48.0f;
     private const float TargetFrameResponsePerSecond = 18.0f;
@@ -710,7 +711,20 @@ public partial class PlayerHud : Control
 
     private void DrawCombatReticle()
     {
-        var center = Size * 0.5f;
+        var camera = m_playerMech.CockpitCamera;
+        if (camera == null)
+        {
+            return;
+        }
+
+        var firingDirection = -m_playerMech.Torso.GlobalBasis.Z.Normalized();
+        var aimPosition = camera.GlobalPosition + firingDirection * ReticleProjectionDistance;
+        if (camera.IsPositionBehind(aimPosition))
+        {
+            return;
+        }
+
+        var center = camera.UnprojectPosition(aimPosition);
         var inner = 7.0f * m_scale;
         var outer = 22.0f * m_scale;
         var width = LineWidth(2.0f);
