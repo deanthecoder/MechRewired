@@ -25,6 +25,8 @@ public partial class PlayerHud : Control
 {
     private const float ReferenceWidth = 1280.0f;
     private const float ReferenceHeight = 720.0f;
+    private const float GaugeEndInset = 8.0f;
+    private const float GaugeCoreWidth = 2.4f;
     private const float RadarRadius = 91.0f;
     private const float RadarCenterX = 155.0f;
     private const float RadarCenterY = 145.0f;
@@ -53,10 +55,7 @@ public partial class PlayerHud : Control
     private static readonly Color ReachedNavigationAmber = Color.FromHtml("796000");
     private static readonly Color TerrainBlue = Color.FromHtml("1828e8");
     private static readonly Color GaugeRed = Color.FromHtml("e00000");
-    private static readonly Color GaugeBlueShade = Color.FromHtml("101a9e");
-    private static readonly Color GaugeBlueInnerShade = Color.FromHtml("1522bc");
     private static readonly Color DestroyedSectionGrey = Color.FromHtml("34383c");
-    private static readonly Color GaugeSideShade = new(0.08f, 0.0f, 0.0f, 0.5f);
     private static readonly Color TargetFrame = Color.FromHtml("4b0a00");
 
     private readonly PlayerMech m_playerMech;
@@ -78,10 +77,9 @@ public partial class PlayerHud : Control
     private Node3D m_smoothedTarget;
     private Rect2 m_smoothedTargetRect;
     private Font m_hudFont;
-
     /// <summary>
-    /// Controls the soft halo drawn behind green HUD elements. This is exposed
-    /// to the debug console as <c>hud.glow</c>.
+    /// Controls the soft halo drawn behind bright HUD elements, including the
+    /// colored phosphor gauge spines. This is exposed to the debug console as <c>hud.glow</c>.
     /// </summary>
     [Export]
     public float HudGlow
@@ -95,8 +93,9 @@ public partial class PlayerHud : Control
     }
 
     /// <summary>
-    /// Controls how far the soft halo spreads around green HUD elements.
-    /// This is exposed to the debug console as <c>hud.glow.radius</c>.
+    /// Controls how far the soft halo spreads around bright HUD elements,
+    /// including the colored phosphor gauge spines. This is exposed to the debug console as
+    /// <c>hud.glow.radius</c>.
     /// </summary>
     [Export]
     public float HudGlowRadius
@@ -796,81 +795,95 @@ public partial class PlayerHud : Control
 
     private void DrawHeat()
     {
-        const float heatGaugeLeft = 430.0f;
+        const float heatGaugeLeft = 360.0f;
         const float gaugeTop = 646.0f;
         const float gaugeWidth = 190.0f;
         const float gaugeHeight = 15.0f;
-        const float rateGaugeLeft = 655.0f;
+        const float rateGaugeLeft = 585.0f;
         const float rateGaugeWidth = 150.0f;
-        const float jetsGaugeLeft = 840.0f;
+        const float jetsGaugeLeft = 770.0f;
         const float jetsGaugeWidth = 150.0f;
-        var heatGauge = new Rect2(
-            Point(heatGaugeLeft, gaugeTop),
-            new Vector2(gaugeWidth, gaugeHeight) * m_scale);
-        DrawBlueGauge(heatGauge);
+        DrawHorizontalGaugeFrame(heatGaugeLeft, gaugeTop, gaugeWidth, gaugeHeight, TerrainBlue);
         DrawThermalFillFromEdges(
-            heatGaugeLeft,
+            heatGaugeLeft + GaugeEndInset,
             gaugeTop,
-            gaugeWidth,
+            gaugeWidth - GaugeEndInset * 2.0f,
             gaugeHeight,
             (float)Math.Clamp(m_targeting.HeatFraction * 2.0, 0.0, 2.0));
         DrawCenteredText(heatGaugeLeft + gaugeWidth * 0.5f, 691.0f, "Heat", HudGreen, 24);
 
-        var rateGauge = new Rect2(
-            Point(rateGaugeLeft, gaugeTop),
-            new Vector2(rateGaugeWidth, gaugeHeight) * m_scale);
-        DrawBlueGauge(rateGauge);
+        DrawHorizontalGaugeFrame(rateGaugeLeft, gaugeTop, rateGaugeWidth, gaugeHeight, TerrainBlue);
         DrawThermalFillFromLeft(
-            rateGaugeLeft,
+            rateGaugeLeft + GaugeEndInset,
             gaugeTop,
-            rateGaugeWidth,
+            rateGaugeWidth - GaugeEndInset * 2.0f,
             gaugeHeight,
             (float)Math.Clamp(m_targeting.HeatRate / 20.0, 0.0, 2.0));
         DrawCenteredText(rateGaugeLeft + rateGaugeWidth * 0.5f, 691.0f, "dH/dT", HudGreen, 24);
 
-        var jetsGauge = new Rect2(
-            Point(jetsGaugeLeft, gaugeTop),
-            new Vector2(jetsGaugeWidth, gaugeHeight) * m_scale);
-        DrawRect(jetsGauge, GaugeRed);
+        DrawHorizontalGaugeFrame(jetsGaugeLeft, gaugeTop, jetsGaugeWidth, gaugeHeight, GaugeRed);
+        var jetsFillLeft = jetsGaugeLeft + GaugeEndInset;
+        var jetsFillWidth = jetsGaugeWidth - GaugeEndInset * 2.0f;
         DrawThermalStrip(
-            jetsGaugeLeft,
+            jetsFillLeft,
             gaugeTop,
-            jetsGaugeWidth * m_playerMech.JumpJetFuelFraction,
+            jetsFillWidth * m_playerMech.JumpJetFuelFraction,
             gaugeHeight,
             HudGreen);
-        DrawGaugeShading(jetsGauge);
+        DrawThermalStrip(
+            jetsFillLeft + jetsFillWidth * m_playerMech.JumpJetFuelFraction,
+            gaugeTop,
+            jetsFillWidth * (1.0f - m_playerMech.JumpJetFuelFraction),
+            gaugeHeight,
+            GaugeRed);
         DrawCenteredText(jetsGaugeLeft + jetsGaugeWidth * 0.5f, 691.0f, "Jets", HudGreen, 24);
     }
 
-    private void DrawBlueGauge(Rect2 gauge)
+    // The archive's chassis HDI records describe layout, rather than colored gauge artwork.
+    // Keep these dynamic fills procedural, so their length always reflects live simulation values.
+    private void DrawHorizontalGaugeFrame(float left, float top, float width, float height, Color baseColor)
     {
-        DrawRect(gauge, TerrainBlue);
-        DrawGaugeShading(gauge);
+        var centerY = top + height * 0.5f;
+        var fillLeft = left + GaugeEndInset;
+        var fillWidth = width - GaugeEndInset * 2.0f;
+        DrawGaugeSpine(Point(fillLeft, centerY), Point(fillLeft + fillWidth, centerY),
+            DimGaugeColor(baseColor), GaugeCoreWidth);
+
+        for (var tick = 1; tick < 4; tick++)
+        {
+            var x = fillLeft + fillWidth * tick / 4.0f;
+            DrawGaugeSpine(Point(x, centerY - 2.25f), Point(x, centerY + 2.25f), DimGaugeColor(HudGreen));
+        }
+
+        DrawHorizontalGaugeBracket(left, centerY, 1.0f);
+        DrawHorizontalGaugeBracket(left + width, centerY, -1.0f);
     }
 
-    private void DrawGaugeShading(Rect2 gauge)
+    private void DrawHorizontalGaugeBracket(float x, float centerY, float direction)
     {
-        var lineWidth = LineWidth(1.0f);
-        var top = gauge.Position;
-        var firstInnerLine = top + Vector2.Down * lineWidth;
-        var lastInnerLine = top + Vector2.Down * (gauge.Size.Y - lineWidth * 2.0f);
-        var bottom = top + Vector2.Down * (gauge.Size.Y - lineWidth);
-        DrawLine(top, top + Vector2.Right * gauge.Size.X, GaugeBlueShade, lineWidth);
-        DrawLine(
-            firstInnerLine,
-            firstInnerLine + Vector2.Right * gauge.Size.X,
-            GaugeBlueInnerShade,
-            lineWidth);
-        DrawLine(
-            lastInnerLine,
-            lastInnerLine + Vector2.Right * gauge.Size.X,
-            GaugeBlueInnerShade,
-            lineWidth);
-        DrawLine(
-            bottom,
-            bottom + Vector2.Right * gauge.Size.X,
-            GaugeBlueShade,
-            lineWidth);
+        var color = DimGaugeColor(HudGreen, 0.72f);
+        DrawGaugeSpine(Point(x, centerY - 4.5f), Point(x + direction * 4.5f, centerY - 4.5f), color);
+        DrawGaugeSpine(Point(x, centerY - 4.5f), Point(x, centerY + 4.5f), color);
+        DrawGaugeSpine(Point(x, centerY + 4.5f), Point(x + direction * 4.5f, centerY + 4.5f), color);
+    }
+
+    private void DrawVerticalGaugeFrame(float centerX, float startY, float endY, Color baseColor)
+    {
+        DrawGaugeSpine(Point(centerX, startY), Point(centerX, endY), DimGaugeColor(baseColor), GaugeCoreWidth);
+
+        for (var tick = 1; tick < 3; tick++)
+        {
+            var y = Mathf.Lerp(startY, endY, tick / 3.0f);
+            DrawGaugeSpine(Point(centerX - 2.25f, y), Point(centerX + 2.25f, y), DimGaugeColor(HudGreen));
+        }
+    }
+
+    private void DrawVerticalGaugeBracket(float centerX, float y, float direction)
+    {
+        var color = DimGaugeColor(HudGreen, 0.72f);
+        DrawGaugeSpine(Point(centerX - 4.5f, y), Point(centerX + 4.5f, y), color);
+        DrawGaugeSpine(Point(centerX - 4.5f, y), Point(centerX - 4.5f, y + direction * 4.5f), color);
+        DrawGaugeSpine(Point(centerX + 4.5f, y), Point(centerX + 4.5f, y + direction * 4.5f), color);
     }
 
     private void DrawThermalFillFromEdges(
@@ -901,23 +914,13 @@ public partial class PlayerHud : Control
 
     private void DrawThermalStrip(float left, float top, float width, float height, Color color)
     {
-        if (width <= 0.0f)
+        if (width <= 0.0f || height <= 0.0f)
         {
             return;
         }
 
-        DrawRect(
-            new Rect2(Point(left, top), new Vector2(width, height) * m_scale),
-            color);
-        var edgeHeight = Math.Min(1.0f, height * 0.25f);
-        DrawRect(
-            new Rect2(Point(left, top), new Vector2(width, edgeHeight) * m_scale),
-            color.Lightened(0.12f));
-        DrawRect(
-            new Rect2(
-                Point(left, top + height - edgeHeight),
-                new Vector2(width, edgeHeight) * m_scale),
-            color.Darkened(0.25f));
+        var centerY = top + height * 0.5f;
+        DrawGaugeSpine(Point(left, centerY), Point(left + width, centerY), color, GaugeCoreWidth);
     }
 
     private void DrawSelectedTarget()
@@ -1169,17 +1172,15 @@ public partial class PlayerHud : Control
         const float positiveTop = 510.0f;
         const float zeroY = 640.0f;
         const float negativeBottom = 705.0f;
-        var positiveOutline = new Rect2(
-            Point(gaugeLeft, positiveTop),
-            new Vector2(gaugeWidth, zeroY - positiveTop) * m_scale);
-        var negativeOutline = new Rect2(
-            Point(gaugeLeft, zeroY),
-            new Vector2(gaugeWidth, negativeBottom - zeroY) * m_scale);
-        DrawRect(positiveOutline, GaugeRed, false, LineWidth(2.0f));
-        DrawRect(negativeOutline, GaugeRed, false, LineWidth(2.0f));
-
         const float inset = 3.0f;
-        const float sideShadeWidth = 2.0f;
+        var centerX = gaugeLeft + gaugeWidth * 0.5f;
+        var forwardTop = positiveTop + inset + GaugeEndInset;
+        var reverseBottom = negativeBottom - inset - GaugeEndInset;
+        DrawVerticalGaugeFrame(centerX, forwardTop, zeroY - inset, HudGreen);
+        DrawVerticalGaugeFrame(centerX, zeroY + inset, reverseBottom, TerrainBlue);
+        DrawVerticalGaugeBracket(centerX, positiveTop + inset, 1.0f);
+        DrawVerticalGaugeBracket(centerX, negativeBottom - inset, -1.0f);
+
         var speed = m_displayedTargetSpeedKph;
         if (speed > 0.001)
         {
@@ -1187,44 +1188,31 @@ public partial class PlayerHud : Control
                 speed / m_playerMech.Drive.Profile.MaximumForwardSpeedKph,
                 0.0,
                 1.0);
-            var fillHeight = (zeroY - positiveTop - inset * 2.0f) * fraction;
-            DrawRect(
-                new Rect2(
-                    Point(gaugeLeft + inset, zeroY - inset - fillHeight),
-                    new Vector2(gaugeWidth - inset * 2.0f, fillHeight) * m_scale),
-                HudGreen);
+            var fillHeight = (zeroY - inset - forwardTop) * fraction;
+            DrawGaugeSpine(
+                Point(centerX, zeroY - inset),
+                Point(centerX, zeroY - inset - fillHeight),
+                HudGreen, GaugeCoreWidth);
         }
         else if (speed < -0.001)
         {
             var maximumReverseSpeed = m_playerMech.Drive.Profile.MaximumForwardSpeedKph *
                                       m_playerMech.Drive.Profile.ReverseSpeedFactor;
             var fraction = (float)Math.Clamp(-speed / maximumReverseSpeed, 0.0, 1.0);
-            var fillHeight = (negativeBottom - zeroY - inset * 2.0f) * fraction;
-            DrawRect(
-                new Rect2(
-                    Point(gaugeLeft + inset, zeroY + inset),
-                    new Vector2(gaugeWidth - inset * 2.0f, fillHeight) * m_scale),
-                TerrainBlue);
+            var fillHeight = (reverseBottom - zeroY - inset) * fraction;
+            DrawGaugeSpine(
+                Point(centerX, zeroY + inset),
+                Point(centerX, zeroY + inset + fillHeight),
+                TerrainBlue, GaugeCoreWidth);
         }
         else
         {
-            DrawLine(
+            DrawGaugeSpine(
                 Point(gaugeLeft + inset, zeroY),
                 Point(gaugeLeft + gaugeWidth - inset, zeroY),
                 m_playerMech.Drive.IsReversing ? TerrainBlue : HudGreen,
-                LineWidth(3.0f));
+                1.35f);
         }
-
-        DrawRect(
-            new Rect2(
-                Point(gaugeLeft + inset, positiveTop + inset),
-                new Vector2(sideShadeWidth, negativeBottom - positiveTop - inset * 2.0f) * m_scale),
-            GaugeSideShade);
-        DrawRect(
-            new Rect2(
-                Point(gaugeLeft + gaugeWidth - inset - sideShadeWidth, positiveTop + inset),
-                new Vector2(sideShadeWidth, negativeBottom - positiveTop - inset * 2.0f) * m_scale),
-            GaugeSideShade);
 
         DrawCenteredText(
             PlayerDamageCenterX,
@@ -1232,6 +1220,36 @@ public partial class PlayerHud : Control
             $"{m_playerMech.ActualSpeedKph:F0} kph",
             HudGreen,
             25);
+    }
+
+    private static Color DimGaugeColor(Color color, float intensity = 0.32f) =>
+        new(color.R, color.G, color.B, color.A * intensity);
+
+    private void DrawGaugeSpine(Vector2 from, Vector2 to, Color color, float width = 1.5f)
+    {
+        if (color.A <= 0.0f || from.IsEqualApprox(to))
+        {
+            return;
+        }
+
+        var coreWidth = LineWidth(width);
+        if (HudGlow > 0.0f && HudGlowRadius > 0.0f)
+        {
+            for (var layer = 5; layer >= 1; layer--)
+            {
+                var spread = HudGlowRadius * m_scale * layer / 5.0f;
+                var falloff = 0.20f + (5 - layer) * 0.20f;
+                var halo = new Color(
+                    color.R,
+                    color.G,
+                    color.B,
+                    Mathf.Clamp(color.A * HudGlow * 0.24f * falloff, 0.0f, 0.40f));
+                base.DrawLine(from, to, halo, coreWidth + spread, true);
+            }
+        }
+
+        var core = color.Lightened(0.45f);
+        base.DrawLine(from, to, core, coreWidth, true);
     }
 
     private Vector2 Point(float x, float y) => m_offset + new Vector2(x, y) * m_scale;
