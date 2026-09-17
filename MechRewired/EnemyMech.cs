@@ -30,11 +30,7 @@ public partial class EnemyMech : Node3D
     private const float MaximumTorsoPitchRadians = Mathf.Pi / 5.0f;
     private const float SensorIntervalSeconds = 0.2f;
     private const float TargetMemorySeconds = 4.0f;
-    private const float FireDecisionIntervalSeconds = 0.60f;
     private const float MaximumSustainedHeatFraction = 0.75f;
-    private const float BaseAimErrorDegrees = 0.35f;
-    private const float AimErrorPerGunnerySkillDegrees = 0.30f;
-    private const float MaximumRangeAimErrorDegrees = 0.75f;
     private const int MissilePoolSize = 24;
 
     private readonly PlayerMech m_playerMech;
@@ -51,6 +47,7 @@ public partial class EnemyMech : Node3D
     private readonly AudioStreamPlayer3D m_weaponSound;
     private readonly MechRig m_mechRig;
     private readonly EnemyCombatMovement m_combatMovement;
+    private readonly CombatDifficultyProfile m_difficulty;
     private readonly MechDamageModel m_damageModel;
     private readonly MechHeat m_heat;
     private readonly Random m_random;
@@ -81,6 +78,7 @@ public partial class EnemyMech : Node3D
         MechWarriorMissionGamePiece definition,
         MechWarriorMechFile mechDefinition,
         PlayerMech playerMech,
+        CombatDifficultyProfile difficulty,
         BattlefieldEffects battlefieldEffects,
         IReadOnlyDictionary<string, AudioStreamWav> weaponSounds,
         MechDamageSilhouette damageSilhouette,
@@ -92,6 +90,7 @@ public partial class EnemyMech : Node3D
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentNullException.ThrowIfNull(mechDefinition);
         ArgumentNullException.ThrowIfNull(playerMech);
+        ArgumentNullException.ThrowIfNull(difficulty);
         ArgumentNullException.ThrowIfNull(battlefieldEffects);
         ArgumentNullException.ThrowIfNull(weaponSounds);
         ArgumentNullException.ThrowIfNull(surfaceHeightProvider);
@@ -101,6 +100,7 @@ public partial class EnemyMech : Node3D
         Definition = definition;
         MechDefinition = mechDefinition;
         m_playerMech = playerMech;
+        m_difficulty = difficulty;
         m_battlefieldEffects = battlefieldEffects;
         DamageSilhouette = damageSilhouette;
         m_surfaceHeightProvider = surfaceHeightProvider;
@@ -482,7 +482,7 @@ public partial class EnemyMech : Node3D
             m_fireDecisionCooldown <= 0.0f &&
             TryFireNextWeapon(playerDistance))
         {
-            m_fireDecisionCooldown = FireDecisionIntervalSeconds;
+            m_fireDecisionCooldown = (float)m_difficulty.FireDecisionIntervalSeconds;
         }
     }
 
@@ -886,9 +886,7 @@ public partial class EnemyMech : Node3D
 
         var skill = Math.Max(Definition.Specification.GunnerySkill, 0);
         var rangeFraction = Mathf.Clamp(distance / Math.Max((float)range, 1.0f), 0.0f, 1.0f);
-        var errorDegrees = BaseAimErrorDegrees +
-                           skill * AimErrorPerGunnerySkillDegrees +
-                           rangeFraction * MaximumRangeAimErrorDegrees;
+        var errorDegrees = (float)m_difficulty.GetMaximumAimErrorDegrees(skill, rangeFraction);
         var radius = Mathf.Tan(Mathf.DegToRad(errorDegrees)) * Mathf.Sqrt((float)m_random.NextDouble());
         var angle = (float)m_random.NextDouble() * Mathf.Tau;
         var reference = MathF.Abs(idealDirection.Y) < 0.95f ? Vector3.Up : Vector3.Right;

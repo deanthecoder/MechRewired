@@ -10,6 +10,7 @@
 
 using Godot;
 using MechRewired.Resources;
+using MechRewired.Simulation;
 using SmackerSharp;
 using StbImageSharp;
 
@@ -31,6 +32,7 @@ public sealed partial class ClanSelectionScreen : Control
 
     private static readonly Rect2 FalconHitArea = new(10.0f, 195.0f, 225.0f, 220.0f);
     private static readonly Rect2 WolfHitArea = new(405.0f, 195.0f, 225.0f, 220.0f);
+    private static readonly Rect2 BattleParametersButtonRect = new(438.0f, 445.0f, 192.0f, 27.0f);
 
     private readonly MechWarriorProjectArchive m_archive;
     private readonly DirectoryInfo m_dataDirectory;
@@ -45,14 +47,23 @@ public sealed partial class ClanSelectionScreen : Control
     private double m_elapsedSeconds;
     private double m_titleFramesPerSecond;
     private ClanCampaignSelection m_hoveredCampaign;
+    private bool m_battleParametersHovered;
+    private CombatDifficulty m_difficulty;
+    private BattleParametersScreen m_battleParameters;
 
-    public ClanSelectionScreen(MechWarriorProjectArchive archive, DirectoryInfo dataDirectory)
+    public ClanSelectionScreen(
+        MechWarriorProjectArchive archive,
+        DirectoryInfo dataDirectory,
+        CombatDifficulty difficulty)
     {
         m_archive = archive ?? throw new ArgumentNullException(nameof(archive));
         m_dataDirectory = dataDirectory ?? throw new ArgumentNullException(nameof(dataDirectory));
+        m_difficulty = difficulty;
     }
 
     public event Action<ClanCampaignSelection> CampaignSelected;
+
+    public event Action<CombatDifficulty> DifficultyChanged;
 
     public override void _Ready()
     {
@@ -80,8 +91,19 @@ public sealed partial class ClanSelectionScreen : Control
         };
         AddChild(m_firePlayer);
         m_firePlayer.Play();
+        m_battleParameters = new BattleParametersScreen(m_difficulty);
+        m_battleParameters.DifficultyAccepted += difficulty =>
+        {
+            m_difficulty = difficulty;
+            DifficultyChanged?.Invoke(difficulty);
+        };
+        AddChild(m_battleParameters);
         Resized += UpdateCompositionBounds;
-        MouseExited += () => SetHoveredCampaign(ClanCampaignSelection.None);
+        MouseExited += () =>
+        {
+            SetHoveredCampaign(ClanCampaignSelection.None);
+            SetBattleParametersHovered(false);
+        };
         UpdateCompositionBounds();
         QueueRedraw();
     }
@@ -127,6 +149,7 @@ public sealed partial class ClanSelectionScreen : Control
         if (m_mech != null)
             DrawTextureRect(m_mech, new Rect2(217.0f, 190.0f, 169.0f, 290.0f), false);
         DrawHoveredClanName();
+        DrawBattleParametersButton();
         DrawSetTransform(Vector2.Zero);
     }
 
@@ -134,7 +157,9 @@ public sealed partial class ClanSelectionScreen : Control
     {
         if (inputEvent is InputEventMouseMotion mouseMotion)
         {
-            SetHoveredCampaign(GetCampaignAt(mouseMotion.Position));
+            var hoverPosition = ToOriginalPosition(mouseMotion.Position);
+            SetHoveredCampaign(GetCampaignAt(hoverPosition));
+            SetBattleParametersHovered(BattleParametersButtonRect.HasPoint(hoverPosition));
             return;
         }
 
@@ -147,7 +172,15 @@ public sealed partial class ClanSelectionScreen : Control
             return;
         }
 
-        var campaign = GetCampaignAt(mouseButton.Position);
+        var originalPosition = ToOriginalPosition(mouseButton.Position);
+        if (BattleParametersButtonRect.HasPoint(originalPosition))
+        {
+            m_battleParameters.Open(m_difficulty);
+            AcceptEvent();
+            return;
+        }
+
+        var campaign = GetCampaignAt(originalPosition);
         if (campaign == ClanCampaignSelection.None)
         {
             return;
@@ -319,9 +352,29 @@ public sealed partial class ClanSelectionScreen : Control
         var fontSize = measuredWidth <= area.Size.X
             ? maximumFontSize
             : Math.Max(12, Mathf.FloorToInt(maximumFontSize * area.Size.X / measuredWidth));
-        var position = new Vector2(area.Position.X, 466.0f);
+        var position = new Vector2(area.Position.X, 174.0f);
         DrawString(m_font, position + Vector2.One * 2.0f, name, HorizontalAlignment.Center, area.Size.X, fontSize, Colors.Black);
         DrawString(m_font, position, name, HorizontalAlignment.Center, area.Size.X, fontSize, Colors.White);
+    }
+
+    private void DrawBattleParametersButton()
+    {
+        const string label = "BATTLE PARAMETERS";
+        const int fontSize = 11;
+        DrawRect(BattleParametersButtonRect, m_battleParametersHovered
+            ? new Color("495761")
+            : new Color("202a31"));
+        DrawRect(
+            new Rect2(BattleParametersButtonRect.Position, new Vector2(BattleParametersButtonRect.Size.X, 1.0f)),
+            new Color("788894"));
+        DrawString(
+            m_font,
+            new Vector2(BattleParametersButtonRect.Position.X, BattleParametersButtonRect.Position.Y + 19.0f),
+            label,
+            HorizontalAlignment.Center,
+            BattleParametersButtonRect.Size.X,
+            fontSize,
+            new Color("d2dade"));
     }
 
     private void SetHoveredCampaign(ClanCampaignSelection campaign)
@@ -330,11 +383,26 @@ public sealed partial class ClanSelectionScreen : Control
             return;
 
         m_hoveredCampaign = campaign;
-        MouseDefaultCursorShape = campaign == ClanCampaignSelection.None
-            ? CursorShape.Arrow
-            : CursorShape.PointingHand;
+        UpdateCursor();
         QueueRedraw();
     }
+
+    private void SetBattleParametersHovered(bool hovered)
+    {
+        if (m_battleParametersHovered == hovered)
+        {
+            return;
+        }
+
+        m_battleParametersHovered = hovered;
+        UpdateCursor();
+        QueueRedraw();
+    }
+
+    private void UpdateCursor() =>
+        MouseDefaultCursorShape = m_hoveredCampaign != ClanCampaignSelection.None || m_battleParametersHovered
+            ? CursorShape.PointingHand
+            : CursorShape.Arrow;
 
     private void UpdateCompositionBounds()
     {
@@ -343,16 +411,20 @@ public sealed partial class ClanSelectionScreen : Control
         m_compositionBounds = new Rect2((Size - compositionSize) * 0.5f, compositionSize);
     }
 
-    private ClanCampaignSelection GetCampaignAt(Vector2 screenPosition)
+    private Vector2 ToOriginalPosition(Vector2 screenPosition)
     {
         if (m_compositionBounds.Size.X <= 0.0f || !m_compositionBounds.HasPoint(screenPosition))
         {
-            return ClanCampaignSelection.None;
+            return new Vector2(float.NegativeInfinity, float.NegativeInfinity);
         }
 
-        var originalPosition = (screenPosition - m_compositionBounds.Position) * new Vector2(
+        return (screenPosition - m_compositionBounds.Position) * new Vector2(
             OriginalWidth / m_compositionBounds.Size.X,
             OriginalHeight / m_compositionBounds.Size.Y);
+    }
+
+    private static ClanCampaignSelection GetCampaignAt(Vector2 originalPosition)
+    {
         return FalconHitArea.HasPoint(originalPosition)
             ? ClanCampaignSelection.JadeFalcon
             : WolfHitArea.HasPoint(originalPosition) ? ClanCampaignSelection.Wolf : ClanCampaignSelection.None;

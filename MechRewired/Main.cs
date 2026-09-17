@@ -75,6 +75,7 @@ public partial class Main : Node3D
     ];
 
     private BattlefieldEffects m_battlefieldEffects;
+    private CombatDifficulty m_combatDifficulty = CombatDifficulty.Medium;
     private DirectoryInfo m_gameDataDirectory;
     private static ClanCampaignSelection s_pendingCampaignRestart;
 #if DEBUG
@@ -93,6 +94,8 @@ public partial class Main : Node3D
         GD.Print(
             $"MechRewired: rendering with {RenderingServer.GetCurrentRenderingMethod()} " +
             $"on {RenderingServer.GetCurrentRenderingDriverName()}.");
+        m_combatDifficulty = CombatDifficultyPreferences.Load();
+        GD.Print($"MechRewired: combat difficulty {m_combatDifficulty}.");
 #if DEBUG
         ConfigureDebugConsole();
 #endif
@@ -145,11 +148,17 @@ public partial class Main : Node3D
             return;
         }
 
-        var clanSelection = new ClanSelectionScreen(archive, m_gameDataDirectory)
+        var clanSelection = new ClanSelectionScreen(archive, m_gameDataDirectory, m_combatDifficulty)
         {
             Name = "ClanSelection"
         };
         clanSelection.CampaignSelected += campaign => StartCampaign(archive, campaign);
+        clanSelection.DifficultyChanged += difficulty =>
+        {
+            m_combatDifficulty = difficulty;
+            CombatDifficultyPreferences.Save(difficulty);
+            GD.Print($"MechRewired: combat difficulty changed to {difficulty}.");
+        };
         AddChild(clanSelection);
     }
 
@@ -2405,6 +2414,7 @@ public partial class Main : Node3D
                 gamePiece,
                 mechDefinition,
                 playerMech,
+                CombatDifficultyProfile.For(m_combatDifficulty),
                 battlefieldEffects,
                 weaponSounds,
                 damageSilhouette,
