@@ -247,6 +247,34 @@ public sealed class MissionSkyController
         set => m_sunLight.ShadowOpacity = Mathf.Clamp(value, 0.0f, 1.0f);
     }
 
+    /// <summary>Controls the directional shadow pass without changing the mission's shadow tuning.</summary>
+    public bool SunShadowsEnabled
+    {
+        get => m_sunLight.ShadowEnabled;
+        set => m_sunLight.ShadowEnabled = value;
+    }
+
+    /// <summary>Controls the screen-space reflection pass.</summary>
+    public bool ScreenReflectionsEnabled
+    {
+        get => m_environment.SsrEnabled;
+        set => m_environment.SsrEnabled = value;
+    }
+
+    /// <summary>Controls the screen-space glow pass.</summary>
+    public bool GlowEnabled
+    {
+        get => m_environment.GlowEnabled;
+        set => m_environment.GlowEnabled = value;
+    }
+
+    /// <summary>Controls the lens flare compositor work without discarding its authored tuning.</summary>
+    public bool LensFlareEnabled
+    {
+        get => m_sunLensFlare.Enabled;
+        set => m_sunLensFlare.Enabled = value;
+    }
+
     /// <summary>
     /// Enables the inexpensive, half-resolution screen-space contact shading used by the
     /// Forward+ renderer. This can be toggled for visual comparisons without moving the sun.

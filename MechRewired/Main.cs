@@ -91,6 +91,7 @@ public partial class Main : Node3D
     public override void _Ready()
     {
         GD.Print("MechRewired: reactor online.");
+        QuestVrRuntime.Initialize(GetViewport());
         GD.Print(
             $"MechRewired: rendering with {RenderingServer.GetCurrentRenderingMethod()} " +
             $"on {RenderingServer.GetCurrentRenderingDriverName()}.");
@@ -116,6 +117,18 @@ public partial class Main : Node3D
 
     private void ShowDataSetup(string error)
     {
+        if (QuestVrRuntime.Active)
+        {
+            if (OS.GetCmdlineUserArgs().Contains("--vr-smoke"))
+            {
+                GD.PushError("QUEST_VR_SMOKE_BLOCKED: original DOS game data is required. " + error);
+                GetTree().Quit(1);
+                return;
+            }
+            QuestVrRuntime.ShowStartupMessage(this,
+                "MECHREWIRED / GAME DATA REQUIRED\n\nCopy your DOS game files to the app's\ngame-data folder, then restart.\nSee docs/QUEST_VR.md.\n\n" + error);
+            return;
+        }
         var setup = new GameDataSetupScreen(ImportedDataDirectory, error);
         setup.DataInstalled += file =>
         {
@@ -132,6 +145,12 @@ public partial class Main : Node3D
 
     private void ContinueStartup(MechWarriorProjectArchive archive)
     {
+        if (QuestVrRuntime.Active)
+        {
+            s_pendingCampaignRestart = ClanCampaignSelection.None;
+            StartCampaign(archive, ClanCampaignSelection.Wolf);
+            return;
+        }
         if (s_pendingCampaignRestart != ClanCampaignSelection.None)
         {
             var restartCampaign = s_pendingCampaignRestart;
@@ -2059,7 +2078,7 @@ public partial class Main : Node3D
         battlefieldEffects.ConfigureObserver(playerMech);
         playerMech.JumpJetWashRequested += battlefieldEffects.SpawnJumpJetWash;
         playerMech.LandingDustRequested += battlefieldEffects.SpawnLandingDust;
-        if (missionSky.EnableLocalizedVolumetricFog(usesDesertTerrain ? 160.0f : 280.0f))
+        if (!QuestVrRuntime.Active && missionSky.EnableLocalizedVolumetricFog(usesDesertTerrain ? 160.0f : 280.0f))
         {
             if (usesDesertTerrain)
             {
@@ -2198,12 +2217,34 @@ public partial class Main : Node3D
             GrowVertical = Control.GrowDirection.Both,
             MouseFilter = Control.MouseFilterEnum.Ignore
         };
-        hudLayer.AddChild(playerHud);
+        if (QuestVrRuntime.Active)
+        {
+            var rig = playerMech.EnableVr();
+            QuestVrHud.Attach(playerMech, playerHud);
+            var graphics = new QuestGraphicsSettings(missionSky, playerMech.Cockpit,
+                levelRoot.FindChildren("*", "MeshInstance3D", true, false)
+                    .OfType<MeshInstance3D>().Select(mesh => mesh.MaterialOverride).OfType<ShaderMaterial>()
+                    .Where(material => material.Shader?.Code.Contains("parallax_depth_metres") == true),
+                effects: battlefieldEffects);
+            var vrMenu = new QuestVrMenu(rig.Camera, rig.RightAim, rig.Right, graphics, playerHud,
+                rig.RecenterSeat, () =>
+                {
+                    GetTree().Paused = false;
+                    GetTree().CallDeferred(SceneTree.MethodName.ReloadCurrentScene);
+                });
+            AddChild(vrMenu);
+            rig.Menu = vrMenu;
+#if DEBUG
+            if (QuestVrRuntime.Preview && OS.GetCmdlineUserArgs().Contains("--vr-smoke"))
+                AddChild(new QuestVrSmokeCheck(playerMech, playerHud));
+#endif
+        }
+        else hudLayer.AddChild(playerHud);
         playerHud.BeginPowerUp();
 #if DEBUG
         RegisterDebugConsoleHud(playerHud);
 #endif
-        AddChild(new PilotReferenceOverlay(playerMission));
+        if (!QuestVrRuntime.Active) AddChild(new PilotReferenceOverlay(playerMission));
         var missionDebrief = new MissionDebrief(playerMission);
         AddChild(missionDebrief);
         // A failure is presented only after the external death camera has concluded.

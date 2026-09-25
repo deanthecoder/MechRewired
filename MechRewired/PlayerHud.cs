@@ -77,6 +77,15 @@ public partial class PlayerHud : Control
     private Node3D m_smoothedTarget;
     private Rect2 m_smoothedTargetRect;
     private Font m_hudFont;
+
+    public bool ShowRadar { get; set; } = true;
+    public bool ShowWeapons { get; set; } = true;
+    public bool ShowStatus { get; set; } = true;
+    public bool ShowNavigation { get; set; } = true;
+    public bool ShowTargeting { get; set; } = true;
+
+    /// <summary>The cockpit glass carrying the existing instruments when drawn into a VR viewport.</summary>
+    public MeshInstance3D VrSurface { get; set; }
     /// <summary>
     /// Controls the soft halo drawn behind bright HUD elements, including the
     /// colored phosphor gauge spines. This is exposed to the debug console as <c>hud.glow</c>.
@@ -148,7 +157,7 @@ public partial class PlayerHud : Control
 
     public override void _Process(double delta)
     {
-        var shouldBeVisible = m_playerMech.CockpitCamera?.Current == true;
+        var shouldBeVisible = m_playerMech.IsVr || m_playerMech.CockpitCamera?.Current == true;
         if (Visible != shouldBeVisible)
         {
             Visible = shouldBeVisible;
@@ -244,19 +253,41 @@ public partial class PlayerHud : Control
             (Size.X - ReferenceWidth * m_scale) * 0.5f,
             (Size.Y - ReferenceHeight * m_scale) * 0.5f);
 
-        DrawRadar();
-        DrawCompass();
-        DrawWeapons();
-        DrawHeat();
-        DrawAltimeter();
-        DrawNavigationTarget();
-        DrawSpeed();
-        DrawCombatReticle();
-        DrawNavigationDirectionIndicator();
-        DrawObjectiveTargets();
-        DrawSelectedTarget();
-        DrawMissionStatus();
-        DrawPlayerDamageStatus();
+        if (ShowRadar) DrawRadar();
+        if (ShowWeapons) DrawWeapons();
+        if (ShowStatus)
+        {
+            DrawHeat();
+            DrawAltimeter();
+            DrawSpeed();
+            DrawMissionStatus();
+            DrawPlayerDamageStatus();
+        }
+        if (ShowNavigation)
+        {
+            DrawCompass();
+            DrawNavigationTarget();
+            DrawNavigationDirectionIndicator();
+        }
+        if (ShowTargeting)
+        {
+            DrawCombatReticle();
+            DrawObjectiveTargets();
+            DrawSelectedTarget();
+        }
+    }
+
+    private Vector2 ProjectToHud(Camera3D camera, Vector3 worldPosition)
+    {
+        if (VrSurface == null) return camera.UnprojectPosition(worldPosition);
+        // Intersect the head-to-target ray with the fixed HUD glass. This keeps aiming independent
+        // of looking, and accounts for leaning without using the desktop viewport's projection.
+        var eye = VrSurface.ToLocal(camera.GlobalPosition);
+        var direction = VrSurface.ToLocal(worldPosition) - eye;
+        var divisor = Math.Abs(direction.Z) < 0.0001f ? -0.0001f : direction.Z;
+        var hit = eye + direction * (-eye.Z / divisor);
+        var dimensions = ((QuadMesh)VrSurface.Mesh).Size;
+        return new Vector2((hit.X / dimensions.X + 0.5f) * Size.X, (0.5f - hit.Y / dimensions.Y) * Size.Y);
     }
 
     private MechWarriorWorldNavPoint SelectedNavigationPoint =>
@@ -646,7 +677,7 @@ public partial class PlayerHud : Control
             return;
         }
 
-        var camera = m_playerMech.CockpitCamera;
+        var camera = m_playerMech.PilotCamera;
         if (camera == null)
         {
             return;
@@ -658,7 +689,7 @@ public partial class PlayerHud : Control
         Vector2 screenPosition;
         if (!camera.IsPositionBehind(navigationPosition))
         {
-            screenPosition = camera.UnprojectPosition(navigationPosition);
+            screenPosition = ProjectToHud(camera, navigationPosition);
         }
         else
         {
@@ -710,20 +741,20 @@ public partial class PlayerHud : Control
 
     private void DrawCombatReticle()
     {
-        var camera = m_playerMech.CockpitCamera;
+        var camera = m_playerMech.PilotCamera;
         if (camera == null)
         {
             return;
         }
 
         var firingDirection = -m_playerMech.Torso.GlobalBasis.Z.Normalized();
-        var aimPosition = camera.GlobalPosition + firingDirection * ReticleProjectionDistance;
+        var aimPosition = m_playerMech.CockpitCamera.GlobalPosition + firingDirection * ReticleProjectionDistance;
         if (camera.IsPositionBehind(aimPosition))
         {
             return;
         }
 
-        var center = camera.UnprojectPosition(aimPosition);
+        var center = ProjectToHud(camera, aimPosition);
         var inner = 7.0f * m_scale;
         var outer = 22.0f * m_scale;
         var width = LineWidth(2.0f);
@@ -927,7 +958,7 @@ public partial class PlayerHud : Control
     {
         var actor = m_targeting.SelectedActor;
         var enemyMech = m_targeting.SelectedEnemy;
-        var camera = m_playerMech.CockpitCamera;
+        var camera = m_playerMech.PilotCamera;
         var targetPosition = enemyMech?.TargetPosition ?? actor?.TargetPosition ?? default;
         if ((actor == null && enemyMech == null) ||
             (actor != null && ReferenceEquals(actor, m_targeting.ObjectiveActor)) ||
@@ -1007,7 +1038,7 @@ public partial class PlayerHud : Control
 
     private void DrawObjectiveTargets()
     {
-        var camera = m_playerMech.CockpitCamera;
+        var camera = m_playerMech.PilotCamera;
         if (camera == null)
         {
             return;
@@ -1022,7 +1053,7 @@ public partial class PlayerHud : Control
 
         var frameSize = new Vector2(ObjectiveTargetFrameSize, ObjectiveTargetFrameSize) * m_scale;
         var targetRect = new Rect2(
-            camera.UnprojectPosition(aimPosition) - frameSize * 0.5f,
+            ProjectToHud(camera, aimPosition) - frameSize * 0.5f,
             frameSize);
         var objectiveKind = m_mission.GetActiveObjectiveKind(actor);
         var color = objectiveKind == MissionObjectiveKind.Inspect
@@ -1063,7 +1094,7 @@ public partial class PlayerHud : Control
                         bounds.Size.X * x,
                         bounds.Size.Y * y,
                         bounds.Size.Z * z);
-                    var point = camera.UnprojectPosition(corner);
+                    var point = ProjectToHud(camera, corner);
                     minimum = minimum.Min(point);
                     maximum = maximum.Max(point);
                 }

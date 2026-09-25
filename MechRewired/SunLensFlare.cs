@@ -70,6 +70,13 @@ public partial class SunLensFlare : Node
         set => m_intensity = Mathf.Max(value, 0.0f);
     }
 
+    /// <summary>Enables the compositor pass itself; Quest keeps this disabled until stereo validation.</summary>
+    public bool Enabled
+    {
+        get => m_effect.Enabled;
+        set => m_effect.Enabled = value;
+    }
+
     /// <summary>
     /// Controls the depth-occluded radial shafts mixed into the sun flare.
     /// </summary>

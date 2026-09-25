@@ -110,6 +110,14 @@ public partial class PlayerDeathSequence : Node
             return;
         }
 
+        // Keep the tracked cockpit view on death; the desktop orbit is not a VR camera.
+        if (m_playerMech.IsVr)
+        {
+            m_active = false;
+            Completed?.Invoke();
+            return;
+        }
+
         m_timeline = new PlayerDeathTimeline();
         Input.MouseMode = Input.MouseModeEnum.Visible;
         m_playerMech.CockpitCamera.Current = false;

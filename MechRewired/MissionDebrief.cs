@@ -75,6 +75,14 @@ public partial class MissionDebrief : Node
         }
 
         m_presented = true;
+        if (QuestVrRuntime.Active)
+        {
+            var menu = GetParent().GetNodeOrNull<QuestVrMenu>("QuestVrMenu");
+            menu?.ShowMissionResult(outcome == MissionOutcome.Successful ? "MISSION SUCCESSFUL" : "MISSION FAILED");
+            SetProcess(false);
+            SetProcessInput(false);
+            return;
+        }
         m_fadeProgress = 0.0f;
         m_inputDelay = 0.6f;
         // The interaction that completed the mission may still be held down when this opens.

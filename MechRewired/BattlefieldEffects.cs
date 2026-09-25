@@ -72,6 +72,7 @@ public partial class BattlefieldEffects : Node3D
     private float m_dustLifetime = 1.0f;
     private float m_dustSpread = 68.0f;
     private float m_explosionFogDensity = 0.40f;
+    private bool m_smokeAndDustEnabled = true;
 
     public BattlefieldEffects(
         IReadOnlyList<AudioStreamWav> explosionSounds,
@@ -119,6 +120,54 @@ public partial class BattlefieldEffects : Node3D
     {
         get => m_explosionFogDensity;
         set => m_explosionFogDensity = Mathf.Clamp(value, 0.0f, 1.0f);
+    }
+
+    /// <summary>
+    /// Gates particle-heavy dust, smoke and explosion fog at the source.  Fire, impact sparks,
+    /// lights and audio remain, so combat feedback survives the Quest performance preset.
+    /// </summary>
+    public bool SmokeAndDustEnabled
+    {
+        get => m_smokeAndDustEnabled;
+        set
+        {
+            if (m_smokeAndDustEnabled == value)
+            {
+                return;
+            }
+
+            m_smokeAndDustEnabled = value;
+            if (value)
+            {
+                foreach (var ambientFire in m_ambientEffects.Where(effect => effect.IsFire && effect.IsActive))
+                {
+                    SetAmbientSmokeEnabled(ambientFire.Instance, true);
+                }
+                UpdateDistanceBoundEffects();
+                return;
+            }
+
+            foreach (var dust in m_dustPool)
+            {
+                dust.Deactivate();
+                m_distanceBoundEffects.Remove(dust);
+            }
+
+            foreach (var destruction in m_destructionPool.Where(effect => effect.IsActive))
+            {
+                DisableDestructionSmoke(destruction);
+            }
+
+            foreach (var ambient in m_ambientEffects.Where(effect => !effect.IsFire && effect.IsActive))
+            {
+                DeactivateAmbientEffect(ambient);
+            }
+
+            foreach (var ambientFire in m_ambientEffects.Where(effect => effect.IsFire && effect.IsActive))
+            {
+                SetAmbientSmokeEnabled(ambientFire.Instance, false);
+            }
+        }
     }
 
     /// <summary>Spawns only the major-explosion fog volume nearby so it can be tuned in isolation.</summary>
@@ -409,7 +458,7 @@ public partial class BattlefieldEffects : Node3D
 
         foreach (var ambientEffect in m_ambientEffects)
         {
-            if (ambientEffect.IsSuppressed)
+            if (ambientEffect.IsSuppressed || (!m_smokeAndDustEnabled && !ambientEffect.IsFire))
             {
                 continue;
             }
@@ -688,6 +737,10 @@ public partial class BattlefieldEffects : Node3D
         }
 
         effect.Activate(plumePosition, localHit);
+        if (!m_smokeAndDustEnabled)
+        {
+            DisableDestructionSmoke(effect);
+        }
         m_distanceBoundEffects.Add(effect);
         SpawnDust(
             plumePosition,
@@ -795,7 +848,7 @@ public partial class BattlefieldEffects : Node3D
         float? spread = null,
         Vector3? emissionBoxExtents = null)
     {
-        if (!IsWithinEffectPersistenceRange(position))
+        if (!m_smokeAndDustEnabled || !IsWithinEffectPersistenceRange(position))
         {
             return;
         }
@@ -804,6 +857,25 @@ public partial class BattlefieldEffects : Node3D
         ConfigureDust(effect.Particles, size, rise, lifetime, emissionRadius, amountRatio, spread, emissionBoxExtents);
         effect.Activate(new Vector3(position.X, FindTerrainHeight(position, position.Y), position.Z));
         m_distanceBoundEffects.Add(effect);
+    }
+
+    private static void DisableDestructionSmoke(EffectInstance effect)
+    {
+        effect.SetSmokeEnabled(false);
+    }
+
+    private static void SetAmbientSmokeEnabled(EffectInstance effect, bool enabled)
+    {
+        foreach (var particles in effect.GetChildren().OfType<GpuParticles3D>()
+                     .Where(particles => particles.Name.ToString().Contains("Smoke", StringComparison.OrdinalIgnoreCase)))
+        {
+            particles.Visible = enabled;
+            particles.Emitting = enabled;
+            if (enabled)
+            {
+                particles.Restart();
+            }
+        }
     }
 
     private ImpactEffect AcquireWeaponImpactEffect()
@@ -1973,6 +2045,7 @@ public partial class BattlefieldEffects : Node3D
         private readonly bool m_ambient;
         private readonly bool m_pooled;
         private float m_age;
+        private bool m_smokeEnabled = true;
         private Node3D m_followTarget;
         private Transform3D m_followOffset;
 
@@ -2020,6 +2093,7 @@ public partial class BattlefieldEffects : Node3D
             Position = position;
             m_age = 0.0f;
             IsActive = true;
+            m_smokeEnabled = true;
             Visible = true;
             ProcessMode = ProcessModeEnum.Inherit;
             Restart(ExplosionFire, localHit);
@@ -2038,6 +2112,17 @@ public partial class BattlefieldEffects : Node3D
             {
                 ExplosionAudio.Position = localHit;
                 ExplosionAudio.Play();
+            }
+        }
+
+        public void SetSmokeEnabled(bool enabled)
+        {
+            m_smokeEnabled = enabled;
+            if (!enabled)
+            {
+                ExplosionSmoke.Emitting = false;
+                LingeringSmoke.Emitting = false;
+                ExplosionFog.Visible = false;
             }
         }
 
@@ -2102,7 +2187,7 @@ public partial class BattlefieldEffects : Node3D
                 ExplosionLight.LightEnergy = Math.Max(0.0f, 22.0f * (1.0f - m_age / 0.9f));
             }
 
-            if (ExplosionFog?.Material is ShaderMaterial fogMaterial)
+            if (m_smokeEnabled && ExplosionFog?.Material is ShaderMaterial fogMaterial)
             {
                 var fade = Mathf.Clamp(1.0f - m_age / ExplosionFogLifetimeSeconds, 0.0f, 1.0f);
                 fogMaterial.SetShaderParameter("smoke_density", fade * ExplosionFogDensity);

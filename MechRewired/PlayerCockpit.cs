@@ -65,6 +65,7 @@ public partial class PlayerCockpit : Node3D
     private float m_lightingStrength = 1.0f;
     private StandardMaterial3D m_frameMaterial;
     private MeshInstance3D m_frameMesh;
+    private MeshInstance3D m_glassMesh;
     private ShaderMaterial m_glassMaterial;
     private float m_frameTextureScale = DefaultFrameTextureScale;
     private float m_frameMetallic = DefaultFrameMetallic;
@@ -72,6 +73,7 @@ public partial class PlayerCockpit : Node3D
     private float m_glassVisibility = DefaultGlassVisibility;
     private float m_glassGrimeStrength = DefaultGlassGrimeStrength;
     private float m_glassScratchStrength = DefaultGlassScratchStrength;
+    private bool m_glassEnabled = true;
     private CockpitFrameDiagnosticMode m_frameDiagnosticMode;
 
     public PlayerCockpit()
@@ -161,6 +163,20 @@ public partial class PlayerCockpit : Node3D
         {
             m_glassVisibility = Mathf.Clamp(value, 0.0f, 0.20f);
             ApplyGlassMaterialProperties();
+        }
+    }
+
+    /// <summary>Removes the transparent cockpit-glass draw entirely when the Quest preset disables it.</summary>
+    public bool GlassEnabled
+    {
+        get => m_glassEnabled;
+        set
+        {
+            m_glassEnabled = value;
+            if (m_glassMesh != null)
+            {
+                m_glassMesh.Visible = value;
+            }
         }
     }
 
@@ -269,8 +285,10 @@ public partial class PlayerCockpit : Node3D
         }
 
         m_glassMaterial = CreateGlassMaterial();
+        m_glassMesh = glass;
         glass.MaterialOverride = m_glassMaterial;
         glass.CastShadow = GeometryInstance3D.ShadowCastingSetting.Off;
+        glass.Visible = m_glassEnabled;
         armor.MaterialOverride = CreateSideArmorMaterial();
         foreach (var node in model.FindChildren("*", "MeshInstance3D", true, false))
         {

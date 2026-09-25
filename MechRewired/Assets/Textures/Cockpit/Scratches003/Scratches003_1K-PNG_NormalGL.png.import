@@ -4,15 +4,16 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://w7ml4loo3mn7"
 path.bptc="res://.godot/imported/Scratches003_1K-PNG_NormalGL.png-74fd16471959d293702263f87be46a4d.bptc.ctex"
+path.astc="res://.godot/imported/Scratches003_1K-PNG_NormalGL.png-74fd16471959d293702263f87be46a4d.astc.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 
 [deps]
 
 source_file="res://Assets/Textures/Cockpit/Scratches003/Scratches003_1K-PNG_NormalGL.png"
-dest_files=["res://.godot/imported/Scratches003_1K-PNG_NormalGL.png-74fd16471959d293702263f87be46a4d.bptc.ctex"]
+dest_files=["res://.godot/imported/Scratches003_1K-PNG_NormalGL.png-74fd16471959d293702263f87be46a4d.bptc.ctex", "res://.godot/imported/Scratches003_1K-PNG_NormalGL.png-74fd16471959d293702263f87be46a4d.astc.ctex"]
 
 [params]
 

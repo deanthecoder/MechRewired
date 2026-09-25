@@ -32,6 +32,8 @@ export_credentials.cfg
 # Local builds and packages
 /dist/
 /releases/
+MechRewired/android/
+MechRewired/builds/
 *.dmg
 *.exe
 *.zip

@@ -55,7 +55,7 @@ public partial class DebugCamera : Camera3D
 
     public override void _Ready()
     {
-        AddDebugMenu();
+        if (!QuestVrRuntime.Active) AddDebugMenu();
     }
 
     public override void _Process(double delta)
@@ -107,6 +107,7 @@ public partial class DebugCamera : Camera3D
 
     public override void _UnhandledInput(InputEvent inputEvent)
     {
+        if (QuestVrRuntime.Active) return;
         switch (inputEvent)
         {
             case InputEventKey { Pressed: false, CtrlPressed: true, Keycode: Key.F1 }:

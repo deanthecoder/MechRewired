@@ -297,6 +297,56 @@ public partial class PlayerMech : Node3D
 
     public PlayerCockpitCamera CockpitCamera { get; private set; }
 
+    public QuestVrRig VrRig { get; private set; }
+
+    public bool IsVr => VrRig != null;
+
+    public Camera3D PilotCamera => VrRig?.Camera ?? (Camera3D)CockpitCamera;
+
+    /// <summary>Attaches tracking directly to the seat, bypassing synthetic view bob and damage shake.</summary>
+    public QuestVrRig EnableVr()
+    {
+        VrRig = new QuestVrRig(this);
+        CockpitMount.AddChild(VrRig);
+        return VrRig;
+    }
+
+    public void SetVrAim(float yaw, float pitch)
+    {
+        if (IsDestroyed || IsShutdown) return;
+        m_targetTorsoYaw = Mathf.Clamp(yaw, -MaximumTorsoYaw, MaximumTorsoYaw);
+        m_targetTorsoPitch = Mathf.Clamp(pitch, MinimumTorsoPitch, MaximumTorsoPitch);
+    }
+
+    public Vector2 VrAim => new(m_targetTorsoYaw, m_targetTorsoPitch);
+
+    public void VrFire() { if (!IsDestroyed && !IsShutdown) FireRequested?.Invoke(); }
+    public void VrCycleWeapon() => CycleWeaponRequested?.Invoke();
+    public void VrCycleTarget() => NextTargetRequested?.Invoke();
+    public void VrInspect() => InspectTargetRequested?.Invoke();
+
+    public void AdjustVrThrottle(int direction)
+    {
+        if (IsDestroyed || IsShutdown || IsTranslationLocked || IsImmobilized) return;
+        ManualControlRequested?.Invoke("VR throttle");
+        var previousSpeed = Drive.TargetSpeedKph;
+        // Moving the stick through zero selects reverse without an abrupt speed change.
+        if (Drive.ThrottlePercent == 0)
+        {
+            if (Drive.IsReversing != (direction < 0)) Drive.ToggleDirection();
+            Drive.IncreaseThrottle();
+        }
+        else if ((direction < 0) == Drive.IsReversing) Drive.IncreaseThrottle();
+        else Drive.DecreaseThrottle();
+        PlayDriveTransition(previousSpeed);
+    }
+
+    public void StopVrMovement()
+    {
+        ManualControlRequested?.Invoke("VR stop");
+        Drive.SelectStop();
+    }
+
     public PlayerCockpit Cockpit { get; private set; }
 
     public Camera3D ExternalCamera { get; private set; }
@@ -411,7 +461,8 @@ public partial class PlayerMech : Node3D
             StopOperationalAudio();
             DetachRemainingMech(hitPosition);
             Legs.Visible = false;
-            Torso.Visible = false;
+            // The VR seat/HUD remain visible during the tracked mission-result presentation.
+            Torso.Visible = IsVr;
             GD.Print("MechRewired: PlayerMech destroyed.");
             Destroyed?.Invoke();
         }
@@ -756,7 +807,7 @@ public partial class PlayerMech : Node3D
 
         UpdateExternalCamera((float)delta);
 
-        var isPilotCamera = CockpitCamera.Current || ExternalCamera.Current;
+        var isPilotCamera = IsVr || CockpitCamera.Current || ExternalCamera.Current;
         UpdateDisplayZoom((float)delta);
         var thrustRequested = !IsShutdown &&
                               !IsImmobilized &&
@@ -770,7 +821,13 @@ public partial class PlayerMech : Node3D
         var headLookHeld = Input.IsPhysicalKeyPressed(Key.Shift);
         var steering = 0.0;
         var manualSteering = false;
-        if (isPilotCamera && !headLookHeld)
+        if (IsVr)
+        {
+            steering = VrRig.Steering;
+            manualSteering = Math.Abs(steering) > 0.001;
+            if (manualSteering) ManualControlRequested?.Invoke("VR steering");
+        }
+        else if (isPilotCamera && !headLookHeld)
         {
             if (Input.IsPhysicalKeyPressed(Key.Left))
             {
@@ -794,7 +851,7 @@ public partial class PlayerMech : Node3D
             steering = m_autopilotSteering.Value;
         }
 
-        ApplyKeyboardTorsoAim(delta, isPilotCamera, headLookHeld);
+        if (!IsVr) ApplyKeyboardTorsoAim(delta, isPilotCamera, headLookHeld);
         var torsoAngularSpeed = ApplySmoothedTorsoAim((float)delta);
         if (IsImmobilized)
         {
@@ -925,6 +982,7 @@ public partial class PlayerMech : Node3D
 
     public override void _UnhandledInput(InputEvent inputEvent)
     {
+        if (IsVr) return;
         if (IsDestroyed)
         {
             return;
@@ -1286,7 +1344,7 @@ public partial class PlayerMech : Node3D
     private float GetDebugTravelMultiplier()
     {
 #if DEBUG
-        return Drive.ThrottleKey == 0 ? 3.0f : 1.0f;
+        return !IsVr && Drive.ThrottleKey == 0 ? 3.0f : 1.0f;
 #else
         return 1.0f;
 #endif
@@ -1814,9 +1872,9 @@ public partial class PlayerMech : Node3D
         var cockpitRelativeRoll = Mathf.Sin(gaitPhase) * CockpitRelativeRollGait * gaitWeight;
         Cockpit.SetPose(
             CockpitPitchDegrees,
-            m_torsoYaw * CockpitTorsoYawFactor,
-            viewOffset + cockpitRelativeOffset,
-            roll + cockpitRelativeRoll);
+            IsVr ? 0.0f : m_torsoYaw * CockpitTorsoYawFactor,
+            IsVr ? Vector3.Zero : viewOffset + cockpitRelativeOffset,
+            IsVr ? 0.0f : roll + cockpitRelativeRoll);
     }
 
     private void ApplyGaitGroundClearance(float delta)
