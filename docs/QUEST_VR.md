@@ -18,6 +18,9 @@ The checked-in **Quest 3 (setup required)** Android preset selects arm64, Gradle
 Godot's Mobile renderer, and OpenXR Android mode. It creates
 `MechRewired/builds/MechRewired-Quest3.apk`. No original game files belong in an
 APK, Git, or the generated Android template.
+Godot's .NET exporter also needs `MechRewired/MechRewired.sln` beside
+`project.godot`; the repository solution at the parent level is for desktop
+builds and tests.
 
 ## Controls exposed to the VR rig
 
@@ -43,6 +46,33 @@ target, X inspects, Y recentres, and left Menu pauses. Jump jets are not mapped
 for the initial Quest build.
 
 ## Install and game data
+
+On macOS, run these from the repository root:
+
+```sh
+scripts/quest.sh build    # Build the debug APK only.
+scripts/quest.sh install  # Build, install, and verify/copy private MW2.PRJ data.
+```
+
+The script uses Developer Hub's bundled ADB when installed, with Android SDK ADB
+as a fallback. It selects the Quest explicitly, preferring Wi-Fi over USB, and
+remembers its Wi-Fi address for automatic reconnection. Connect USB and accept
+debugging for the initial setup, then run `scripts/quest.sh connect` to enable
+Wi-Fi ADB. Unplug USB and use `install` on the same network. A headset reboot may
+require enabling Wi-Fi ADB over USB again. If its IP changes, use
+`QUEST_HOST=<headset-ip> scripts/quest.sh install`.
+
+Game data defaults to `local/game-data/MW2.PRJ`; set `MW2_PRJ=/path/to/MW2.PRJ`
+to override it. Matching data is left in place; changed data is copied and
+checked with SHA-256. If no local archive exists, an existing nonempty headset
+archive is preserved. `scripts/quest.sh data` copies/verifies data without a
+build. Restart the app after changing data. Original data stays outside the APK
+and Git.
+
+`GODOT_BIN`, `ANDROID_HOME`, `JAVA_HOME`, and `ADB_BIN` override tool locations.
+Set `ANDROID_SERIAL` to choose between multiple headsets, or `QUEST_ADDRESS_FILE`
+to override the local address cache. The output is
+`MechRewired/builds/MechRewired-Quest3.apk`.
 
 Enable Developer Mode on the Quest, connect it by USB, and accept the headset's
 USB-debugging prompt. Export from Godot and install the resulting APK with the
