@@ -85,34 +85,85 @@ restore_project_config() {
     cp "$project_config_backup" "$project_dir/project.godot"
     rm -f "$project_config_backup"
   fi
+  if [[ -n "${manifest_backup:-}" && -f "$manifest_backup" ]]; then
+    cp "$manifest_backup" "$main_manifest"
+    rm -f "$manifest_backup"
+  fi
 }
 
 install_game_data() {
-  local staging_path=/data/local/tmp/MechRewired-MW2.PRJ local_hash remote_hash
+  local staging_path=/sdcard/Download/MechRewired/MW2.PRJ local_hash remote_hash
   if [[ ! -f "$game_data_path" ]]; then
-    if "$adb_bin" -s "$quest_serial" shell run-as "$package_id" test -s files/game-data/MW2.PRJ; then
-      printf 'Keeping existing Quest game data (no local MW2.PRJ found).\n'
-      return
-    fi
-    printf 'Game data missing. Set MW2_PRJ to your compatible MW2.PRJ file and run scripts/quest.sh data.\n' >&2
-    exit 1
-  fi
-  local_hash="$(shasum -a 256 "$game_data_path" | awk '{print $1}')"
-  remote_hash="$("$adb_bin" -s "$quest_serial" shell run-as "$package_id" sha256sum files/game-data/MW2.PRJ 2>/dev/null | awk '{print $1}' || true)"
-  if [[ "$local_hash" == "$remote_hash" ]]; then
-    printf 'Quest game data already matches the local MW2.PRJ.\n'
+    printf 'No local MW2.PRJ copied. Existing private data is preserved; import your own file in the headset if needed.\n'
     return
   fi
-  "$adb_bin" -s "$quest_serial" push "$game_data_path" "$staging_path"
-  "$adb_bin" -s "$quest_serial" shell run-as "$package_id" mkdir -p files/game-data
-  "$adb_bin" -s "$quest_serial" shell run-as "$package_id" cp "$staging_path" files/game-data/MW2.PRJ
-  "$adb_bin" -s "$quest_serial" shell rm "$staging_path"
-  remote_hash="$("$adb_bin" -s "$quest_serial" shell run-as "$package_id" sha256sum files/game-data/MW2.PRJ | awk '{print $1}')"
+  local_hash="$(shasum -a 256 "$game_data_path" | awk '{print $1}')"
+  remote_hash="$("$adb_bin" -s "$quest_serial" shell sha256sum "$staging_path" 2>/dev/null | awk '{print $1}' || true)"
+  if [[ "$local_hash" == "$remote_hash" ]]; then
+    printf 'Downloads/MechRewired/MW2.PRJ already matches your local file.\n'
+  else
+    "$adb_bin" -s "$quest_serial" shell mkdir -p /sdcard/Download/MechRewired
+    "$adb_bin" -s "$quest_serial" push "$game_data_path" "$staging_path"
+    remote_hash="$("$adb_bin" -s "$quest_serial" shell sha256sum "$staging_path" | awk '{print $1}')"
+  fi
   if [[ "$local_hash" != "$remote_hash" ]]; then
     printf 'Quest game data checksum does not match the local file.\n' >&2
     exit 1
   fi
-  printf 'Installed and verified Quest game data.\n'
+  printf 'Verified your file in Downloads/MechRewired. In MechRewired select IMPORT MW2.PRJ to copy it into private app storage.\n'
+}
+
+build_quest() {
+  local output_path="$1" signing_dir signing_key signing_password
+  signing_dir="${QUEST_SIGNING_DIR:-$HOME/Library/Application Support/MechRewired/signing}"
+  signing_key="$signing_dir/mechrewired-release.keystore"
+  signing_password="$signing_dir/keystore-password"
+  if [[ ! -f "$signing_key" ]]; then
+    if [[ -e "$signing_password" ]]; then
+      printf 'Signing password exists without its key. Restore the original key before building.\n' >&2
+      exit 1
+    fi
+    mkdir -p "$signing_dir"
+    chmod 700 "$signing_dir"
+    (umask 077; openssl rand -hex 32 > "$signing_password")
+    "$JAVA_HOME/bin/keytool" -genkeypair -keystore "$signing_key" \
+      -storetype JKS -alias mechrewired -keyalg RSA -keysize 2048 -validity 10000 \
+      -dname 'CN=DeanTheCoder, O=MechRewired, C=GB' \
+      -storepass:file "$signing_password" -keypass:file "$signing_password"
+    chmod 600 "$signing_key"
+  fi
+  if [[ ! -f "$signing_password" ]]; then
+    printf 'Signing password missing. Restore the original password file before building.\n' >&2
+    exit 1
+  fi
+  export GODOT_ANDROID_KEYSTORE_RELEASE_PATH="$signing_key"
+  export GODOT_ANDROID_KEYSTORE_RELEASE_USER=mechrewired
+  export GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD="$(cat "$signing_password")"
+  if [[ ! -f "$project_dir/MechRewired.sln" ]]; then
+    printf 'Missing project-local MechRewired.sln required for Godot Android .NET export.\n' >&2
+    exit 1
+  fi
+  mkdir -p "$(dirname "$output_path")"
+  project_config_backup="$(mktemp "${TMPDIR:-/tmp}/mechrewired-project.XXXXXX")"
+  cp "$project_dir/project.godot" "$project_config_backup"
+  trap restore_project_config EXIT
+  if [[ ! -f "$project_dir/android/.build_version" || ! -f "$project_dir/android/build/gradlew" ]]; then
+    printf 'Installing the matching Android build template.\n'
+    "$godot_bin" --headless --path "$project_dir" --xr-mode off \
+      --install-android-build-template --export-release 'Quest Alpha' "$output_path"
+  fi
+  main_manifest="$project_dir/android/build/src/main/AndroidManifest.xml"
+  manifest_backup="$(mktemp "${TMPDIR:-/tmp}/mechrewired-manifest.XXXXXX")"
+  cp "$main_manifest" "$manifest_backup"
+  # Meta requires head tracking; merge required=true into the generated manifest.
+  if ! rg -q 'android.hardware.vr.headtracking' "$main_manifest"; then
+    perl -0pi -e 's#(<supports-screens)#<uses-feature android:name="android.hardware.vr.headtracking" android:required="true" android:version="1" />\n\n    $1#' "$main_manifest"
+  fi
+  "$godot_bin" --headless --path "$project_dir" --xr-mode off \
+    --export-release 'Quest Alpha' "$output_path"
+  restore_project_config
+  trap - EXIT
+  printf 'Built release APK: %s\n' "$output_path"
 }
 
 case "${1:-install}" in
@@ -120,34 +171,27 @@ case "${1:-install}" in
     connect_quest enable_wifi
     printf 'Quest connected: %s\n' "$quest_serial"
     ;;
+  share)
+    build_quest "$project_dir/builds/MechRewired-Alpha.apk"
+    printf 'Nothing was uploaded. Publish this APK to the private Meta Alpha channel separately to update testers.\n'
+    printf 'Back up the signing directory securely: %s\n' "${QUEST_SIGNING_DIR:-$HOME/Library/Application Support/MechRewired/signing}"
+    ;;
   build|install)
     if [[ "${1:-install}" == install ]]; then
       connect_quest
     fi
-    if [[ ! -f "$project_dir/MechRewired.sln" ]]; then
-      printf 'Missing MechRewired/MechRewired.sln; Godot Android .NET export requires the project-local solution.\n' >&2
-      exit 1
-    fi
-    mkdir -p "$(dirname "$apk_path")"
-    template_args=()
-    if [[ ! -f "$project_dir/android/.build_version" || ! -f "$project_dir/android/build/gradlew" ]]; then
-      printf 'Installing the Android build template for the current Godot version.\n'
-      template_args+=(--install-android-build-template)
-    fi
-    # Godot may rewrite settings during export. Preserve the authored configuration,
-    # including Android overrides and any local changes, even when export fails.
-    project_config_backup="$(mktemp "${TMPDIR:-/tmp}/mechrewired-project.XXXXXX")"
-    cp "$project_dir/project.godot" "$project_config_backup"
-    trap restore_project_config EXIT
-    "$godot_bin" --headless --path "$project_dir" --xr-mode off \
-      ${template_args[@]+"${template_args[@]}"} --export-debug 'Quest 3 (setup required)' "$apk_path"
-    restore_project_config
-    trap - EXIT
-    printf 'Built debug APK: %s\n' "$apk_path"
+    build_quest "$apk_path"
     if [[ "${1:-install}" == install ]]; then
-      "$adb_bin" -s "$quest_serial" install -r "$apk_path"
+      if ! install_result="$("$adb_bin" -s "$quest_serial" install -r "$apk_path" 2>&1)"; then
+        printf '%s\n' "$install_result" >&2
+        if [[ "$install_result" == *INSTALL_FAILED_UPDATE_INCOMPATIBLE* ]]; then
+          printf 'The installed copy uses a different signing key. Migration requires backing up its private MW2.PRJ and your approval before removing it. Nothing was uninstalled or cleared.\n' >&2
+        fi
+        exit 1
+      fi
+      printf '%s\n' "$install_result"
       install_game_data
-      printf 'Installed debug APK and game data on Quest.\n'
+      printf 'Installed release APK locally. No Meta channel or tester build was changed.\n'
     fi
     ;;
   data)
@@ -155,7 +199,7 @@ case "${1:-install}" in
     install_game_data
     ;;
   *)
-    printf 'Usage: scripts/quest.sh [build|install|connect|data]\n' >&2
+    printf 'Usage: scripts/quest.sh [build|install|connect|data|share]\n' >&2
     exit 2
     ;;
 esac

@@ -53,6 +53,19 @@ Imports use Godot's `user://game-data` directory, outside the application and re
 | Windows | `%APPDATA%/Godot/app_userdata/MechRewired/game-data/` |
 | macOS | `~/Library/Application Support/Godot/app_userdata/MechRewired/game-data/` |
 | Linux | `~/.local/share/godot/app_userdata/MechRewired/game-data/` (or under `XDG_DATA_HOME`) |
+| Meta Quest | private app storage, selected through the headset's Android file picker |
+
+## Meta Quest setup
+
+The Quest build does not contain any original game data. Copy your own compatible `MW2.PRJ` to
+`Downloads/MechRewired/MW2.PRJ` on the headset, open MechRewired, point at **IMPORT MW2.PRJ**,
+and pull the right trigger. The Android picker grants access only to the file you choose. MechRewired
+copies it into its private `user://game-data` storage, validates it before replacing existing imported
+data, and starts the game when validation succeeds.
+
+The startup log prints the SHA-256 of each validated private `MW2.PRJ`; this can confirm provisioning
+without exposing the archive outside the app. A local Quest install does not upload game data or publish
+an update to other testers.
 
 To reopen setup, launch the exported application with `-- --setup`, or from the repository:
 

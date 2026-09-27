@@ -10,6 +10,9 @@ TestResults/
 **/.godot/
 export.cfg
 export_credentials.cfg
+*.keystore
+*.jks
+keystore-password
 
 # IDE and user state
 .idea/

@@ -13,6 +13,7 @@ using Godot;
 using MechRewired.Missions;
 using MechRewired.Resources;
 using MechRewired.Simulation;
+using System.Security.Cryptography;
 using System.Globalization;
 
 namespace MechRewired;
@@ -125,8 +126,11 @@ public partial class Main : Node3D
                 GetTree().Quit(1);
                 return;
             }
-            QuestVrRuntime.ShowStartupMessage(this,
-                "MECHREWIRED / GAME DATA REQUIRED\n\nCopy your DOS game files to the app's\ngame-data folder, then restart.\nSee docs/QUEST_VR.md.\n\n" + error);
+            AddChild(new QuestVrDataSetup(ImportedDataDirectory, error, file =>
+            {
+                m_gameDataDirectory = file.Directory;
+                ContinueStartup(OpenValidatedGameArchive(file));
+            }));
             return;
         }
         var setup = new GameDataSetupScreen(ImportedDataDirectory, error);
@@ -135,7 +139,7 @@ public partial class Main : Node3D
             m_gameDataDirectory = file.Directory;
             setup.Hide();
             setup.QueueFree();
-            ContinueStartup(MechWarriorDataInstaller.OpenValidatedArchive(file));
+            ContinueStartup(OpenValidatedGameArchive(file));
         };
         AddChild(setup);
     }
@@ -325,7 +329,7 @@ public partial class Main : Node3D
             if (!m_gameDataDirectory.Exists)
                 return false;
             var projectArchive = MechWarriorResourceCheck.CheckDosFiles(m_gameDataDirectory);
-            archive = MechWarriorDataInstaller.OpenValidatedArchive(projectArchive);
+            archive = OpenValidatedGameArchive(projectArchive);
             GD.Print($"MechRewired: indexed {archive.Entries.Count:N0} resources from {projectArchive.Name} ({projectArchive.Length:N0} bytes).");
             return true;
         }
@@ -335,6 +339,15 @@ public partial class Main : Node3D
             GD.PushWarning($"MechRewired cannot load original game data: {error}");
             return false;
         }
+    }
+
+    private static MechWarriorProjectArchive OpenValidatedGameArchive(FileInfo projectArchive)
+    {
+        var archive = MechWarriorDataInstaller.OpenValidatedArchive(projectArchive);
+        using var stream = File.OpenRead(projectArchive.FullName);
+        var fingerprint = Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
+        GD.Print($"MechRewired: validated private MW2.PRJ SHA-256 {fingerprint}.");
+        return archive;
     }
 
 #if DEBUG
