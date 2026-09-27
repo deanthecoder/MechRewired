@@ -13,6 +13,7 @@ export_credentials.cfg
 *.keystore
 *.jks
 keystore-password
+MechRewired/TestData/
 
 # IDE and user state
 .idea/

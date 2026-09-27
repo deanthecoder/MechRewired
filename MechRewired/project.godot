@@ -34,7 +34,7 @@ project/assembly_name="MechRewired"
 
 [editor_plugins]
 
-enabled=PackedStringArray("res://addons/console/plugin.cfg")
+enabled=PackedStringArray("res://addons/console/plugin.cfg", "res://addons/quest_export/plugin.cfg")
 
 [rendering]
 

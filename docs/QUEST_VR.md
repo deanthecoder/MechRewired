@@ -2,25 +2,87 @@
 
 The Quest build is a seated-cockpit VR build. It starts the Wolf desert campaign
 directly once compatible game data is present. If it is missing, VR shows a
-readable setup message; the desktop drag-and-drop importer is not available in VR.
+setup panel with a native Android file picker to import your own `MW2.PRJ`;
+the desktop drag-and-drop importer is not available in VR.
 Use `-- --vr-preview` for a flat desktop preview, or
 `--xr-mode on --rendering-method mobile -- --vr` for a PC OpenXR headset.
 
-## Export prerequisites
+## Release builds
 
-Use the .NET edition of Godot 4.7.1 that matches the project, with the matching
-Android export templates. Configure a JDK 17 or newer and Android SDK in
-**Editor Settings > Export > Android**. Then open `MechRewired/project.godot`
-and choose **Project > Install Android Build Template**. The generated
-`MechRewired/android/` directory is local build scaffolding and is not tracked.
+On macOS, the repository script builds the signed release APKs with the .NET
+edition of Godot 4.7.1, its matching Android export templates, JDK 17, and the
+Android SDK. Godot's .NET exporter also needs
+`MechRewired/MechRewired.sln` beside `project.godot`; the repository solution at
+the parent level is for desktop builds and tests. The script installs the
+matching Android build template when it is missing and preserves the authored
+`project.godot` settings.
 
-The checked-in **Quest 3 (setup required)** Android preset selects arm64, Gradle,
-Godot's Mobile renderer, and OpenXR Android mode. It creates
-`MechRewired/builds/MechRewired-Quest3.apk`. No original game files belong in an
-APK, Git, or the generated Android template.
-Godot's .NET exporter also needs `MechRewired/MechRewired.sln` beside
-`project.godot`; the repository solution at the parent level is for desktop
-builds and tests.
+Run these commands from the repository root:
+
+```sh
+scripts/quest.sh build    # Build the signed release APK for local Quest install.
+scripts/quest.sh install  # Build and install it; stage local game data if present.
+scripts/quest.sh share    # Build the signed Alpha APK for a separate Meta upload.
+```
+
+`build` writes `MechRewired/builds/MechRewired-Quest3.apk`.
+`share` writes `MechRewired/builds/MechRewired-Alpha.apk`. It only creates the
+APK; publish it separately to the private Meta Alpha channel to update testers.
+`install` installs the Quest3 release APK on the connected headset. It does not
+upload or change a Meta channel or tester build.
+
+The script uses Meta Quest Developer Hub's bundled ADB when available and
+Android SDK ADB otherwise. Connect the Quest over USB and accept its debugging
+prompt for initial setup, then run `scripts/quest.sh connect` to enable Wi-Fi
+ADB. The script remembers the headset address and reconnects automatically;
+use `QUEST_HOST=<headset-ip> scripts/quest.sh install` if its IP changes.
+
+The release signing key and password are shared across these builds and stored
+outside the repository at
+`~/Library/Application Support/MechRewired/signing/mechrewired-release.keystore`
+and `~/Library/Application Support/MechRewired/signing/keystore-password`.
+Back up both files securely and preserve this same key for future updates. Set
+`QUEST_SIGNING_DIR` to use the same key from another machine or location. If an
+installed app was signed with a different key, Android rejects the update. The
+script does not uninstall or clear that app; removing it deletes its private
+app data, including an imported `MW2.PRJ`, so migration requires backing up that
+data and explicit approval first.
+
+## Install and import game data
+
+By default, APKs built by `build`, `install`, or `share` do not include original
+game data. For private Alpha testing with your own local archive, explicitly opt
+in when building the Alpha APK:
+
+```sh
+QUEST_INCLUDE_TEST_DATA=1 scripts/quest.sh share
+```
+
+The command includes `local/game-data/MW2.PRJ`, or the file selected with
+`MW2_PRJ=/path/to/MW2.PRJ`, in that APK. Upload an opted-in APK only to the
+private Meta Alpha channel for the intended testers. Never commit the archive
+to Git or distribute that APK publicly or through a Production channel. `share`
+only builds the APK; it does not upload it. See [GAME_DATA.md](GAME_DATA.md)
+for compatible editions and licensing notes.
+
+By default, `install` looks for `local/game-data/MW2.PRJ`; set
+`MW2_PRJ=/path/to/MW2.PRJ` to use a different file. If found, the script copies
+it to `Downloads/MechRewired/MW2.PRJ` on the headset and verifies its SHA-256.
+This only stages the file in Downloads. In the headset, select **IMPORT
+MW2.PRJ**, choose `Downloads/MechRewired/MW2.PRJ` in the Android file picker,
+and confirm the import to copy it into the app's private storage. If the script
+reports that no local file was copied, place your own `MW2.PRJ` in that
+Downloads folder yourself, then import it from the headset. The app starts the
+mission after a successful import. An opted-in private Alpha APK imports its
+bundled archive on startup only when no private archive is already present, so
+an existing imported archive is preserved.
+
+Use `scripts/quest.sh data` to stage or verify the local file without rebuilding
+or reinstalling. Matching staged data is left in place; a changed local file is
+copied and checked. If no local archive exists, existing headset data is
+preserved. Set `GODOT_BIN`, `ANDROID_HOME`, `JAVA_HOME`, and `ADB_BIN` to
+override tool locations; use `ANDROID_SERIAL` to select one of multiple
+headsets, or `QUEST_ADDRESS_FILE` to change the local address cache.
 
 ## Controls exposed to the VR rig
 
@@ -46,65 +108,6 @@ to cycle weapons. Squeeze the left index trigger to select the next target;
 hold the left grip for jump jets. A and B also cycle weapons and targets,
 respectively. X inspects, Y recentres, and left Menu pauses.
 
-## Install and game data
-
-On macOS, run these from the repository root:
-
-```sh
-scripts/quest.sh build    # Build the debug APK only.
-scripts/quest.sh install  # Build, install, and verify/copy private MW2.PRJ data.
-```
-
-The script uses Developer Hub's bundled ADB when installed, with Android SDK ADB
-as a fallback. It installs the project Android build template when missing,
-using the matching export templates installed for the current Godot version.
-Export preserves the authored `project.godot` settings and local edits.
-It selects the Quest explicitly, preferring Wi-Fi over USB, and
-remembers its Wi-Fi address for automatic reconnection. Connect USB and accept
-debugging for the initial setup, then run `scripts/quest.sh connect` to enable
-Wi-Fi ADB. Unplug USB and use `install` on the same network. A headset reboot may
-require enabling Wi-Fi ADB over USB again. If its IP changes, use
-`QUEST_HOST=<headset-ip> scripts/quest.sh install`.
-
-Game data defaults to `local/game-data/MW2.PRJ`; set `MW2_PRJ=/path/to/MW2.PRJ`
-to override it. Matching data is left in place; changed data is copied and
-checked with SHA-256. If no local archive exists, an existing nonempty headset
-archive is preserved. `scripts/quest.sh data` copies/verifies data without a
-build. Restart the app after changing data. Original data stays outside the APK
-and Git.
-
-`GODOT_BIN`, `ANDROID_HOME`, `JAVA_HOME`, and `ADB_BIN` override tool locations.
-Set `ANDROID_SERIAL` to choose between multiple headsets, or `QUEST_ADDRESS_FILE`
-to override the local address cache. The output is
-`MechRewired/builds/MechRewired-Quest3.apk`.
-
-Enable Developer Mode on the Quest, connect it by USB, and accept the headset's
-USB-debugging prompt. Export from Godot and install the resulting APK with the
-Godot editor or `adb install -r MechRewired/builds/MechRewired-Quest3.apk`.
-
-The APK intentionally contains no MechWarrior 2 files. For this prototype,
-export a **debug** APK, launch it once from **Unknown Sources**, and sideload
-your compatible DOS `MW2.PRJ` into `user://game-data`. The runtime prints the
-resolved directory to the Godot log. With the default Android data location:
-
-```powershell
-adb push "C:\path\to\your\MW2.PRJ" /data/local/tmp/MechRewired-MW2.PRJ
-adb shell run-as uk.co.deanthecoder.mechrewired mkdir -p files/game-data
-adb shell run-as uk.co.deanthecoder.mechrewired cp /data/local/tmp/MechRewired-MW2.PRJ files/game-data/MW2.PRJ
-adb shell rm /data/local/tmp/MechRewired-MW2.PRJ
-```
-
-Restart the app after copying. `run-as` requires a debuggable package; this
-copy was verified on a Quest 3 debug build. For desktop debug
-preview, place your data in `local/game-data/`. See [GAME_DATA.md](GAME_DATA.md)
-for compatible editions and licensing notes. Original assets stay untracked.
-
-Validate the APK on the headset after export: confirm OpenXR enters VR, the
-seated cockpit is comfortable, the controls above reach the rig, and the Wolf
-desert mission begins after copying the data. `Escape` opens the preview pause
-menu and keeps mouse interaction available there. A desktop build or headless
-Godot run does not prove Android/.NET export or headset behaviour.
-
 ## WIP scope and verification
 
 Looking around does not aim the weapons; the right stick controls torso pitch.
@@ -128,6 +131,8 @@ SSAO, screen-space reflections and the unverified stereo lens-flare compositor
 are disabled. Mobile does not create the localized volumetric ground fog.
 Options currently last for the mission session. The menu displays the most
 recent running FPS/frame interval, **not GPU time or a paused benchmark**.
+
+## Historical debug validation
 
 In a debug build with original data installed, run Godot with
 `-- --vr-preview --vr-smoke` to exercise synthetic XR controller input, latched

@@ -57,7 +57,7 @@ Imports use Godot's `user://game-data` directory, outside the application and re
 
 ## Meta Quest setup
 
-The Quest build does not contain any original game data. Copy your own compatible `MW2.PRJ` to
+Standard Quest builds do not contain original game data. Copy your own compatible `MW2.PRJ` to
 `Downloads/MechRewired/MW2.PRJ` on the headset, open MechRewired, point at **IMPORT MW2.PRJ**,
 and pull the right trigger. The Android picker grants access only to the file you choose. MechRewired
 copies it into its private `user://game-data` storage, validates it before replacing existing imported
@@ -66,6 +66,10 @@ data, and starts the game when validation succeeds.
 The startup log prints the SHA-256 of each validated private `MW2.PRJ`; this can confirm provisioning
 without exposing the archive outside the app. A local Quest install does not upload game data or publish
 an update to other testers.
+
+For this private testing Alpha, the optional `QUEST_INCLUDE_TEST_DATA=1` build includes the
+local archive and imports it automatically on first launch. This preserves any existing private
+archive. Keep data-inclusive builds on the private Alpha channel; see [QUEST_VR.md](QUEST_VR.md).
 
 To reopen setup, launch the exported application with `-- --setup`, or from the repository:
 

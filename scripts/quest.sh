@@ -89,6 +89,15 @@ restore_project_config() {
     cp "$manifest_backup" "$main_manifest"
     rm -f "$manifest_backup"
   fi
+  if [[ -n "${preset_backup:-}" && -f "$preset_backup" ]]; then
+    cp "$preset_backup" "$project_dir/export_presets.cfg"
+    rm -f "$preset_backup"
+  fi
+  if [[ "${staged_test_data:-false}" == true ]]; then
+    rm -f "$project_dir/TestData/MW2.PRJ"
+    rmdir "$project_dir/TestData"
+    staged_test_data=false
+  fi
 }
 
 install_game_data() {
@@ -147,6 +156,19 @@ build_quest() {
   project_config_backup="$(mktemp "${TMPDIR:-/tmp}/mechrewired-project.XXXXXX")"
   cp "$project_dir/project.godot" "$project_config_backup"
   trap restore_project_config EXIT
+  if [[ "${QUEST_INCLUDE_TEST_DATA:-0}" == 1 ]]; then
+    if [[ ! -f "$game_data_path" || -e "$project_dir/TestData" ]]; then
+      printf 'Private test data requires a local MW2.PRJ and no existing project TestData directory.\n' >&2
+      exit 1
+    fi
+    preset_backup="$(mktemp "${TMPDIR:-/tmp}/mechrewired-presets.XXXXXX")"
+    cp "$project_dir/export_presets.cfg" "$preset_backup"
+    mkdir "$project_dir/TestData"
+    staged_test_data=true
+    cp "$game_data_path" "$project_dir/TestData/MW2.PRJ"
+    perl -0pi -e 's/include_filter=""/include_filter="TestData\/MW2.PRJ"/g; s/,\*\*\/MW2.PRJ,\*\*\/mw2.prj//g' "$project_dir/export_presets.cfg"
+    printf 'Including your MW2.PRJ in this private test APK. Do not publish it to Production.\n'
+  fi
   if [[ ! -f "$project_dir/android/.build_version" || ! -f "$project_dir/android/build/gradlew" ]]; then
     printf 'Installing the matching Android build template.\n'
     "$godot_bin" --headless --path "$project_dir" --xr-mode off \

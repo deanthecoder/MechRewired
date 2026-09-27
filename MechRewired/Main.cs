@@ -42,6 +42,8 @@ public partial class Main : Node3D
     private const float MinimumFogDistance = 300.0f;
     private const float MaximumFogDistance = 5000.0f;
     private const float MinimumSceneryObstacleHeight = 5.0f;
+    private const long MaximumBundledProjectArchiveBytes = 256L * 1024 * 1024;
+    private const string BundledPrivateTestArchivePath = "res://TestData/MW2.PRJ";
     private const string WolfScenarioPath = "BWD/YELLSCN1.BWD";
     private const string WolfPlayerMechPath = "MEK/MDG00STD.MEK";
     private const string JadeFalconScenarioPath = "BWD/PINKSCN1.BWD";
@@ -326,8 +328,21 @@ public partial class Main : Node3D
                     m_gameDataDirectory = localData;
             }
 #endif
-            if (!m_gameDataDirectory.Exists)
-                return false;
+            var existingArchive = new FileInfo(Path.Combine(
+                m_gameDataDirectory.FullName,
+                MechWarriorDataFile.ProjectArchive));
+            if (!existingArchive.Exists)
+            {
+                if (OS.HasFeature("android") &&
+                    Godot.FileAccess.FileExists(BundledPrivateTestArchivePath))
+                {
+                    InstallBundledPrivateTestArchive();
+                }
+                else
+                {
+                    return false;
+                }
+            }
             var projectArchive = MechWarriorResourceCheck.CheckDosFiles(m_gameDataDirectory);
             archive = OpenValidatedGameArchive(projectArchive);
             GD.Print($"MechRewired: indexed {archive.Entries.Count:N0} resources from {projectArchive.Name} ({projectArchive.Length:N0} bytes).");
@@ -338,6 +353,67 @@ public partial class Main : Node3D
             error = exception.Message;
             GD.PushWarning($"MechRewired cannot load original game data: {error}");
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Imports a deliberately packaged private-test archive on first Android launch.
+    /// </summary>
+    /// <remarks>
+    /// The normal export contains no archive. The existence gate means this path is only available to a
+    /// private test APK that has explicitly staged <c>TestData/MW2.PRJ</c>, and never overwrites app data.
+    /// </remarks>
+    private static void InstallBundledPrivateTestArchive()
+    {
+        var destination = ImportedDataDirectory;
+        var existingArchive = new FileInfo(Path.Combine(
+            destination.FullName,
+            MechWarriorDataFile.ProjectArchive));
+        if (existingArchive.Exists)
+            return;
+
+        var stagingPath = $"user://.mw2-private-test-import-{Guid.NewGuid():N}";
+        var stagingDirectory = new DirectoryInfo(ProjectSettings.GlobalizePath(stagingPath));
+        stagingDirectory.Create();
+        try
+        {
+            GD.Print("MechRewired: importing bundled private test MW2.PRJ into app storage.");
+            var stagedArchivePath = stagingPath + "/MW2.PRJ";
+            CopyBundledPrivateTestArchive(stagedArchivePath);
+            var installed = MechWarriorDataInstaller.Install(
+                ProjectSettings.GlobalizePath(stagedArchivePath), destination);
+            GD.Print($"MechRewired: bundled private test MW2.PRJ imported ({installed.Length:N0} bytes).");
+        }
+        finally
+        {
+            if (stagingDirectory.Exists)
+            {
+                try
+                {
+                    stagingDirectory.Delete(true);
+                }
+                catch (Exception exception)
+                {
+                    GD.PushWarning($"MechRewired: bundled private test import cleanup: {exception.Message}");
+                }
+            }
+        }
+    }
+
+    private static void CopyBundledPrivateTestArchive(string destinationPath)
+    {
+        using var source = Godot.FileAccess.Open(BundledPrivateTestArchivePath, Godot.FileAccess.ModeFlags.Read)
+            ?? throw new IOException($"The bundled private test MW2.PRJ could not be opened ({Godot.FileAccess.GetOpenError()}).");
+        if (source.GetLength() > MaximumBundledProjectArchiveBytes)
+            throw new InvalidDataException("The bundled private test MW2.PRJ exceeds the 256 MB import limit.");
+        using var destination = Godot.FileAccess.Open(destinationPath, Godot.FileAccess.ModeFlags.Write)
+            ?? throw new IOException($"Private app storage could not be opened ({Godot.FileAccess.GetOpenError()}).");
+        while (!source.EofReached())
+        {
+            var bytes = source.GetBuffer(64 * 1024);
+            if (bytes.Length == 0)
+                break;
+            destination.StoreBuffer(bytes);
         }
     }
 
