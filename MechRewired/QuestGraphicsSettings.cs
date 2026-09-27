@@ -14,6 +14,8 @@ namespace MechRewired;
 public sealed class QuestGraphicsSettings
 {
     private readonly MissionSkyController m_sky;
+    private readonly PlayerHud m_hud;
+    private readonly float m_defaultHudGlow;
     private readonly PlayerCockpit m_cockpit;
     private readonly IReadOnlyList<ShaderMaterial> m_terrainMaterials;
     private readonly BattlefieldEffects m_effects;
@@ -21,11 +23,14 @@ public sealed class QuestGraphicsSettings
 
     public QuestGraphicsSettings(
         MissionSkyController sky,
+        PlayerHud hud,
         PlayerCockpit cockpit = null,
         IEnumerable<ShaderMaterial> terrainMaterials = null,
         BattlefieldEffects effects = null)
     {
         m_sky = sky ?? throw new ArgumentNullException(nameof(sky));
+        m_hud = hud ?? throw new ArgumentNullException(nameof(hud));
+        m_defaultHudGlow = hud.HudGlow;
         m_cockpit = cockpit;
         m_effects = effects;
         m_terrainMaterials = terrainMaterials?.Where(material => material != null).Distinct().ToArray() ?? [];
@@ -38,6 +43,7 @@ public sealed class QuestGraphicsSettings
         AmbientOcclusionEnabled = false;
         ScreenReflectionsEnabled = false;
         GlowEnabled = false;
+        HudGlowEnabled = false;
         // The compositor flare has not been validated in stereo, so it remains unavailable
         // from the headset menu and disabled for the Quest baseline.
         LensFlareEnabled = false;
@@ -68,6 +74,12 @@ public sealed class QuestGraphicsSettings
     {
         get => m_sky.GlowEnabled;
         set => m_sky.GlowEnabled = value;
+    }
+
+    public bool HudGlowEnabled
+    {
+        get => m_hud.HudGlow > 0.0f;
+        set => m_hud.HudGlow = value ? m_defaultHudGlow : 0.0f;
     }
 
     public bool LensFlareEnabled

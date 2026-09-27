@@ -311,10 +311,10 @@ public partial class PlayerMech : Node3D
         return VrRig;
     }
 
-    public void SetVrAim(float yaw, float pitch)
+    public void SetVrPitch(float pitch)
     {
         if (IsDestroyed || IsShutdown) return;
-        m_targetTorsoYaw = Mathf.Clamp(yaw, -MaximumTorsoYaw, MaximumTorsoYaw);
+        m_targetTorsoYaw = 0.0f;
         m_targetTorsoPitch = Mathf.Clamp(pitch, MinimumTorsoPitch, MaximumTorsoPitch);
     }
 
@@ -811,7 +811,7 @@ public partial class PlayerMech : Node3D
         UpdateDisplayZoom((float)delta);
         var thrustRequested = !IsShutdown &&
                               !IsImmobilized &&
-                              Input.IsPhysicalKeyPressed(Key.J);
+                              (IsVr ? VrRig.JumpJetsRequested : Input.IsPhysicalKeyPressed(Key.J));
         if (IsShutdown)
         {
             AdvanceShutdownBraking(delta);

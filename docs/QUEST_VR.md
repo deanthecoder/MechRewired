@@ -40,10 +40,11 @@ can read the following names from its left or right controller tracker:
 The seated mapping currently uses the left thumbstick for signed, persistent
 throttle: 20–100% forward, through neutral, then reverse. Click it to stop;
 return it to neutral before choosing another throttle. The right thumbstick
-turns the torso, the right trigger repeats the selected weapon, and the left
-trigger controls relative head aim. A selects the next weapon, B selects a
-target, X inspects, Y recentres, and left Menu pauses. Jump jets are not mapped
-for the initial Quest build.
+steers the mech left/right and pitches the torso up/down. Torso yaw is disabled.
+Hold the right index trigger to fire the selected weapon; squeeze the right grip
+to cycle weapons. Squeeze the left index trigger to select the next target;
+hold the left grip for jump jets. A and B also cycle weapons and targets,
+respectively. X inspects, Y recentres, and left Menu pauses.
 
 ## Install and game data
 
@@ -55,7 +56,10 @@ scripts/quest.sh install  # Build, install, and verify/copy private MW2.PRJ data
 ```
 
 The script uses Developer Hub's bundled ADB when installed, with Android SDK ADB
-as a fallback. It selects the Quest explicitly, preferring Wi-Fi over USB, and
+as a fallback. It installs the project Android build template when missing,
+using the matching export templates installed for the current Godot version.
+Export preserves the authored `project.godot` settings and local edits.
+It selects the Quest explicitly, preferring Wi-Fi over USB, and
 remembers its Wi-Fi address for automatic reconnection. Connect USB and accept
 debugging for the initial setup, then run `scripts/quest.sh connect` to enable
 Wi-Fi ADB. Unplug USB and use `install` on the same network. A headset reboot may
@@ -90,8 +94,8 @@ adb shell run-as uk.co.deanthecoder.mechrewired cp /data/local/tmp/MechRewired-M
 adb shell rm /data/local/tmp/MechRewired-MW2.PRJ
 ```
 
-Restart the app after copying. `run-as` requires a debuggable package; these
-commands have not yet been verified against a headset build. For desktop debug
+Restart the app after copying. `run-as` requires a debuggable package; this
+copy was verified on a Quest 3 debug build. For desktop debug
 preview, place your data in `local/game-data/`. See [GAME_DATA.md](GAME_DATA.md)
 for compatible editions and licensing notes. Original assets stay untracked.
 
@@ -103,19 +107,21 @@ Godot run does not prove Android/.NET export or headset behaviour.
 
 ## WIP scope and verification
 
-Looking around does not aim the weapons. Holding the left trigger captures the
-current head and torso angles; subsequent head rotation adjusts the torso until
-release. The XR camera attaches to the seat above the synthetic camera-bob node.
+Looking around does not aim the weapons; the right stick controls torso pitch.
+The seated view is raised 12 cm and moved back 10 cm. The XR camera attaches
+to the seat above the synthetic camera-bob node.
 Headset focus/tracking loss opens the pause menu; controller loss stops throttle.
-Returning from the menu requires releasing the fire trigger before shooting.
+Returning from the menu requires releasing the fire trigger or jump-jet grip
+before either action resumes.
 
 The existing HUD, including the original chassis damage silhouette, is drawn
 onto a transparent cockpit surface. Radar, weapons, status, navigation and
 targeting can be toggled separately. Its finite-depth targeting presentation
 still needs binocular alignment/readability testing on Quest.
 
-Graphics controls currently cover shadows, glow, cockpit glass, terrain
+Graphics controls currently cover shadows, scene glow, cockpit glass, terrain
 parallax and battlefield smoke/dust. The cheap preset disables them initially.
+HUD settings also have a separate HUD glow switch, disabled by default on Quest.
 Missile trails, fire, weapon flashes and other combat feedback remain; the
 smoke/dust toggle is not a master switch for every particle in the game.
 SSAO, screen-space reflections and the unverified stereo lens-flare compositor
@@ -125,13 +131,15 @@ recent running FPS/frame interval, **not GPU time or a paused benchmark**.
 
 In a debug build with original data installed, run Godot with
 `-- --vr-preview --vr-smoke` to exercise synthetic XR controller input, latched
-throttle/stop, relative head aiming, menu fire suppression and mission-result
+throttle/stop, steering and pitch-only aim, trigger/grip controls, menu input
+suppression and mission-result
 presentation. A graphics run also captures cockpit/menu previews into the
 ignored `artifacts/` directory. This harness does not validate real tracking,
 Android drivers, stereo comfort or headset performance.
 
-On the implementation machine, the solution builds with zero warnings/errors,
-and the existing suite reports 195 passed, 10 skipped, 0 failed. Missing-data
-VR startup was exercised in Godot .NET. Full mission smoke and screenshots are
-pending because no original `MW2.PRJ` is installed here. No APK has been exported:
-matching .NET Android export templates and the Android SDK/JDK remain to be set up.
+On 27 September 2026, a debug APK was installed over Wi-Fi on a Quest 3.
+The private `MW2.PRJ` checksum matched the local archive, and the headset log
+confirmed OpenXR startup, 7,735 indexed resources, and the Wolf mission's Mad Dog
+deployment. A headset screenshot showed the cockpit and desert terrain, paused
+behind a Quest system overlay. Comfort, controller feel, and sustained performance
+still need hands-on testing.

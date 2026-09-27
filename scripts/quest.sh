@@ -80,6 +80,13 @@ apk_path="$project_dir/builds/MechRewired-Quest3.apk"
 game_data_path="${MW2_PRJ:-$repo_dir/local/game-data/MW2.PRJ}"
 package_id="uk.co.deanthecoder.mechrewired"
 
+restore_project_config() {
+  if [[ -n "${project_config_backup:-}" && -f "$project_config_backup" ]]; then
+    cp "$project_config_backup" "$project_dir/project.godot"
+    rm -f "$project_config_backup"
+  fi
+}
+
 install_game_data() {
   local staging_path=/data/local/tmp/MechRewired-MW2.PRJ local_hash remote_hash
   if [[ ! -f "$game_data_path" ]]; then
@@ -122,8 +129,20 @@ case "${1:-install}" in
       exit 1
     fi
     mkdir -p "$(dirname "$apk_path")"
+    template_args=()
+    if [[ ! -f "$project_dir/android/.build_version" || ! -f "$project_dir/android/build/gradlew" ]]; then
+      printf 'Installing the Android build template for the current Godot version.\n'
+      template_args+=(--install-android-build-template)
+    fi
+    # Godot may rewrite settings during export. Preserve the authored configuration,
+    # including Android overrides and any local changes, even when export fails.
+    project_config_backup="$(mktemp "${TMPDIR:-/tmp}/mechrewired-project.XXXXXX")"
+    cp "$project_dir/project.godot" "$project_config_backup"
+    trap restore_project_config EXIT
     "$godot_bin" --headless --path "$project_dir" --xr-mode off \
-      --export-debug 'Quest 3 (setup required)' "$apk_path"
+      ${template_args[@]+"${template_args[@]}"} --export-debug 'Quest 3 (setup required)' "$apk_path"
+    restore_project_config
+    trap - EXIT
     printf 'Built debug APK: %s\n' "$apk_path"
     if [[ "${1:-install}" == install ]]; then
       "$adb_bin" -s "$quest_serial" install -r "$apk_path"

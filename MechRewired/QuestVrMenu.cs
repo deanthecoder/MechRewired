@@ -67,12 +67,13 @@ public sealed partial class QuestVrMenu : Node3D
         AddAction("GRAPHICS SETTINGS  >", () => SetPage(1));
         AddAction("HUD SETTINGS  >", () => SetPage(2));
         AddToggle("SUN SHADOWS", () => m_settings.SunShadowsEnabled, value => m_settings.SunShadowsEnabled = value, 1);
-        AddToggle("GLOW", () => m_settings.GlowEnabled, value => m_settings.GlowEnabled = value, 1);
+        AddToggle("SCENE GLOW", () => m_settings.GlowEnabled, value => m_settings.GlowEnabled = value, 1);
         AddToggle("COCKPIT GLASS", () => m_settings.CockpitGlassEnabled, value => m_settings.CockpitGlassEnabled = value, 1);
         AddToggle("TERRAIN PARALLAX", () => m_settings.TerrainParallaxEnabled, value => m_settings.TerrainParallaxEnabled = value, 1);
         AddToggle("SMOKE / DUST", () => m_settings.SmokeAndDustEnabled, value => m_settings.SmokeAndDustEnabled = value, 1);
         AddAction("<  BACK", () => SetPage(0), 1);
         AddToggle("HUD RADAR", () => m_hud.ShowRadar, value => m_hud.ShowRadar = value, 2);
+        AddToggle("HUD GLOW", () => m_settings.HudGlowEnabled, value => m_settings.HudGlowEnabled = value, 2);
         AddToggle("HUD WEAPONS", () => m_hud.ShowWeapons, value => m_hud.ShowWeapons = value, 2);
         AddToggle("HUD STATUS", () => m_hud.ShowStatus, value => m_hud.ShowStatus = value, 2);
         AddToggle("HUD NAVIGATION", () => m_hud.ShowNavigation, value => m_hud.ShowNavigation = value, 2);

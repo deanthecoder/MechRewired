@@ -35,8 +35,27 @@ public partial class QuestVrSmokeCheck : Node
             await Frames(5);
             var rig = m_player.VrRig;
             Check(rig.Camera.Current && !m_player.CockpitCamera.Current, "tracked camera owns view");
+            Check(rig.Position.DistanceTo(new Vector3(0, 0.12f, 0.10f)) < 0.001f,
+                "seat is raised 12 cm and moved back 10 cm");
             Check(m_hud.GetViewport() is SubViewport && m_hud.VrSurface != null, "HUD uses stereo-visible surface");
+            Check(m_hud.HudGlow == 0.0f && rig.Menu.FindChildren("*", "Label3D", true, false)
+                .OfType<Label3D>().Any(label => label.Text == "HUD GLOW"),
+                "Quest HUD glow defaults off and has a menu switch");
             Check(rig.Left.GetIsActive() && rig.Right.GetIsActive(), "synthetic controllers tracked");
+
+            left.SetInput("primary", new Vector2(1, 0));
+            await Frames(3);
+            Check(Math.Abs(rig.Steering) < 0.001f, "left stick horizontal does not steer");
+            left.SetInput("primary", Vector2.Zero);
+            right.SetInput("primary", new Vector2(1, 0));
+            await Frames(3);
+            Check(rig.Steering < -0.5f && Math.Abs(m_player.VrAim.X) < 0.001f,
+                "right stick horizontal steers without torso yaw");
+            right.SetInput("primary", new Vector2(0, 1));
+            var pitchBeforeStick = m_player.VrAim.Y;
+            await Frames(5);
+            Check(m_player.VrAim.Y > pitchBeforeStick + 0.0001f, "right stick vertical raises torso aim");
+            right.SetInput("primary", Vector2.Zero);
 
             left.SetInput("primary", new Vector2(0, 1));
             await Frames(3);
@@ -62,36 +81,54 @@ public partial class QuestVrSmokeCheck : Node
             left.SetInput("primary", Vector2.Zero);
             m_player.StopVrMovement();
 
+            var targets = 0;
+            m_player.NextTargetRequested += () => targets++;
             var before = m_player.VrAim;
             left.SetInput("trigger", 1.0f);
             await Frames(3);
-            Check(m_player.VrAim.DistanceTo(before) < 0.001f, "head-aim clutch has no initial jump");
-            head.SetPose("default", new Transform3D(new Basis(Vector3.Up, 0.25f), Vector3.Zero), Vector3.Zero, Vector3.Zero, XRPose.TrackingConfidenceEnum.High);
+            Check(targets == 1, "left index trigger selects next target once");
+            head.SetPose("default", new Transform3D(new Basis(Vector3.Right, 0.25f), Vector3.Zero), Vector3.Zero, Vector3.Zero, XRPose.TrackingConfidenceEnum.High);
             await Frames(3);
-            Check(m_player.VrAim.X > before.X + 0.15f, "head-aim clutch follows relative yaw");
+            Check(targets == 1 && m_player.VrAim.DistanceTo(before) < 0.001f,
+                "held target trigger does not repeat or change torso aim");
             left.SetInput("trigger", 0.0f);
             await Frames(3);
-            var latchedAim = m_player.VrAim;
             head.SetPose("default", Transform3D.Identity, Vector3.Zero, Vector3.Zero, XRPose.TrackingConfidenceEnum.High);
             await Frames(3);
-            Check(m_player.VrAim.DistanceTo(latchedAim) < 0.001f, "free look leaves torso aimed");
-            m_player.SetVrAim(0, 0);
+            Check(m_player.VrAim.DistanceTo(before) < 0.001f, "free look leaves torso aimed");
+
+            var weaponCycles = 0;
+            m_player.CycleWeaponRequested += () => weaponCycles++;
+            right.SetInput("grip", 1.0f);
+            await Frames(6);
+            Check(weaponCycles == 1, "right grip cycles weapon once while held");
+            right.SetInput("grip", 0.0f);
+            left.SetInput("grip", 1.0f);
+            await Frames(5);
+            Check(rig.JumpJetsRequested && m_player.IsJumpJetThrusting, "left grip holds jump jets");
+            left.SetInput("grip", 0.0f);
+            await Frames(5);
+            Check(!rig.JumpJetsRequested && !m_player.IsJumpJetThrusting, "releasing left grip stops jump jets");
 
             var fires = 0;
             m_player.FireRequested += () => fires++;
             rig.Menu.Toggle();
             right.SetInput("trigger", 1.0f);
+            left.SetInput("grip", 1.0f);
             await Frames(3);
-            Check(GetTree().Paused && fires == 0, "menu pauses mission and suppresses firing");
+            Check(GetTree().Paused && fires == 0 && !rig.JumpJetsRequested, "menu suppresses firing and jump jets");
             rig.Menu.Close();
             await Frames(3);
-            Check(fires == 0, "held menu trigger cannot leak into firing");
+            Check(fires == 0 && !rig.JumpJetsRequested, "held menu inputs cannot fire or thrust after resume");
             right.SetInput("trigger", 0.0f);
+            left.SetInput("grip", 0.0f);
             await Frames(3);
             right.SetInput("trigger", 1.0f);
+            left.SetInput("grip", 1.0f);
             await Frames(3);
-            Check(fires > 0, "fresh trigger fires after resume");
+            Check(fires > 0 && rig.JumpJetsRequested, "fresh trigger and grip work after resume");
             right.SetInput("trigger", 0.0f);
+            left.SetInput("grip", 0.0f);
 
             // Let the original instrument power-up complete before capturing the preview.
             await Frames(160);

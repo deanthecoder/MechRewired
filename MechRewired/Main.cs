@@ -313,10 +313,14 @@ public partial class Main : Node3D
         {
             m_gameDataDirectory = ImportedDataDirectory;
 #if DEBUG
-            var projectDirectory = new DirectoryInfo(ProjectSettings.GlobalizePath("res://"));
-            var localData = new DirectoryInfo(Path.Combine(projectDirectory.FullName, "..", "local", "game-data"));
-            if (!m_gameDataDirectory.Exists && localData.Exists)
-                m_gameDataDirectory = localData;
+            // Android resources live inside the APK, so res:// is not a filesystem directory.
+            if (!OS.HasFeature("android"))
+            {
+                var projectDirectory = new DirectoryInfo(ProjectSettings.GlobalizePath("res://"));
+                var localData = new DirectoryInfo(Path.Combine(projectDirectory.FullName, "..", "local", "game-data"));
+                if (!m_gameDataDirectory.Exists && localData.Exists)
+                    m_gameDataDirectory = localData;
+            }
 #endif
             if (!m_gameDataDirectory.Exists)
                 return false;
@@ -2221,7 +2225,7 @@ public partial class Main : Node3D
         {
             var rig = playerMech.EnableVr();
             QuestVrHud.Attach(playerMech, playerHud);
-            var graphics = new QuestGraphicsSettings(missionSky, playerMech.Cockpit,
+            var graphics = new QuestGraphicsSettings(missionSky, playerHud, playerMech.Cockpit,
                 levelRoot.FindChildren("*", "MeshInstance3D", true, false)
                     .OfType<MeshInstance3D>().Select(mesh => mesh.MaterialOverride).OfType<ShaderMaterial>()
                     .Where(material => material.Shader?.Code.Contains("parallax_depth_metres") == true),
