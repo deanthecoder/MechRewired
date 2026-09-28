@@ -45,6 +45,10 @@ public partial class PlayerHud : Control
     private const float MaximumTargetFrameSize = 160.0f;
     private const float ObjectiveTargetFrameSize = 48.0f;
     private const float TargetFrameResponsePerSecond = 18.0f;
+    // The VR HUD is rendered into a transparent 1280x720 texture for both eyes.  Keeping the
+    // fixed instruments at 30 Hz avoids rebuilding their glow-heavy canvas command lists every
+    // headset frame; aiming and navigation guidance remain on a separate full-rate layer below.
+    private const float VrInstrumentRefreshSeconds = 1.0f / 30.0f;
     private const float PlayerDamageRight = 1225.0f;
     private const float PlayerDamageSize = 130.5f;
     private const float PlayerDamageCenterX = PlayerDamageRight - PlayerDamageSize * 0.5f;
@@ -77,6 +81,9 @@ public partial class PlayerHud : Control
     private Node3D m_smoothedTarget;
     private Rect2 m_smoothedTargetRect;
     private Font m_hudFont;
+    private VrTargetLayer m_vrTargetLayer;
+    private float m_vrInstrumentRefreshElapsed;
+    private Control m_drawCanvas;
 
     public bool ShowRadar { get; set; } = true;
     public bool ShowWeapons { get; set; } = true;
@@ -97,7 +104,7 @@ public partial class PlayerHud : Control
         set
         {
             m_hudGlow = Mathf.Clamp(value, 0.0f, 2.0f);
-            QueueRedraw();
+            RedrawAllVrLayers();
         }
     }
 
@@ -113,7 +120,7 @@ public partial class PlayerHud : Control
         set
         {
             m_hudGlowRadius = Mathf.Clamp(value, 0.0f, 32.0f);
-            QueueRedraw();
+            RedrawAllVrLayers();
         }
     }
 
@@ -141,6 +148,30 @@ public partial class PlayerHud : Control
     {
         m_hudFont = GD.Load<FontFile>("res://Assets/Fonts/Orbitron-Variable.ttf") ??
                     ThemeDB.FallbackFont;
+        Resized += RedrawAllVrLayers;
+    }
+
+    /// <summary>
+    /// Moves the head-dependent reticle and target frames onto their own CanvasItem. The remaining
+    /// instrument canvas can then retain its draw commands between 30 Hz refreshes in VR.
+    /// </summary>
+    public void EnableVrRenderCaching()
+    {
+        if (m_vrTargetLayer != null)
+        {
+            return;
+        }
+
+        m_vrTargetLayer = new VrTargetLayer(this)
+        {
+            Name = "VrDynamicTargeting",
+            MouseFilter = MouseFilterEnum.Ignore,
+            Size = Size
+        };
+        m_vrTargetLayer.SetAnchorsPreset(LayoutPreset.FullRect);
+        AddChild(m_vrTargetLayer);
+        m_vrTargetLayer.SelfModulate = SelfModulate;
+        RedrawAllVrLayers();
     }
 
     /// <summary>
@@ -194,8 +225,25 @@ public partial class PlayerHud : Control
         m_targetFrameBlend = 1.0f - MathF.Exp(-TargetFrameResponsePerSecond * (float)delta);
         SelfModulate = new Color(1.0f, 1.0f, 1.0f, m_hudPower);
 
-        if (Visible)
+        if (!Visible)
         {
+            return;
+        }
+
+        if (m_vrTargetLayer == null)
+        {
+            QueueRedraw();
+            return;
+        }
+
+        // The overlay contains projection-sensitive geometry, so it follows head motion every frame.
+        // SelfModulate is local to a CanvasItem and is therefore copied across the layer boundary.
+        m_vrTargetLayer.SelfModulate = SelfModulate;
+        m_vrTargetLayer.QueueRedraw();
+        m_vrInstrumentRefreshElapsed += (float)delta;
+        if (m_vrInstrumentRefreshElapsed >= VrInstrumentRefreshSeconds)
+        {
+            m_vrInstrumentRefreshElapsed %= VrInstrumentRefreshSeconds;
             QueueRedraw();
         }
     }
@@ -248,10 +296,7 @@ public partial class PlayerHud : Control
 
     public override void _Draw()
     {
-        m_scale = Math.Min(Size.X / ReferenceWidth, Size.Y / ReferenceHeight);
-        m_offset = new Vector2(
-            (Size.X - ReferenceWidth * m_scale) * 0.5f,
-            (Size.Y - ReferenceHeight * m_scale) * 0.5f);
+        UpdateLayout();
 
         if (ShowRadar) DrawRadar();
         if (ShowWeapons) DrawWeapons();
@@ -267,14 +312,61 @@ public partial class PlayerHud : Control
         {
             DrawCompass();
             DrawNavigationTarget();
-            DrawNavigationDirectionIndicator();
+            if (m_vrTargetLayer == null)
+            {
+                DrawNavigationDirectionIndicator();
+            }
         }
-        if (ShowTargeting)
+        if (ShowTargeting && m_vrTargetLayer == null)
         {
-            DrawCombatReticle();
-            DrawObjectiveTargets();
-            DrawSelectedTarget();
+            DrawTargeting();
         }
+    }
+
+    private void DrawTargeting()
+    {
+        DrawCombatReticle();
+        DrawObjectiveTargets();
+        DrawSelectedTarget();
+    }
+
+    private void DrawVrTargeting(Control targetLayer)
+    {
+        UpdateLayout();
+        m_drawCanvas = targetLayer;
+        try
+        {
+            // The direction indicator is projected through the cockpit glass too, so it must
+            // update with head pose alongside combat targeting rather than the cached instruments.
+            if (ShowNavigation)
+            {
+                DrawNavigationDirectionIndicator();
+            }
+
+            if (ShowTargeting)
+            {
+                DrawTargeting();
+            }
+        }
+        finally
+        {
+            m_drawCanvas = null;
+        }
+    }
+
+    private void UpdateLayout()
+    {
+        m_scale = Math.Min(Size.X / ReferenceWidth, Size.Y / ReferenceHeight);
+        m_offset = new Vector2(
+            (Size.X - ReferenceWidth * m_scale) * 0.5f,
+            (Size.Y - ReferenceHeight * m_scale) * 0.5f);
+    }
+
+    private void RedrawAllVrLayers()
+    {
+        m_vrInstrumentRefreshElapsed = 0.0f;
+        QueueRedraw();
+        m_vrTargetLayer?.QueueRedraw();
     }
 
     private Vector2 ProjectToHud(Camera3D camera, Vector3 worldPosition)
@@ -1275,12 +1367,12 @@ public partial class PlayerHud : Control
                     color.G,
                     color.B,
                     Mathf.Clamp(color.A * HudGlow * 0.24f * falloff, 0.0f, 0.40f));
-                base.DrawLine(from, to, halo, coreWidth + spread, true);
+                DrawCanvas.DrawLine(from, to, halo, coreWidth + spread, true);
             }
         }
 
         var core = color.Lightened(0.45f);
-        base.DrawLine(from, to, core, coreWidth, true);
+        DrawCanvas.DrawLine(from, to, core, coreWidth, true);
     }
 
     private Vector2 Point(float x, float y) => m_offset + new Vector2(x, y) * m_scale;
@@ -1288,6 +1380,8 @@ public partial class PlayerHud : Control
     private float LineWidth(float width) => Math.Max(width * m_scale, 1.0f);
 
     private Font HudFont => m_hudFont ?? ThemeDB.FallbackFont;
+
+    private Control DrawCanvas => m_drawCanvas ?? this;
 
     private bool IsHudGreen(Color color) =>
         Mathf.IsEqualApprox(color.R, HudGreen.R) &&
@@ -1320,7 +1414,7 @@ public partial class PlayerHud : Control
             for (var layer = 5; layer >= 1; layer--)
             {
                 var spread = GlowSpread(layer);
-                base.DrawLine(
+                DrawCanvas.DrawLine(
                     from,
                     to,
                     GlowColor(color, GlowFalloff(layer)),
@@ -1329,7 +1423,7 @@ public partial class PlayerHud : Control
             }
         }
 
-        base.DrawLine(from, to, color, width, antialiased);
+        DrawCanvas.DrawLine(from, to, color, width, antialiased);
     }
 
     private new void DrawArc(
@@ -1347,7 +1441,7 @@ public partial class PlayerHud : Control
             for (var layer = 5; layer >= 1; layer--)
             {
                 var spread = GlowSpread(layer);
-                base.DrawArc(
+                DrawCanvas.DrawArc(
                     center,
                     radius,
                     startAngle,
@@ -1359,7 +1453,7 @@ public partial class PlayerHud : Control
             }
         }
 
-        base.DrawArc(center, radius, startAngle, endAngle, pointCount, color, width, antialiased);
+        DrawCanvas.DrawArc(center, radius, startAngle, endAngle, pointCount, color, width, antialiased);
     }
 
     private new void DrawPolyline(
@@ -1373,7 +1467,7 @@ public partial class PlayerHud : Control
             for (var layer = 5; layer >= 1; layer--)
             {
                 var spread = GlowSpread(layer);
-                base.DrawPolyline(
+                DrawCanvas.DrawPolyline(
                     points,
                     GlowColor(color, GlowFalloff(layer)),
                     GlowWidth(width, spread),
@@ -1381,7 +1475,7 @@ public partial class PlayerHud : Control
             }
         }
 
-        base.DrawPolyline(points, color, width, antialiased);
+        DrawCanvas.DrawPolyline(points, color, width, antialiased);
     }
 
     private new void DrawRect(
@@ -1396,7 +1490,7 @@ public partial class PlayerHud : Control
             for (var layer = 5; layer >= 1; layer--)
             {
                 var spread = GlowSpread(layer);
-                base.DrawRect(
+                DrawCanvas.DrawRect(
                     new Rect2(rect.Position - Vector2.One * spread, rect.Size + Vector2.One * spread * 2.0f),
                     GlowColor(color, GlowFalloff(layer)),
                     filled,
@@ -1405,7 +1499,7 @@ public partial class PlayerHud : Control
             }
         }
 
-        base.DrawRect(rect, color, filled, width, antialiased);
+        DrawCanvas.DrawRect(rect, color, filled, width, antialiased);
     }
 
     private void DrawString(
@@ -1431,7 +1525,7 @@ public partial class PlayerHud : Control
                     var angle = Mathf.Tau * sample / sampleCount;
                     var offset = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * spread;
 
-                    base.DrawString(
+                    DrawCanvas.DrawString(
                         font,
                         pos + offset,
                         text,
@@ -1443,7 +1537,7 @@ public partial class PlayerHud : Control
             }
         }
 
-        base.DrawString(font, pos, text, alignment, width, fontSize, modulate);
+        DrawCanvas.DrawString(font, pos, text, alignment, width, fontSize, modulate);
     }
 
     private void DrawTextureRect(
@@ -1458,7 +1552,7 @@ public partial class PlayerHud : Control
             for (var layer = 5; layer >= 1; layer--)
             {
                 var spread = GlowSpread(layer);
-                base.DrawTextureRect(
+                DrawCanvas.DrawTextureRect(
                     texture,
                     new Rect2(rect.Position - Vector2.One * spread, rect.Size + Vector2.One * spread * 2.0f),
                     tile,
@@ -1467,7 +1561,7 @@ public partial class PlayerHud : Control
             }
         }
 
-        base.DrawTextureRect(texture, rect, tile, modulate, transpose);
+        DrawCanvas.DrawTextureRect(texture, rect, tile, modulate, transpose);
     }
 
     private void DrawText(Vector2 position, string text, Color color, int fontSize)
@@ -1512,5 +1606,18 @@ public partial class PlayerHud : Control
         Normal,
         Fullscreen,
         Hidden
+    }
+
+    /// <summary>Owns only the geometry whose screen position changes with the pilot's head or aim.</summary>
+    private sealed partial class VrTargetLayer : Control
+    {
+        private readonly PlayerHud m_owner;
+
+        public VrTargetLayer(PlayerHud owner)
+        {
+            m_owner = owner;
+        }
+
+        public override void _Draw() => m_owner.DrawVrTargeting(this);
     }
 }

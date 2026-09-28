@@ -190,24 +190,60 @@ public static class DerivedTerrainSurfaceBuilder
             indices.Add(first + 2);
         }
 
-        var surfaceTool = new SurfaceTool();
-        surfaceTool.Begin(Mesh.PrimitiveType.Triangles);
-        for (var index = 0; index < vertices.Count; index++)
+        // The normal-mapped material path derives texture coordinates from world position. The
+        // Quest UV material needs real coordinates, however. Select one stable planar projection
+        // for every face: XZ for floors and slopes, and a vertical plane for cliff faces and the
+        // sealing skirt. Split only where a source vertex participates in more than one projection
+        // plane, so the mesh keeps its normal smoothing and does not grow to one vertex per index.
+        var uvVertices = new List<NumericsVector3>(vertices.Count);
+        var uvNormals = new List<NumericsVector3>(normals.Count);
+        var uvGroundBlend = new List<float>(skirtGroundBlend.Count);
+        var uvProjections = new List<TerrainUvProjection>(vertices.Count);
+        var uvIndices = new List<int>(indices.Count);
+        var vertexByProjection = new Dictionary<(int VertexIndex, TerrainUvProjection Projection), int>();
+        for (var index = 0; index < indices.Count; index += 3)
         {
-            surfaceTool.SetNormal(ToGodot(normals[index]));
-            var color = TerrainSurfaceMaterial.DesertBaseColor;
-            color.A = skirtGroundBlend[index];
-            surfaceTool.SetColor(color);
-            surfaceTool.AddVertex(ToGodot(vertices[index]));
+            var projection = SelectUvProjection(
+                vertices[indices[index]],
+                vertices[indices[index + 1]],
+                vertices[indices[index + 2]]);
+            for (var corner = 0; corner < 3; corner++)
+            {
+                var sourceVertexIndex = indices[index + corner];
+                var key = (sourceVertexIndex, projection);
+                if (!vertexByProjection.TryGetValue(key, out var uvVertexIndex))
+                {
+                    uvVertexIndex = uvVertices.Count;
+                    vertexByProjection.Add(key, uvVertexIndex);
+                    uvVertices.Add(vertices[sourceVertexIndex]);
+                    uvNormals.Add(normals[sourceVertexIndex]);
+                    uvGroundBlend.Add(skirtGroundBlend[sourceVertexIndex]);
+                    uvProjections.Add(projection);
+                }
+
+                uvIndices.Add(uvVertexIndex);
+            }
         }
 
-        for (var index = 0; index < indices.Count; index += 3)
+        var surfaceTool = new SurfaceTool();
+        surfaceTool.Begin(Mesh.PrimitiveType.Triangles);
+        for (var index = 0; index < uvVertices.Count; index++)
+        {
+            surfaceTool.SetNormal(ToGodot(uvNormals[index]));
+            var color = TerrainSurfaceMaterial.DesertBaseColor;
+            color.A = uvGroundBlend[index];
+            surfaceTool.SetColor(color);
+            surfaceTool.SetUV(ProjectTerrainUv(uvVertices[index], uvProjections[index]));
+            surfaceTool.AddVertex(ToGodot(uvVertices[index]));
+        }
+
+        for (var index = 0; index < uvIndices.Count; index += 3)
         {
             // The derivation uses conventional upward-facing winding. Godot considers clockwise
             // triangles front-facing, so reverse each index triplet while retaining its supplied normal.
-            surfaceTool.AddIndex(indices[index]);
-            surfaceTool.AddIndex(indices[index + 2]);
-            surfaceTool.AddIndex(indices[index + 1]);
+            surfaceTool.AddIndex(uvIndices[index]);
+            surfaceTool.AddIndex(uvIndices[index + 2]);
+            surfaceTool.AddIndex(uvIndices[index + 1]);
         }
 
         var mesh = new ArrayMesh();
@@ -218,6 +254,38 @@ public static class DerivedTerrainSurfaceBuilder
 
         return mesh;
     }
+
+    private enum TerrainUvProjection
+    {
+        Xz,
+        Yz,
+        Xy
+    }
+
+    private static TerrainUvProjection SelectUvProjection(
+        NumericsVector3 first,
+        NumericsVector3 second,
+        NumericsVector3 third)
+    {
+        var faceNormal = NumericsVector3.Cross(second - first, third - first);
+        var absoluteNormal = NumericsVector3.Abs(faceNormal);
+        if (absoluteNormal.Y >= absoluteNormal.X && absoluteNormal.Y >= absoluteNormal.Z)
+        {
+            return TerrainUvProjection.Xz;
+        }
+
+        return absoluteNormal.X >= absoluteNormal.Z
+            ? TerrainUvProjection.Yz
+            : TerrainUvProjection.Xy;
+    }
+
+    private static Vector2 ProjectTerrainUv(NumericsVector3 position, TerrainUvProjection projection) => projection switch
+    {
+        TerrainUvProjection.Xz => new Vector2(position.X, position.Z),
+        TerrainUvProjection.Yz => new Vector2(position.Y, position.Z),
+        TerrainUvProjection.Xy => new Vector2(position.X, position.Y),
+        _ => throw new ArgumentOutOfRangeException(nameof(projection))
+    };
 
     private static ArrayMesh BuildGodotShadowMesh(DerivedTerrainMesh derived)
     {

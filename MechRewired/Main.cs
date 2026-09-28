@@ -1943,7 +1943,8 @@ public partial class Main : Node3D
         var terrainRocks = TerrainRockScatter.Create(
             terrainSurface,
             GetTerrainBounds(debugTriangles),
-            terrainBiome);
+            terrainBiome,
+            useQuestProfile: QuestVrRuntime.Active);
         levelRoot.AddChild(terrainRocks);
         foreach (var (actor, rootRepresentation, models) in pendingActorSettlements)
         {
@@ -2315,10 +2316,9 @@ public partial class Main : Node3D
             var rig = playerMech.EnableVr();
             QuestVrHud.Attach(playerMech, playerHud);
             var graphics = new QuestGraphicsSettings(missionSky, playerHud, playerMech.Cockpit,
-                levelRoot.FindChildren("*", "MeshInstance3D", true, false)
-                    .OfType<MeshInstance3D>().Select(mesh => mesh.MaterialOverride).OfType<ShaderMaterial>()
-                    .Where(material => material.Shader?.Code.Contains("parallax_depth_metres") == true),
-                effects: battlefieldEffects);
+                effects: battlefieldEffects,
+                terrainMaterials: levelRoot.FindChildren("*", "MeshInstance3D", true, false)
+                    .OfType<MeshInstance3D>().Select(mesh => mesh.MaterialOverride).OfType<ShaderMaterial>());
             var vrMenu = new QuestVrMenu(rig.Camera, rig.RightAim, rig.Right, graphics, playerHud,
                 rig.RecenterSeat, () =>
                 {

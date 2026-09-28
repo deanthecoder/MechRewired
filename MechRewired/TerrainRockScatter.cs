@@ -22,6 +22,9 @@ public sealed partial class TerrainRockScatter : Node3D
     private const float CellSizeMetres = 96.0f;
     private const int OuterCellRadius = 4;
     private const int DenseCellRadius = 3;
+    private const int QuestOuterCellRadius = 3;
+    private const int QuestDenseCellRadius = 2;
+    private const float QuestCandidateSpacingScale = 1.5f;
     private const float MaximumRockGroundEmbedMetres = 0.14f;
     private const int Seed = 0x4D573252;
     private static readonly string[] RockMeshPaths =
@@ -101,12 +104,14 @@ public sealed partial class TerrainRockScatter : Node3D
     private Node3D m_observer;
     private Vector2I m_observerCell;
     private bool m_hasObserverCell;
+    private bool m_useQuestProfile;
 
     /// <summary>Creates a biome-tuned, deterministic scatter stream.</summary>
     public static TerrainRockScatter Create(
         TerrainSurfaceIndex terrainSurface,
         Aabb terrainBounds,
-        MechWarriorTerrainBiome biome)
+        MechWarriorTerrainBiome biome,
+        bool useQuestProfile = false)
     {
         ArgumentNullException.ThrowIfNull(terrainSurface);
         var profile = biome == MechWarriorTerrainBiome.RockyMountain
@@ -124,6 +129,7 @@ public sealed partial class TerrainRockScatter : Node3D
         return new TerrainRockScatter
         {
             Name = "TerrainRockScatter",
+            m_useQuestProfile = useQuestProfile,
             m_terrainSurface = terrainSurface,
             m_terrainBounds = terrainBounds,
             m_meshes = meshes!,
@@ -215,15 +221,17 @@ public sealed partial class TerrainRockScatter : Node3D
         m_observerCell = observerCell;
         m_hasObserverCell = true;
         var wantedCells = new HashSet<Vector2I>();
-        for (var z = -OuterCellRadius; z <= OuterCellRadius; z++)
+        var outerRadius = m_useQuestProfile ? QuestOuterCellRadius : OuterCellRadius;
+        var denseRadius = m_useQuestProfile ? QuestDenseCellRadius : DenseCellRadius;
+        for (var z = -outerRadius; z <= outerRadius; z++)
         {
-            for (var x = -OuterCellRadius; x <= OuterCellRadius; x++)
+            for (var x = -outerRadius; x <= outerRadius; x++)
             {
                 var cell = observerCell + new Vector2I(x, z);
                 wantedCells.Add(cell);
-                // Prebuild a 7x7 dense block three cells ahead. New dense cells are therefore
-                // created around 288m away, never at the player's feet.
-                var shouldBeDense = Mathf.Abs(x) <= DenseCellRadius && Mathf.Abs(z) <= DenseCellRadius;
+                // Keep transitions away from the player's feet: two cells ahead on Quest,
+                // three on desktop. Quest also samples fewer candidates within each cell.
+                var shouldBeDense = Mathf.Abs(x) <= denseRadius && Mathf.Abs(z) <= denseRadius;
                 if (m_activeCells.TryGetValue(cell, out var activeCell) &&
                     activeCell.IsDense == shouldBeDense)
                 {
@@ -279,7 +287,8 @@ public sealed partial class TerrainRockScatter : Node3D
     {
         var placements = BuildCellPlacements(
             m_terrainSurface, m_terrainBounds, cell.X, cell.Y,
-            dense ? m_profile.DenseCandidateSpacingMetres : m_profile.SparseCandidateSpacingMetres,
+            (dense ? m_profile.DenseCandidateSpacingMetres : m_profile.SparseCandidateSpacingMetres) *
+                (m_useQuestProfile ? QuestCandidateSpacingScale : 1.0f),
             dense ? m_profile.DensePlacementMultiplier : 1.0f,
             m_profile,
             allowShadows);
@@ -299,7 +308,12 @@ public sealed partial class TerrainRockScatter : Node3D
             AddInstances(node, placements, shapeIndex, castsShadow: false, dense ? m_denseMaterial : m_sparseMaterial);
             AddInstances(node, placements, shapeIndex, castsShadow: true, dense ? m_denseMaterial : m_sparseMaterial);
         }
-        AddContactShadows(node, placements);
+        // Quest avoids the alpha-blended contact-shadow layer altogether.
+        if (!m_useQuestProfile)
+        {
+            AddContactShadows(node, placements);
+        }
+        AddGroundBlends(node, placements);
 
         return node;
     }
@@ -341,8 +355,6 @@ public sealed partial class TerrainRockScatter : Node3D
             MaterialOverride = m_contactShadowMaterial,
             CastShadow = GeometryInstance3D.ShadowCastingSetting.Off
         });
-
-        AddGroundBlends(parent, placements);
     }
 
     private void AddGroundBlends(Node3D parent, IReadOnlyList<RockPlacement> placements)

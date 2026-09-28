@@ -69,7 +69,7 @@ public sealed partial class QuestVrMenu : Node3D
         AddToggle("SUN SHADOWS", () => m_settings.SunShadowsEnabled, value => m_settings.SunShadowsEnabled = value, 1);
         AddToggle("SCENE GLOW", () => m_settings.GlowEnabled, value => m_settings.GlowEnabled = value, 1);
         AddToggle("COCKPIT GLASS", () => m_settings.CockpitGlassEnabled, value => m_settings.CockpitGlassEnabled = value, 1);
-        AddToggle("TERRAIN PARALLAX", () => m_settings.TerrainParallaxEnabled, value => m_settings.TerrainParallaxEnabled = value, 1);
+        AddToggle("TERRAIN TRIPLANAR", () => m_settings.TerrainTriplanarEnabled, value => m_settings.TerrainTriplanarEnabled = value, 1);
         AddToggle("SMOKE / DUST", () => m_settings.SmokeAndDustEnabled, value => m_settings.SmokeAndDustEnabled = value, 1);
         AddAction("<  BACK", () => SetPage(0), 1);
         AddToggle("HUD RADAR", () => m_hud.ShowRadar, value => m_hud.ShowRadar = value, 2);

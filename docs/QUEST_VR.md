@@ -122,14 +122,39 @@ onto a transparent cockpit surface. Radar, weapons, status, navigation and
 targeting can be toggled separately. Its finite-depth targeting presentation
 still needs binocular alignment/readability testing on Quest.
 
-Graphics controls currently cover shadows, scene glow, cockpit glass, terrain
-parallax and battlefield smoke/dust. The cheap preset disables them initially.
+Graphics controls currently cover shadows, scene glow, cockpit glass and
+battlefield smoke/dust. The cheap preset disables them initially. Terrain
+parallax is always off in VR, including desktop VR preview, and has no menu toggle.
+The **TERRAIN TRIPLANAR** graphics toggle is off by default. Off selects a separate
+UV shader with two colour-texture samples and constant roughness; it does not run
+triplanar projection, normal-map, height-map or procedural-noise sampling. Terrain
+meshes carry metre-scaled UVs, with a single projection chosen per face when the
+mesh is built so cliff faces and sealing skirts do not have collapsed UVs. This
+cheaper path has less surface detail and can show seams between projection planes.
+On restores the detailed biome triplanar shader, while keeping VR parallax off.
+Both modes use the existing terrain textures and retain the same geometry.
+
+Triplanar changes apply to the loaded terrain immediately and are saved in
+`user://settings.cfg`, under `[quest_graphics]` as `terrain_triplanar`. The saved
+choice is restored on mission restart and app launch; missing/invalid values use
+Off. Desktop play retains its detailed triplanar default regardless of this saved
+Quest setting. Desktop VR preview uses the Quest choice for verification.
+
+VR rock scattering uses a 7x7 cell window with a 5x5 dense region (desktop uses
+9x9 and 7x7). Candidate spacing is 1.5 times wider, giving approximately 56%
+fewer placement candidates per cell as well as reducing the active cell count.
+VR also omits the transparent rock contact-shadow patches. The terrain-coloured
+ground-blend skirts remain to soften rock/ground seams.
+HUD instrument drawing commands are cached between 30 Hz updates, while the
+reticle, target frames and projected navigation indicator update every frame.
+The HUD texture retains its 1280x720 resolution; this reduces CPU command
+generation rather than the texture's per-frame GPU rendering cost.
 HUD settings also have a separate HUD glow switch, disabled by default on Quest.
 Missile trails, fire, weapon flashes and other combat feedback remain; the
 smoke/dust toggle is not a master switch for every particle in the game.
 SSAO, screen-space reflections and the unverified stereo lens-flare compositor
 are disabled. Mobile does not create the localized volumetric ground fog.
-Options currently last for the mission session. The menu displays the most
+Other graphics options currently last for the mission session. The menu displays the most
 recent running FPS/frame interval, **not GPU time or a paused benchmark**.
 
 ## Historical debug validation

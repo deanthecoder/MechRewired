@@ -87,6 +87,10 @@ public static class ImplicitGroundMeshBuilder
         {
             surfaceTool.SetNormal(CalculateGroundNormal(vertex, stepX, stepZ));
             surfaceTool.SetColor(color);
+            // The Quest fallback material samples its cheap texture path through mesh UVs.
+            // These remain world-metre coordinates even when this ground mesh is centred away
+            // from the origin, so they line up with the derived terrain's horizontal XZ mapping.
+            surfaceTool.SetUV(new Vector2(center.X + vertex.X, center.Z + vertex.Z));
             surfaceTool.AddVertex(vertex);
         }
 

@@ -17,26 +17,26 @@ public sealed class QuestGraphicsSettings
     private readonly PlayerHud m_hud;
     private readonly float m_defaultHudGlow;
     private readonly PlayerCockpit m_cockpit;
-    private readonly IReadOnlyList<ShaderMaterial> m_terrainMaterials;
     private readonly BattlefieldEffects m_effects;
-    private readonly float[] m_defaultParallaxDepths;
+    private readonly ShaderMaterial[] m_terrainMaterials;
+    private bool m_terrainTriplanarEnabled;
 
     public QuestGraphicsSettings(
         MissionSkyController sky,
         PlayerHud hud,
         PlayerCockpit cockpit = null,
-        IEnumerable<ShaderMaterial> terrainMaterials = null,
-        BattlefieldEffects effects = null)
+        BattlefieldEffects effects = null,
+        IEnumerable<ShaderMaterial> terrainMaterials = null)
     {
         m_sky = sky ?? throw new ArgumentNullException(nameof(sky));
         m_hud = hud ?? throw new ArgumentNullException(nameof(hud));
         m_defaultHudGlow = hud.HudGlow;
         m_cockpit = cockpit;
         m_effects = effects;
-        m_terrainMaterials = terrainMaterials?.Where(material => material != null).Distinct().ToArray() ?? [];
-        m_defaultParallaxDepths = m_terrainMaterials
-            .Select(material => material.GetShaderParameter("parallax_depth_metres").AsSingle())
-            .ToArray();
+        m_terrainMaterials = terrainMaterials?
+            .Where(TerrainSurfaceMaterial.SupportsTriplanarToggle).Distinct().ToArray() ?? [];
+        m_terrainTriplanarEnabled = QuestGraphicsPreferences.LoadTerrainTriplanar();
+        ApplyTerrainTriplanar();
 
         // The headset baseline avoids the full-screen and compositor passes first.
         SunShadowsEnabled = false;
@@ -48,7 +48,6 @@ public sealed class QuestGraphicsSettings
         // from the headset menu and disabled for the Quest baseline.
         LensFlareEnabled = false;
         CockpitGlassEnabled = false;
-        TerrainParallaxEnabled = false;
         SmokeAndDustEnabled = false;
     }
 
@@ -56,6 +55,27 @@ public sealed class QuestGraphicsSettings
     {
         get => m_sky.SunShadowsEnabled;
         set => m_sky.SunShadowsEnabled = value;
+    }
+
+    /// <summary>Persists the Quest-only mapping choice and updates all loaded terrain immediately.</summary>
+    public bool TerrainTriplanarEnabled
+    {
+        get => m_terrainTriplanarEnabled;
+        set
+        {
+            if (m_terrainTriplanarEnabled == value) return;
+            m_terrainTriplanarEnabled = value;
+            ApplyTerrainTriplanar();
+            QuestGraphicsPreferences.SaveTerrainTriplanar(value);
+        }
+    }
+
+    private void ApplyTerrainTriplanar()
+    {
+        foreach (var material in m_terrainMaterials)
+        {
+            TerrainSurfaceMaterial.SetTriplanarEnabled(material, m_terrainTriplanarEnabled);
+        }
     }
 
     public bool AmbientOcclusionEnabled
@@ -96,21 +116,6 @@ public sealed class QuestGraphicsSettings
             if (m_cockpit != null)
             {
                 m_cockpit.GlassEnabled = value;
-            }
-        }
-    }
-
-    public bool TerrainParallaxEnabled
-    {
-        get => m_terrainMaterials.Count > 0 &&
-               m_terrainMaterials.Any(material => material.GetShaderParameter("parallax_depth_metres").AsSingle() > 0.0f);
-        set
-        {
-            for (var index = 0; index < m_terrainMaterials.Count; index++)
-            {
-                m_terrainMaterials[index].SetShaderParameter(
-                    "parallax_depth_metres",
-                    value ? m_defaultParallaxDepths[index] : 0.0f);
             }
         }
     }

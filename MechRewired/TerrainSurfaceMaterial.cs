@@ -30,6 +30,8 @@ public enum TerrainSurfaceKind
 /// </remarks>
 public static class TerrainSurfaceMaterial
 {
+    private const string TriplanarShaderMetadata = "terrain_triplanar_shader";
+    private const string UvShaderMetadata = "terrain_uv_shader";
     public const float Roughness = 0.9f;
     public const float TextureScale = 0.05f;
     public const float DetailStrength = 0.78f;
@@ -122,6 +124,47 @@ public static class TerrainSurfaceMaterial
         TerrainSurfaceKind surfaceKind = TerrainSurfaceKind.Desert,
         Color? albedoTint = null)
     {
+        var material = CreateTriplanarMaterial(surfaceKind, albedoTint);
+        if (!QuestVrRuntime.Active)
+        {
+            return material;
+        }
+
+        // Keep separate shader programs: the cheap path contains no triplanar, height-map,
+        // normal-map or procedural-noise work, even when the detailed shader is available.
+        material.SetMeta(TriplanarShaderMetadata, material.Shader);
+        material.SetMeta(UvShaderMetadata, new Shader
+        {
+            Code = surfaceKind == TerrainSurfaceKind.Desert
+                ? UvShaderCode
+                : UvShaderCode.Replace("render_mode cull_back;", "render_mode cull_disabled;")
+        });
+        material.SetShaderParameter("uv_ground_color", GD.Load<Texture2D>(
+            surfaceKind == TerrainSurfaceKind.Desert ? SandColorPath : RockyGroundPrimaryColorPath));
+        material.SetShaderParameter("uv_rock_color", GD.Load<Texture2D>(
+            surfaceKind == TerrainSurfaceKind.Desert ? RockColorPath : MountainRockPrimaryColorPath));
+        material.SetShaderParameter("uv_ground_scale", surfaceKind == TerrainSurfaceKind.Desert ? TextureScale : 0.0095f);
+        material.SetShaderParameter("uv_rock_scale", surfaceKind == TerrainSurfaceKind.Desert ? TextureScale : 0.0115f);
+        material.SetShaderParameter("uv_mountain_surface", surfaceKind == TerrainSurfaceKind.RockyMountain);
+        SetTriplanarEnabled(material, QuestGraphicsPreferences.LoadTerrainTriplanar());
+        return material;
+    }
+
+    /// <summary>Identifies solid terrain materials without matching arbitrary shader source text.</summary>
+    public static bool SupportsTriplanarToggle(ShaderMaterial material) =>
+        material != null && material.HasMeta(TriplanarShaderMetadata) && material.HasMeta(UvShaderMetadata);
+
+    /// <summary>Switches the loaded material in place, preserving textures, tint and detailed tuning.</summary>
+    public static void SetTriplanarEnabled(ShaderMaterial material, bool enabled)
+    {
+        if (SupportsTriplanarToggle(material))
+        {
+            material.Shader = material.GetMeta(enabled ? TriplanarShaderMetadata : UvShaderMetadata).As<Shader>();
+        }
+    }
+
+    private static ShaderMaterial CreateTriplanarMaterial(TerrainSurfaceKind surfaceKind, Color? albedoTint)
+    {
         var useDesertDetails = surfaceKind == TerrainSurfaceKind.Desert;
         var material = new ShaderMaterial
         {
@@ -202,7 +245,8 @@ public static class TerrainSurfaceMaterial
         material.SetShaderParameter("hardpan_patch_coverage", HardpanPatchCoverage);
         material.SetShaderParameter("stone_patch_coverage", StonePatchCoverage);
         material.SetShaderParameter("stone_texture_scale", StoneTextureScale);
-        material.SetShaderParameter("parallax_depth_metres", ParallaxDepthMetres);
+        // VR terrain always skips height-map sampling; there is no headset menu override.
+        material.SetShaderParameter("parallax_depth_metres", QuestVrRuntime.Active ? 0.0f : ParallaxDepthMetres);
         material.SetShaderParameter("macro_variation_strength", 0.07f);
         material.SetShaderParameter("debug_wireframe", 0.0f);
         material.SetShaderParameter("slope_blend_start", ToSteepness(RockSlopeStartDegrees));
@@ -217,7 +261,8 @@ public static class TerrainSurfaceMaterial
         TerrainSurfaceKind surfaceKind = TerrainSurfaceKind.Desert,
         Color? albedoTint = null)
     {
-        var material = Create(surfaceKind, albedoTint);
+        // Debug wireframes are deliberately excluded from live solid-terrain shader switching.
+        var material = CreateTriplanarMaterial(surfaceKind, albedoTint);
         var cullMode = surfaceKind == TerrainSurfaceKind.Desert
             ? "render_mode cull_back;"
             : "render_mode cull_disabled;";
@@ -236,6 +281,38 @@ public static class TerrainSurfaceMaterial
 
     public static float ToSteepness(float slopeDegrees) =>
         1.0f - Mathf.Cos(Mathf.DegToRad(slopeDegrees));
+
+    private const string UvShaderCode = """
+        shader_type spatial;
+        render_mode cull_back;
+
+        uniform sampler2D uv_ground_color : source_color, repeat_enable, filter_linear_mipmap;
+        uniform sampler2D uv_rock_color : source_color, repeat_enable, filter_linear_mipmap;
+        uniform float uv_ground_scale = 0.05;
+        uniform float uv_rock_scale = 0.05;
+        uniform bool uv_mountain_surface = false;
+        uniform vec4 albedo_tint : source_color = vec4(1.0);
+        varying float rock_weight;
+
+        void vertex() {
+            // UVs are stored in metres on the mesh. Steep faces have a CPU-selected projection;
+            // there is no per-fragment axis projection or three-way texture sampling here.
+            float upward = abs(normalize(MODEL_NORMAL_MATRIX * NORMAL).y);
+            float slope = smoothstep(0.021852, 0.211989, 1.0 - upward);
+            rock_weight = (uv_mountain_surface ? 1.0 : slope) * (1.0 - COLOR.a);
+        }
+
+        void fragment() {
+            vec3 ground = texture(uv_ground_color, UV * uv_ground_scale).rgb;
+            vec3 rock = texture(uv_rock_color, UV * uv_rock_scale).rgb;
+            vec3 colour = mix(ground, rock, rock_weight);
+            float tint_luminance = dot(albedo_tint.rgb, vec3(0.2126, 0.7152, 0.0722));
+            vec3 grade = clamp(albedo_tint.rgb / max(tint_luminance, 0.02), vec3(0.75), vec3(1.25));
+            ALBEDO = clamp(colour * mix(vec3(1.0), grade, 0.16), vec3(0.0), vec3(1.0));
+            METALLIC = 0.0;
+            ROUGHNESS = 0.9;
+        }
+        """;
 
     private const string RockyPlainsShaderCode =
         """

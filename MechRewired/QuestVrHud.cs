@@ -36,5 +36,6 @@ public static class QuestVrHud
         };
         player.CockpitMount.AddChild(surface);
         hud.VrSurface = surface;
+        hud.EnableVrRenderCaching();
     }
 }
