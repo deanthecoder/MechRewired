@@ -21,6 +21,7 @@ public sealed partial class QuestPerformanceBenchmark : Node
     private readonly Node m_world;
     private readonly PlayerMech m_player;
     private readonly PlayerHud m_hud;
+    private readonly Sky m_proceduralSky;
     private readonly TerrainSurfaceIndex m_terrain;
     private readonly TerrainRockScatter m_rocks;
     private readonly IReadOnlyList<BattlefieldActor> m_actors;
@@ -36,13 +37,14 @@ public sealed partial class QuestPerformanceBenchmark : Node
     private sealed record Frame(double Milliseconds, double CpuMs, double GpuMs, double DrawCalls,
         double Primitives, double HeadTranslation, double HeadAngleDegrees);
 
-    public QuestPerformanceBenchmark(Node world, PlayerMech player, PlayerHud hud,
+    public QuestPerformanceBenchmark(Node world, PlayerMech player, PlayerHud hud, Sky proceduralSky,
         TerrainSurfaceIndex terrain, TerrainRockScatter rocks,
         IReadOnlyList<BattlefieldActor> actors, IReadOnlyList<EnemyMech> enemies, string mission)
     {
         m_world = world;
         m_player = player;
         m_hud = hud;
+        m_proceduralSky = proceduralSky;
         m_terrain = terrain;
         m_rocks = rocks;
         m_actors = actors;
@@ -89,7 +91,7 @@ public sealed partial class QuestPerformanceBenchmark : Node
             m_output = ProjectSettings.GlobalizePath("user://benchmarks/" +
                 DateTime.UtcNow.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture) + "-" + Guid.NewGuid().ToString("N")[..6]);
             Directory.CreateDirectory(m_output);
-            graphics = new QuestBenchmarkGraphics(m_world.GetParent(), m_player, m_hud);
+            graphics = new QuestBenchmarkGraphics(m_world.GetParent(), m_player, m_hud, m_proceduralSky);
             var fixtures = BuildFixtures(originalPose);
             var xr = XRServer.FindInterface("OpenXR") as OpenXRInterface;
             var refreshRate = xr?.IsInitialized() == true ? xr.DisplayRefreshRate : 0;

@@ -2325,7 +2325,7 @@ public partial class Main : Node3D
                     GetTree().Paused = false;
                     GetTree().CallDeferred(SceneTree.MethodName.ReloadCurrentScene);
                 });
-            var benchmark = new QuestPerformanceBenchmark(levelRoot, playerMech, playerHud,
+            var benchmark = new QuestPerformanceBenchmark(levelRoot, playerMech, playerHud, missionSky.ProceduralSky,
                 terrainSurface, terrainRocks, battlefieldActors, enemyMechs,
                 Path.GetFileNameWithoutExtension(missionResources.ScenarioEntry.Name));
             vrMenu.RunBenchmark = benchmark.Start;

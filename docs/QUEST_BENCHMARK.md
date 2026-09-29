@@ -1,5 +1,8 @@
 # Quest rendering benchmark (development branch)
 
+The first headset results and the visual problems with the baked-sky variant
+are recorded in [QUEST_SKY_BAKE_FINDINGS.md](QUEST_SKY_BAKE_FINDINGS.md).
+
 This is a repeatable **rendering ablation**, available in Release builds on this
 development branch. It holds gameplay/AI/physics still while moving the pilot
 through scripted viewpoints and rendering real missile effects. It does not
@@ -37,8 +40,9 @@ Do **not** use `--fixed-fps`, a headless/dummy renderer or Movie Maker to collec
 performance evidence. Use the same headset refresh rate, resolution, graphics
 options, battery/charging state and mission each time. Run at least twice;
 reverse fixture variant order is already alternated, but thermal drift remains.
-The comparison baseline uses cheap UV terrain, no scene glow, no sun shadows,
-and no cockpit glass; other pre-existing scene/HUD choices remain as configured.
+The comparison baseline uses cheap UV terrain, the procedural sky, no scene glow,
+no sun shadows, and no cockpit glass; other pre-existing scene/HUD choices remain
+as configured. The normal BAKED SKY menu choice is restored after the run.
 Always start from the same settings and a fresh mission.
 
 ## Fixtures and comparisons

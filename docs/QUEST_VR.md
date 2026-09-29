@@ -122,9 +122,18 @@ onto a transparent cockpit surface. Radar, weapons, status, navigation and
 targeting can be toggled separately. Its finite-depth targeting presentation
 still needs binocular alignment/readability testing on Quest.
 
-Graphics controls currently cover shadows, scene glow, cockpit glass and
-battlefield smoke/dust. The cheap preset disables them initially. Terrain
-parallax is always off in VR, including desktop VR preview, and has no menu toggle.
+Graphics controls currently cover shadows, baked sky, scene glow, cockpit glass and
+battlefield smoke/dust. The cheap preset leaves baked sky off initially so the
+procedural sky remains available for direct visual comparison. Turning **BAKED SKY**
+on captures the current mission sky once as a 1024x512 panorama and stops cloud
+drift; turning it off restores the procedural sky and cloud drift. The sun light
+continues to illuminate the scene in both modes. This choice lasts for the
+current mission only. The other expensive graphics effects start disabled.
+The baked result currently has visible resolution, sun-position and mountain-top
+colour problems on the headset; keep it off for ordinary play. Measurements and
+follow-up options are in [QUEST_SKY_BAKE_FINDINGS.md](QUEST_SKY_BAKE_FINDINGS.md).
+
+Terrain parallax is always off in VR, including desktop VR preview, and has no menu toggle.
 The **TERRAIN TRIPLANAR** graphics toggle is off by default. Off selects a separate
 UV shader with two colour-texture samples and constant roughness; it does not run
 triplanar projection, normal-map, height-map or procedural-noise sampling. Terrain

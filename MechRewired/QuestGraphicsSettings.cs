@@ -57,6 +57,13 @@ public sealed class QuestGraphicsSettings
         set => m_sky.SunShadowsEnabled = value;
     }
 
+    /// <summary>Uses a once-per-mission sky panorama for normal Quest gameplay.</summary>
+    public bool BakedSkyEnabled
+    {
+        get => m_sky.BakedSkyEnabled;
+        set => m_sky.BakedSkyEnabled = value;
+    }
+
     /// <summary>Persists the Quest-only mapping choice and updates all loaded terrain immediately.</summary>
     public bool TerrainTriplanarEnabled
     {

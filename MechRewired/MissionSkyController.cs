@@ -60,6 +60,10 @@ public sealed class MissionSkyController
     private readonly SunLensFlare m_sunLensFlare;
     private readonly Godot.Environment m_environment;
     private readonly MissionSkyProfile m_profile;
+    private readonly Sky m_proceduralSky;
+    private readonly Node.ProcessModeEnum m_skyDomeProcessMode;
+    private ImageTexture m_bakedPanorama;
+    private Sky m_bakedSky;
     private float m_time;
     private float m_fogMultiplier = 1.0f;
     private float m_fogStartFraction = DefaultFogStartFraction;
@@ -79,6 +83,8 @@ public sealed class MissionSkyController
         m_sunLensFlare = sunLensFlare;
         m_environment = environment;
         m_profile = profile;
+        m_proceduralSky = environment.Sky;
+        m_skyDomeProcessMode = skyDome.ProcessMode;
         m_time = profile.TimeOfDay;
     }
 
@@ -128,6 +134,44 @@ public sealed class MissionSkyController
             m_time = Mathf.PosMod(value, 24.0f);
             m_sky3D.Set("current_time", m_time);
             ApplyTimeBasedSunDirection();
+        }
+    }
+
+    /// <summary>The mission's original Sky3D resource, used by the rendering benchmark baseline.</summary>
+    public Sky ProceduralSky => m_proceduralSky;
+
+    /// <summary>Switches the Quest background between Sky3D and a panorama baked from this mission.</summary>
+    public bool BakedSkyEnabled
+    {
+        get => m_bakedSky != null && m_environment.Sky == m_bakedSky;
+        set
+        {
+            if (value == BakedSkyEnabled) return;
+            if (value)
+            {
+                if (m_bakedPanorama == null)
+                {
+                    using var panorama = RenderingServer.EnvironmentBakePanorama(
+                        m_environment.GetRid(), false, new Vector2I(1024, 512));
+                    if (panorama == null || panorama.IsEmpty())
+                    {
+                        GD.PushWarning("MechRewired: the mission sky could not be baked on this renderer.");
+                        return;
+                    }
+                    m_bakedPanorama = ImageTexture.CreateFromImage(panorama);
+                }
+
+                m_bakedSky ??= new Sky
+                {
+                    SkyMaterial = new PanoramaSkyMaterial { Panorama = m_bakedPanorama }
+                };
+                m_environment.Sky = m_bakedSky;
+                m_skyDome.ProcessMode = Node.ProcessModeEnum.Disabled;
+                return;
+            }
+
+            m_environment.Sky = m_proceduralSky;
+            m_skyDome.ProcessMode = m_skyDomeProcessMode;
         }
     }
 

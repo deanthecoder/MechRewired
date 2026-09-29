@@ -56,6 +56,7 @@ public sealed class QuestBenchmarkGraphics : IDisposable
     private readonly Godot.Environment.BGMode m_backgroundMode;
     private readonly Color m_backgroundColor;
     private readonly Sky m_backgroundSky;
+    private readonly Sky m_proceduralSky;
     private readonly Node m_skyDome;
     private readonly Node.ProcessModeEnum m_skyDomeProcessMode;
     private readonly Variant m_cumulusPosition;
@@ -74,11 +75,12 @@ public sealed class QuestBenchmarkGraphics : IDisposable
     /// <summary>Baseline forces Quest's cheap two-sample UV terrain path; it does not save a preference.</summary>
     public static IReadOnlyList<string> VariantNames => s_variantNames;
 
-    public QuestBenchmarkGraphics(Node missionRoot, PlayerMech player, PlayerHud hud)
+    public QuestBenchmarkGraphics(Node missionRoot, PlayerMech player, PlayerHud hud, Sky proceduralSky)
     {
         ArgumentNullException.ThrowIfNull(missionRoot);
         ArgumentNullException.ThrowIfNull(player);
         m_hud = hud ?? throw new ArgumentNullException(nameof(hud));
+        m_proceduralSky = proceduralSky ?? throw new ArgumentNullException(nameof(proceduralSky));
         m_hudVisible = hud.Visible;
         m_hudProcessMode = hud.ProcessMode;
         m_hudViewport = hud.GetViewport() as SubViewport;
@@ -202,7 +204,7 @@ public sealed class QuestBenchmarkGraphics : IDisposable
         if (m_cockpit != null) m_cockpit.GlassEnabled = false;
         if (m_sun != null) m_sun.ShadowEnabled = false;
         if (m_environment != null) m_environment.GlowEnabled = false;
-        RestoreSky();
+        RestoreSky(false);
         if (m_skyDome != null) m_skyDome.ProcessMode = Node.ProcessModeEnum.Always;
         ResetAnimation();
     }
@@ -245,12 +247,12 @@ public sealed class QuestBenchmarkGraphics : IDisposable
         if (m_skyDome != null) m_skyDome.ProcessMode = Node.ProcessModeEnum.Disabled;
     }
 
-    private void RestoreSky()
+    private void RestoreSky(bool original = true)
     {
         if (m_environment == null) return;
         m_environment.BackgroundMode = m_backgroundMode;
         m_environment.BackgroundColor = m_backgroundColor;
-        m_environment.Sky = m_backgroundSky;
+        m_environment.Sky = original ? m_backgroundSky : m_proceduralSky;
         if (m_skyDome != null)
         {
             m_skyDome.ProcessMode = m_skyDomeProcessMode;
