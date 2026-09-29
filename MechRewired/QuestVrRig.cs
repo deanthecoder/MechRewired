@@ -26,6 +26,8 @@ public partial class QuestVrRig : XROrigin3D
     public XRController3D Right { get; }
     public XRController3D RightAim { get; }
     public QuestVrMenu Menu { get; set; }
+    public bool BenchmarkActive { get; set; }
+    public Action BenchmarkCancelRequested { get; set; }
     public float Steering { get; private set; }
     public bool JumpJetsRequested { get; private set; }
 
@@ -76,6 +78,14 @@ public partial class QuestVrRig : XROrigin3D
         var headTracked = (XRServer.GetTracker("head") as XRPositionalTracker)?.GetPose("default")?.HasTrackingData == true;
         if (!m_seatCentered && (QuestVrRuntime.Preview || headTracked)) RecenterSeat();
         var sessionFocused = QuestVrRuntime.Preview || m_interface?.GetSessionState() == OpenXRInterface.SessionState.Focused;
+        if (BenchmarkActive)
+        {
+            // Keep native head tracking live, but never let controller input unpause or alter a trial.
+            if ((!QuestVrRuntime.Preview && (!headTracked || !sessionFocused)) ||
+                Pressed("benchmark_cancel", Left.GetIsActive() && Left.IsButtonPressed("menu_button")))
+                BenchmarkCancelRequested?.Invoke();
+            return;
+        }
         if (!QuestVrRuntime.Preview && m_seatCentered && (!headTracked || !sessionFocused) && Menu is { IsOpen: false })
         {
             m_player.StopVrMovement();
@@ -146,7 +156,10 @@ public partial class QuestVrRig : XROrigin3D
     public override void _UnhandledInput(InputEvent inputEvent)
     {
         if (QuestVrRuntime.Preview && inputEvent is InputEventKey { Pressed: true, Echo: false, Keycode: Key.Escape })
-            Menu?.Toggle();
+        {
+            if (BenchmarkActive) BenchmarkCancelRequested?.Invoke();
+            else Menu?.Toggle();
+        }
     }
 
     private bool Pressed(string action, bool down)
