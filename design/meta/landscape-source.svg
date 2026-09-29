@@ -1,6 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="2560" height="1440" viewBox="0 0 2560 1440">
-  <defs><linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%"><stop stop-color="#05171d"/><stop offset="1" stop-color="#16454a"/></linearGradient><linearGradient id="plate" x1="0%" y1="0%" x2="0%" y2="100%"><stop stop-color="#28666a"/><stop offset="1" stop-color="#12383d"/></linearGradient><filter id="g" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="12" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
-  <rect width="2560" height="1440" fill="url(#bg)"/><g fill="none" stroke="#61f6b1" opacity=".17" stroke-width="4"><path d="M0 180h450l125 125h460M0 1260h450l125-125h460M2560 180h-450l-125 125h-310M2560 1260h-450l-125-125h-310"/><path d="M210 0v310M2350 0v310M210 1440v-310M2350 1440v-310"/></g>
-  <g transform="translate(245 410) scale(1.55)" fill="url(#plate)" stroke="#78ffc0" stroke-width="14" stroke-linejoin="round"><path d="M176 82h160l40 92-40 108H176l-40-108z"/><path d="M57 166h79l40 116-40 54H57zM376 166h79v170h-79l-40-54z"/><path d="M176 282h160v76l-38 55H214l-38-55z"/><path d="M193 154h126v42H193z" fill="#78ffc0" filter="url(#g)"/><path d="M221 230h70" stroke="#78ffc0" stroke-width="13" stroke-linecap="round"/></g>
-  <g font-family="DejaVu Sans,Arial,sans-serif"><text x="1110" y="615" fill="#d9fff0" font-size="196" font-weight="900" letter-spacing="20">MECH</text><text x="1110" y="830" fill="#78ffc0" font-size="196" font-weight="900" letter-spacing="8">REWIRED</text><path d="M1110 890h1100" stroke="#78ffc0" stroke-width="6"/><text x="1115" y="970" fill="#a2cac5" font-size="42" font-weight="700" letter-spacing="13">TACTICAL COMBAT SIMULATION</text></g>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="2560" height="1440" viewBox="0 0 2560 1440">
+  <rect width="2560" height="1440" fill="#17120e"/>
+  <image x="0" y="0" width="1440" height="1440" xlink:href="mech-sunset-source.png"/>
+  <g font-family="Arial,sans-serif" font-weight="900" fill="#fff0d4">
+    <text x="1500" y="560" font-size="166">MECH</text>
+    <text x="1500" y="745.9200000000001" font-size="166" fill="#f4b85f">REWIRED</text>
+    <text x="1500" y="842.2" font-size="31.54" fill="#d8c4a5">TACTICAL COMBAT SIMULATION</text>
+  </g>
 </svg>

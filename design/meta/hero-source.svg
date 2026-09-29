@@ -1,14 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="3000" height="900" viewBox="0 0 3000 900">
-  <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#05171d"/><stop offset=".6" stop-color="#0b292f"/><stop offset="1" stop-color="#16454a"/></linearGradient>
-    <linearGradient id="plate" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#28666a"/><stop offset="1" stop-color="#12383d"/></linearGradient>
-    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="12" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-  </defs>
-  <rect width="3000" height="900" fill="url(#bg)"/>
-  <g fill="none" stroke="#61f6b1" opacity=".16" stroke-width="3"><path d="M0 119h640l112 112h490M0 780h615l105-105h675M3000 119h-420l-112 112h-395M3000 780h-420l-105-105h-525"/><path d="M170 0v198M2830 0v198M170 900V702M2830 900V702"/></g>
-  <g transform="translate(300 130) scale(1.25)" fill="url(#plate)" stroke="#78ffc0" stroke-width="14" stroke-linejoin="round">
-    <path d="M176 82h160l40 92-40 108H176l-40-108z"/><path d="M57 166h79l40 116-40 54H57zM376 166h79v170h-79l-40-54z"/><path d="M176 282h160v76l-38 55H214l-38-55z"/>
-    <path d="M193 154h126v42H193z" fill="#78ffc0" filter="url(#glow)"/><path d="M221 230h70" stroke="#78ffc0" stroke-width="13" stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="3000" height="900" viewBox="0 0 3000 900">
+  <rect width="3000" height="900" fill="#17120e"/>
+  <image x="0" y="0" width="900" height="900" xlink:href="mech-sunset-source.png"/>
+  <g font-family="Arial,sans-serif" font-weight="900" fill="#fff0d4">
+    <text x="1090" y="330" font-size="210">MECH</text>
+    <text x="1090" y="565.2" font-size="210" fill="#f4b85f">REWIRED</text>
+    <text x="1090" y="687.0" font-size="39.9" fill="#d8c4a5">TACTICAL COMBAT SIMULATION</text>
   </g>
-  <g font-family="DejaVu Sans,Arial,sans-serif"><text x="1050" y="393" fill="#d9fff0" font-size="196" font-weight="900" letter-spacing="20">MECH</text><text x="1050" y="604" fill="#78ffc0" font-size="196" font-weight="900" letter-spacing="8">REWIRED</text><path d="M1055 660h1140" stroke="#78ffc0" stroke-width="6"/><text x="1060" y="730" fill="#a2cac5" font-size="42" font-weight="700" letter-spacing="13">TACTICAL COMBAT SIMULATION</text></g>
 </svg>
