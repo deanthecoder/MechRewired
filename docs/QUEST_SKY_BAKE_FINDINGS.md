@@ -1,5 +1,8 @@
 # Quest baked-sky experiment: findings and state
 
+For the complete 40-trial benchmark matrix, validation checks and other
+rendering variants, see [QUEST_PERFORMANCE_FINDINGS.md](QUEST_PERFORMANCE_FINDINGS.md).
+
 Recorded 29 September 2026 on `codex/quest-performance-benchmark`. The Quest
 build was a Godot 4.7.1 .NET **Release** export, version `0.1.0-alpha2`
 (`versionCode=2`), locally signed with the certificate matching the installed

@@ -131,7 +131,9 @@ continues to illuminate the scene in both modes. This choice lasts for the
 current mission only. The other expensive graphics effects start disabled.
 The baked result currently has visible resolution, sun-position and mountain-top
 colour problems on the headset; keep it off for ordinary play. Measurements and
-follow-up options are in [QUEST_SKY_BAKE_FINDINGS.md](QUEST_SKY_BAKE_FINDINGS.md).
+follow-up options are in [QUEST_SKY_BAKE_FINDINGS.md](QUEST_SKY_BAKE_FINDINGS.md),
+with all rendering test results in
+[QUEST_PERFORMANCE_FINDINGS.md](QUEST_PERFORMANCE_FINDINGS.md).
 
 Terrain parallax is always off in VR, including desktop VR preview, and has no menu toggle.
 The **TERRAIN TRIPLANAR** graphics toggle is off by default. Off selects a separate

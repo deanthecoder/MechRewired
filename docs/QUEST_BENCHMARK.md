@@ -1,7 +1,10 @@
 # Quest rendering benchmark (development branch)
 
-The first headset results and the visual problems with the baked-sky variant
-are recorded in [QUEST_SKY_BAKE_FINDINGS.md](QUEST_SKY_BAKE_FINDINGS.md).
+The first headset run's complete variant comparisons and validation record are
+in [QUEST_PERFORMANCE_FINDINGS.md](QUEST_PERFORMANCE_FINDINGS.md), with all 40
+summary trials in [the committed CSV](data/quest-benchmark-2026-09-29-summary.csv).
+The baked-sky visual defects and follow-up ideas have a separate
+[sky note](QUEST_SKY_BAKE_FINDINGS.md).
 
 This is a repeatable **rendering ablation**, available in Release builds on this
 development branch. It holds gameplay/AI/physics still while moving the pilot
