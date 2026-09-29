@@ -58,6 +58,7 @@ public sealed partial class QuestVrMenu : Node3D
     }
 
     public bool IsOpen => Visible;
+    public Action RunBenchmark { get; set; }
 
     public override void _Ready()
     {
@@ -66,6 +67,7 @@ public sealed partial class QuestVrMenu : Node3D
         AddAction("RECENTER VIEW", RecenterAndClose);
         AddAction("GRAPHICS SETTINGS  >", () => SetPage(1));
         AddAction("HUD SETTINGS  >", () => SetPage(2));
+        if (RunBenchmark != null) AddAction("RUN BENCHMARK", () => RunBenchmark());
         AddToggle("SUN SHADOWS", () => m_settings.SunShadowsEnabled, value => m_settings.SunShadowsEnabled = value, 1);
         AddToggle("SCENE GLOW", () => m_settings.GlowEnabled, value => m_settings.GlowEnabled = value, 1);
         AddToggle("COCKPIT GLASS", () => m_settings.CockpitGlassEnabled, value => m_settings.CockpitGlassEnabled = value, 1);

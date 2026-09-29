@@ -159,6 +159,10 @@ recent running FPS/frame interval, **not GPU time or a paused benchmark**.
 
 ## Historical debug validation
 
+The development rendering benchmark is documented in [QUEST_BENCHMARK.md](QUEST_BENCHMARK.md).
+It provides scripted viewpoints, per-feature comparisons, raw frame timings and
+logcat CSV reports without saving its temporary graphics changes.
+
 In a debug build with original data installed, run Godot with
 `-- --vr-preview --vr-smoke` to exercise synthetic XR controller input, latched
 throttle/stop, steering and pitch-only aim, trigger/grip controls, menu input

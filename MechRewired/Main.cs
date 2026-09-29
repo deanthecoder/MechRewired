@@ -2325,8 +2325,13 @@ public partial class Main : Node3D
                     GetTree().Paused = false;
                     GetTree().CallDeferred(SceneTree.MethodName.ReloadCurrentScene);
                 });
+            var benchmark = new QuestPerformanceBenchmark(levelRoot, playerMech, playerHud,
+                terrainSurface, terrainRocks, battlefieldActors, enemyMechs,
+                Path.GetFileNameWithoutExtension(missionResources.ScenarioEntry.Name));
+            vrMenu.RunBenchmark = benchmark.Start;
             AddChild(vrMenu);
             rig.Menu = vrMenu;
+            AddChild(benchmark);
 #if DEBUG
             if (QuestVrRuntime.Preview && OS.GetCmdlineUserArgs().Contains("--vr-smoke"))
                 AddChild(new QuestVrSmokeCheck(playerMech, playerHud));
