@@ -790,6 +790,7 @@ public partial class PlayerTargeting : Node
                 throw new ArgumentOutOfRangeException();
         }
 
+        QuestCombatTelemetry.RecordWeaponLaunch();
         PlayWeaponSound(weapon.Specification.SoundResourceName);
         GD.Print(
             $"MechRewired: fired {weapon.Specification.Name} instance {weapon.SourceId} " +
@@ -814,6 +815,7 @@ public partial class PlayerTargeting : Node
                 out var hitPosition))
         {
             end = hitPosition;
+            QuestCombatTelemetry.RecordImpact();
             ApplyDirectDamage(weapon.Specification.Damage, actor, enemyMech, enemyHit, hitPosition);
         }
         else

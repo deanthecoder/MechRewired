@@ -2008,7 +2008,7 @@ public partial class BattlefieldEffects : Node3D
             IsActive = true;
             Visible = true;
             ProcessMode = ProcessModeEnum.Inherit;
-            Light.Visible = true;
+            Light.Visible = !QuestCombatTelemetry.WeaponLightsDisabled;
             Particles.Emitting = true;
             Particles.Restart();
             Sparks.Emitting = true;
@@ -2032,6 +2032,7 @@ public partial class BattlefieldEffects : Node3D
                 return;
             }
 
+            Light.Visible = !QuestCombatTelemetry.WeaponLightsDisabled;
             m_age += (float)delta;
             if (m_age >= 0.9f)
             {
@@ -2107,7 +2108,7 @@ public partial class BattlefieldEffects : Node3D
             ExplosionFog.Visible = true;
             ExplosionLight.Position = localHit;
             ExplosionLight.LightEnergy = 22.0f;
-            ExplosionLight.Visible = true;
+            ExplosionLight.Visible = !QuestCombatTelemetry.WeaponLightsDisabled;
             if (ExplosionAudio != null)
             {
                 ExplosionAudio.Position = localHit;
@@ -2184,6 +2185,7 @@ public partial class BattlefieldEffects : Node3D
 
             if (ExplosionLight != null)
             {
+                ExplosionLight.Visible = !QuestCombatTelemetry.WeaponLightsDisabled;
                 ExplosionLight.LightEnergy = Math.Max(0.0f, 22.0f * (1.0f - m_age / 0.9f));
             }
 

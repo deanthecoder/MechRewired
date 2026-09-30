@@ -45,14 +45,12 @@ public partial class PlayerHud : Control
     private const float MaximumTargetFrameSize = 160.0f;
     private const float ObjectiveTargetFrameSize = 48.0f;
     private const float TargetFrameResponsePerSecond = 18.0f;
-    // The VR HUD is rendered into a transparent 1280x720 texture for both eyes.  Keeping the
-    // fixed instruments at 30 Hz avoids rebuilding their glow-heavy canvas command lists every
-    // headset frame; aiming and navigation guidance remain on a separate full-rate layer below.
     private const float VrInstrumentRefreshSeconds = 1.0f / 30.0f;
     private const float PlayerDamageRight = 1225.0f;
     private const float PlayerDamageSize = 130.5f;
     private const float PlayerDamageCenterX = PlayerDamageRight - PlayerDamageSize * 0.5f;
     private static readonly float[] RadarRanges = [500.0f, 1000.0f, 2000.0f, 4000.0f];
+    private static readonly MechDamageSection[] DamageSections = Enum.GetValues<MechDamageSection>();
     private static readonly Color HudGreen = Color.FromHtml("00f000");
     private static readonly Color RadarAmber = Color.FromHtml("d7a900");
     private static readonly Color InstrumentBackground = new(0.0f, 0.0f, 0.0f, 0.4f);
@@ -82,7 +80,11 @@ public partial class PlayerHud : Control
     private Rect2 m_smoothedTargetRect;
     private Font m_hudFont;
     private VrTargetLayer m_vrTargetLayer;
-    private float m_vrInstrumentRefreshElapsed;
+    private float m_vrInstrumentCheckElapsed;
+    private int m_vrInstrumentFingerprint;
+    private readonly IReadOnlyList<IReadOnlyList<int>> m_weaponColumns;
+    public long VrInstrumentDrawCount { get; private set; }
+    private bool m_hasVrInstrumentFingerprint;
     private Control m_drawCanvas;
 
     public bool ShowRadar { get; set; } = true;
@@ -141,6 +143,7 @@ public partial class PlayerHud : Control
         m_playerDamageSilhouette = playerDamageSilhouette;
         m_navigation = navigation;
         m_targeting = targeting;
+        m_weaponColumns = PlayerWeaponSelection.BuildColumns(targeting.WeaponSelection.Weapons);
         m_mission = mission;
     }
 
@@ -153,7 +156,7 @@ public partial class PlayerHud : Control
 
     /// <summary>
     /// Moves the head-dependent reticle and target frames onto their own CanvasItem. The remaining
-    /// instrument canvas can then retain its draw commands between 30 Hz refreshes in VR.
+    /// instrument canvas can then retain its draw commands until visible instrument state changes.
     /// </summary>
     public void EnableVrRenderCaching()
     {
@@ -192,6 +195,10 @@ public partial class PlayerHud : Control
         if (Visible != shouldBeVisible)
         {
             Visible = shouldBeVisible;
+            if (Visible)
+            {
+                RedrawAllVrLayers();
+            }
         }
 
         var radarTarget = m_targeting.IsShutdown ? 0.0f : 1.0f;
@@ -240,10 +247,14 @@ public partial class PlayerHud : Control
         // SelfModulate is local to a CanvasItem and is therefore copied across the layer boundary.
         m_vrTargetLayer.SelfModulate = SelfModulate;
         m_vrTargetLayer.QueueRedraw();
-        m_vrInstrumentRefreshElapsed += (float)delta;
-        if (m_vrInstrumentRefreshElapsed >= VrInstrumentRefreshSeconds)
+        // Keep the previous 30 Hz ceiling: moving radar contacts must not make the
+        // entire instrument canvas rebuild at headset frequency.
+        m_vrInstrumentCheckElapsed += (float)delta;
+        if (m_hasVrInstrumentFingerprint && m_vrInstrumentCheckElapsed < VrInstrumentRefreshSeconds) return;
+        m_vrInstrumentCheckElapsed %= VrInstrumentRefreshSeconds;
+        var instrumentFingerprint = GetVrInstrumentFingerprint();
+        if (!m_hasVrInstrumentFingerprint || instrumentFingerprint != m_vrInstrumentFingerprint)
         {
-            m_vrInstrumentRefreshElapsed %= VrInstrumentRefreshSeconds;
             QueueRedraw();
         }
     }
@@ -296,6 +307,7 @@ public partial class PlayerHud : Control
 
     public override void _Draw()
     {
+        if (m_vrTargetLayer != null) VrInstrumentDrawCount++;
         UpdateLayout();
 
         if (ShowRadar) DrawRadar();
@@ -320,6 +332,12 @@ public partial class PlayerHud : Control
         if (ShowTargeting && m_vrTargetLayer == null)
         {
             DrawTargeting();
+        }
+        if (m_vrTargetLayer != null)
+        {
+            // Other nodes may update between _Process and _Draw. Cache the state actually drawn.
+            m_vrInstrumentFingerprint = GetVrInstrumentFingerprint();
+            m_hasVrInstrumentFingerprint = true;
         }
     }
 
@@ -364,9 +382,97 @@ public partial class PlayerHud : Control
 
     private void RedrawAllVrLayers()
     {
-        m_vrInstrumentRefreshElapsed = 0.0f;
+        m_hasVrInstrumentFingerprint = false;
         QueueRedraw();
         m_vrTargetLayer?.QueueRedraw();
+    }
+
+    // Compare instrument inputs without allocating draw commands or strings. Continuous
+    // coordinates remain exact: metre-sized buckets can hide large bearing changes near a waypoint.
+    // The 30 Hz ceiling bounds both this check and redraw work during movement/combat.
+    private int GetVrInstrumentFingerprint()
+    {
+        var hash = new HashCode();
+        hash.Add(ShowRadar); hash.Add(ShowWeapons); hash.Add(ShowStatus); hash.Add(ShowNavigation);
+        hash.Add(Size);
+        if (ShowRadar)
+        {
+            hash.Add(m_radarDisplayMode); hash.Add(m_radarRangeIndex); hash.Add(m_radarPower);
+            hash.Add(m_targeting.IsShutdown);
+            hash.Add(m_playerMech.GlobalTransform); hash.Add(m_playerMech.TorsoYawRadians);
+            hash.Add(m_navigation.SelectedIndex);
+            for (var i = 0; i < m_navigation.NavigationPoints.Count; i++) hash.Add(m_navigation.IsReached(i));
+            foreach (var enemy in m_targeting.EnemyMechs)
+            {
+                if (enemy.IsDestroyed || enemy.IsPoweredDown) continue;
+                var position = enemy.TargetPosition;
+                if (!RadarContains(position)) continue;
+                hash.Add(enemy.GetInstanceId()); hash.Add(position);
+                hash.Add(ReferenceEquals(enemy, m_targeting.SelectedEnemy));
+            }
+            foreach (var actor in m_targeting.HostileActors)
+            {
+                if (actor.IsDestroyed) continue;
+                var position = actor.TargetPosition;
+                if (!RadarContains(position)) continue;
+                hash.Add(actor.GetInstanceId()); hash.Add(position);
+                hash.Add(ReferenceEquals(actor, m_targeting.SelectedActor));
+            }
+        }
+        if (ShowWeapons)
+        {
+            var selection = m_targeting.WeaponSelection;
+            hash.Add(selection.SelectedWeaponIndex); hash.Add(selection.SelectedGroup);
+            for (var i = 0; i < selection.Weapons.Count; i++)
+            {
+                hash.Add(selection.GetGroup(i)); hash.Add(m_targeting.IsWeaponOperational(i));
+                hash.Add(m_targeting.IsWeaponReady(i)); hash.Add(m_targeting.GetWeaponAmmo(i));
+            }
+        }
+        if (ShowStatus)
+        {
+            hash.Add((float)m_targeting.HeatFraction); hash.Add((float)m_targeting.HeatRate);
+            hash.Add(m_playerMech.JumpJetFuelFraction); hash.Add(m_playerMech.FeetElevation);
+            hash.Add(m_displayedTargetSpeedKph); hash.Add(Mathf.RoundToInt(m_playerMech.ActualSpeedKph));
+            hash.Add(m_playerMech.Drive.IsReversing); hash.Add(m_playerMech.IsDestroyed);
+            hash.Add(m_mission.StatusMessage);
+            AddDamageFingerprint(ref hash, m_playerMech.Damage);
+        }
+        if (ShowNavigation)
+        {
+            hash.Add(m_navigation.SelectedIndex); hash.Add(Mathf.RoundToInt(m_navigation.DistanceToSelectedMeters));
+            hash.Add(m_playerMech.GlobalPosition); hash.Add(m_playerMech.Torso.GlobalRotationDegrees.Y);
+            for (var i = 0; i < m_navigation.NavigationPoints.Count; i++) hash.Add(m_navigation.IsReached(i));
+            var enemy = m_targeting.SelectedEnemy;
+            var actor = m_targeting.SelectedActor;
+            hash.Add(enemy?.GetInstanceId() ?? 0UL); hash.Add(actor?.GetInstanceId() ?? 0UL);
+            if (enemy != null)
+            {
+                hash.Add(enemy.TargetPosition); hash.Add(enemy.Health); hash.Add(enemy.MaximumHealth);
+                AddDamageFingerprint(ref hash, enemy.Damage);
+            }
+            else if (actor != null)
+            {
+                hash.Add(m_targeting.IsHostile(actor)); hash.Add(actor.TargetPosition);
+                hash.Add(actor.Health); hash.Add(actor.MaximumHealth);
+            }
+        }
+        return hash.ToHashCode();
+    }
+
+    private bool RadarContains(Vector3 position)
+    {
+        var local = m_playerMech.ToLocal(position);
+        return new Vector2(local.X, local.Z).LengthSquared() <= RadarRanges[m_radarRangeIndex] * RadarRanges[m_radarRangeIndex];
+    }
+
+    private static void AddDamageFingerprint(ref HashCode hash, MechDamageModel damage)
+    {
+        foreach (var section in DamageSections)
+        {
+            var fraction = damage.GetHealthFraction(section);
+            hash.Add(fraction <= 0 ? 0 : fraction > 0.66f ? 3 : fraction > 0.33f ? 2 : 1);
+        }
     }
 
     private Vector2 ProjectToHud(Camera3D camera, Vector3 worldPosition)
@@ -865,7 +971,7 @@ public partial class PlayerHud : Control
         const float firstBaselineY = 57.0f;
         const float rowHeight = 27.0f;
         var selection = m_targeting.WeaponSelection;
-        var columns = PlayerWeaponSelection.BuildColumns(selection.Weapons);
+        var columns = m_weaponColumns;
         for (var column = 0; column < columns.Count; column++)
         {
             for (var row = 0; row < columns[column].Count; row++)
@@ -1266,7 +1372,7 @@ public partial class PlayerHud : Control
                 left + (width - textureSize.X) * 0.5f,
                 top + (height - textureSize.Y) * 0.5f),
             textureSize * m_scale);
-        foreach (var section in Enum.GetValues<MechDamageSection>())
+        foreach (var section in DamageSections)
         {
             DrawTextureRect(
                 silhouette.SectionMasks[section],

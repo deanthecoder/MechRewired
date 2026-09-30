@@ -63,6 +63,7 @@ public partial class PlayerCockpit : Node3D
 
     private readonly List<(OmniLight3D Light, float Baseline, float Lift)> m_interiorLights = new();
     private float m_lightingStrength = 1.0f;
+    private bool m_interiorLightsEnabled = true;
     private StandardMaterial3D m_frameMaterial;
     private MeshInstance3D m_frameMesh;
     private MeshInstance3D m_glassMesh;
@@ -91,11 +92,25 @@ public partial class PlayerCockpit : Node3D
         set
         {
             m_lightingStrength = Mathf.Clamp(value, 0.0f, 2.0f);
-            foreach (var (light, baseline, lift) in m_interiorLights)
-            {
-                light.LightEnergy = baseline + lift * m_lightingStrength;
-            }
+            UpdateInteriorLights();
         }
+    }
+
+    /// <summary>Enables or disables all authored cockpit interior lighting.</summary>
+    public bool InteriorLightsEnabled
+    {
+        get => m_interiorLightsEnabled;
+        set
+        {
+            m_interiorLightsEnabled = value;
+            UpdateInteriorLights();
+        }
+    }
+
+    private void UpdateInteriorLights()
+    {
+        foreach (var (light, baseline, lift) in m_interiorLights)
+            light.LightEnergy = m_interiorLightsEnabled ? baseline + lift * m_lightingStrength : 0.0f;
     }
 
     public CockpitFrameDiagnosticMode FrameDiagnosticMode
@@ -317,7 +332,7 @@ public partial class PlayerCockpit : Node3D
             Name = name,
             Position = position,
             LightColor = color,
-            LightEnergy = baseline + lift * m_lightingStrength,
+            LightEnergy = m_interiorLightsEnabled ? baseline + lift * m_lightingStrength : 0.0f,
             OmniRange = range,
             LightCullMask = RenderLayer,
             LightVolumetricFogEnergy = 0.0f,

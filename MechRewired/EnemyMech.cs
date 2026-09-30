@@ -11,6 +11,7 @@
 using Godot;
 using MechRewired.Resources;
 using MechRewired.Simulation;
+using System.Diagnostics;
 
 namespace MechRewired;
 
@@ -194,18 +195,32 @@ public partial class EnemyMech : Node3D
 
     public Vector3 TargetPosition => WorldBounds.GetCenter();
 
+    public bool HasMissileWeapons => MechDefinition.Weapons.Any(
+        weapon => weapon.Specification.Kind == MechWeaponKind.Missile);
+
+    public bool MissilePoolReady => m_missilePool.Count == MissilePoolSize;
+
+    public int MissilePoolCount => m_missilePool.Count;
+
     public event Action<EnemyMech> Destroyed;
 
     /// <summary>Raised once when this hostile activates its reactor/sensors.</summary>
     public event Action<EnemyMech> PoweredUp;
 
-    public override void _Ready()
+    /// <summary>Creates this missile-armed hostile's fixed pool before Quest gameplay starts.</summary>
+    /// <remarks>
+    /// This deliberately shifts the fixed 24-instance allocation for every missile-armed hostile to mission
+    /// loading on Quest. Non-missile loadouts keep no pool, and desktop retains lazy allocation on first launch.
+    /// </remarks>
+    public void PrewarmMissiles()
     {
-        if (MechDefinition.Weapons.Any(weapon => weapon.Specification.Kind == MechWeaponKind.Missile))
+        if (QuestVrRuntime.Active && HasMissileWeapons)
         {
             CreateMissilePool();
         }
     }
+
+    internal bool HasClearSightTo(Vector3 point) => HasLineOfSight(TargetPosition, point);
 
     public bool RegisterGaitPart(Node3D node, string partName) =>
         m_mechRig.RegisterPart(node, partName);
@@ -329,6 +344,18 @@ public partial class EnemyMech : Node3D
     }
 
     public override void _PhysicsProcess(double delta)
+    {
+        if (!QuestCombatTelemetry.Active)
+        {
+            ProcessCombat(delta);
+            return;
+        }
+        var started = Stopwatch.GetTimestamp();
+        try { ProcessCombat(delta); }
+        finally { QuestCombatTelemetry.RecordEnemyAi(Stopwatch.GetTimestamp() - started); }
+    }
+
+    private void ProcessCombat(double delta)
     {
         if (IsDestroyed || m_playerMech.IsDestroyed || m_localBounds.Size == Vector3.Zero)
         {
@@ -615,11 +642,13 @@ public partial class EnemyMech : Node3D
         }
 
         m_heat.Add(weapon.Definition.Specification.Heat);
+        QuestCombatTelemetry.RecordEnemyWeaponLaunch();
 
         if (weapon.Definition.Specification.Kind != MechWeaponKind.Missile)
         {
             if (playerHit != null)
             {
+                QuestCombatTelemetry.RecordImpact();
                 ApplyWeaponDamage(weapon.Definition, end, playerHit);
             }
         }
@@ -722,14 +751,26 @@ public partial class EnemyMech : Node3D
             return;
         }
 
-        for (var index = 0; index < MissilePoolSize; index++)
+        var telemetryActive = QuestCombatTelemetry.Active;
+        var telemetryStart = telemetryActive ? Stopwatch.GetTimestamp() : 0L;
+        try
         {
-            var missile = new MissileEffect(index % 4 == 0)
+            for (var index = 0; index < MissilePoolSize; index++)
             {
-                Name = $"{Name}-Missile{index + 1}"
-            };
-            GetParent().AddChild(missile);
-            m_missilePool.Add(missile);
+                var missile = new MissileEffect(index % 4 == 0)
+                {
+                    Name = $"{Name}-Missile{index + 1}"
+                };
+                GetParent().AddChild(missile);
+                m_missilePool.Add(missile);
+            }
+        }
+        finally
+        {
+            if (telemetryActive)
+            {
+                QuestCombatTelemetry.RecordMissilePoolCreation(Stopwatch.GetTimestamp() - telemetryStart);
+            }
         }
     }
 
@@ -1008,19 +1049,31 @@ public partial class EnemyMech : Node3D
 
     private bool HasLineOfSight(Vector3 start, Vector3 end)
     {
-        var distance = start.DistanceTo(end);
-        if (distance <= 0.01f)
+        var telemetryActive = QuestCombatTelemetry.Active;
+        var telemetryStart = telemetryActive ? Stopwatch.GetTimestamp() : 0L;
+        try
         {
-            return true;
-        }
+            var distance = start.DistanceTo(end);
+            if (distance <= 0.01f)
+            {
+                return true;
+            }
 
-        return !DebugTriangleRaycaster.TryFindNearest(
-                   m_sceneTriangles,
-                   start,
-                   start.DirectionTo(end),
-                   out _,
-                   out var hitDistance) ||
-               hitDistance >= distance - 1.0f;
+            return !DebugTriangleRaycaster.TryFindNearest(
+                       m_sceneTriangles,
+                       start,
+                       start.DirectionTo(end),
+                       out _,
+                       out var hitDistance) ||
+                   hitDistance >= distance - 1.0f;
+        }
+        finally
+        {
+            if (telemetryActive)
+            {
+                QuestCombatTelemetry.RecordLineOfSight(Stopwatch.GetTimestamp() - telemetryStart);
+            }
+        }
     }
 
     private static float MoveTowardAngle(float current, float target, float maximumDelta) =>

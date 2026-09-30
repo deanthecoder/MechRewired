@@ -62,7 +62,8 @@ public sealed class MissionSkyController
     private readonly MissionSkyProfile m_profile;
     private readonly Sky m_proceduralSky;
     private readonly Node.ProcessModeEnum m_skyDomeProcessMode;
-    private ImageTexture m_bakedPanorama;
+    private Task m_skyBakeTask = Task.CompletedTask;
+    private bool m_bakedSkyRequested;
     private Sky m_bakedSky;
     private float m_time;
     private float m_fogMultiplier = 1.0f;
@@ -140,38 +141,51 @@ public sealed class MissionSkyController
     /// <summary>The mission's original Sky3D resource, used by the rendering benchmark baseline.</summary>
     public Sky ProceduralSky => m_proceduralSky;
 
-    /// <summary>Switches the Quest background between Sky3D and a panorama baked from this mission.</summary>
+    public bool SkyBakePending => !m_skyBakeTask.IsCompleted;
+
+    /// <summary>Allows a benchmark to wait for a menu-requested capture before changing the environment.</summary>
+    public Task WaitForSkyBakeAsync() => m_skyBakeTask;
+
+    /// <summary>Requests the cached Quest sky. Capture completes outside benchmark measurement windows.</summary>
     public bool BakedSkyEnabled
     {
-        get => m_bakedSky != null && m_environment.Sky == m_bakedSky;
+        get => m_bakedSkyRequested;
         set
         {
-            if (value == BakedSkyEnabled) return;
-            if (value)
+            m_bakedSkyRequested = value;
+            if (!value)
             {
-                if (m_bakedPanorama == null)
-                {
-                    using var panorama = RenderingServer.EnvironmentBakePanorama(
-                        m_environment.GetRid(), false, new Vector2I(1024, 512));
-                    if (panorama == null || panorama.IsEmpty())
-                    {
-                        GD.PushWarning("MechRewired: the mission sky could not be baked on this renderer.");
-                        return;
-                    }
-                    m_bakedPanorama = ImageTexture.CreateFromImage(panorama);
-                }
-
-                m_bakedSky ??= new Sky
-                {
-                    SkyMaterial = new PanoramaSkyMaterial { Panorama = m_bakedPanorama }
-                };
+                m_environment.Sky = m_proceduralSky;
+                m_skyDome.ProcessMode = m_skyDomeProcessMode;
+            }
+            else if (m_bakedSky != null)
+            {
                 m_environment.Sky = m_bakedSky;
                 m_skyDome.ProcessMode = Node.ProcessModeEnum.Disabled;
-                return;
             }
+            else if (!SkyBakePending)
+            {
+                m_skyBakeTask = BakeSkyAsync();
+            }
+        }
+    }
 
-            m_environment.Sky = m_proceduralSky;
-            m_skyDome.ProcessMode = m_skyDomeProcessMode;
+    private async Task BakeSkyAsync()
+    {
+        try
+        {
+            m_bakedSky = await QuestCachedSky.CreateAsync(m_sky3D, m_environment, m_proceduralSky);
+            if (!GodotObject.IsInstanceValid(m_skyDome) || !m_skyDome.IsInsideTree()) return;
+            if (m_bakedSkyRequested)
+            {
+                m_environment.Sky = m_bakedSky;
+                m_skyDome.ProcessMode = Node.ProcessModeEnum.Disabled;
+            }
+        }
+        catch (Exception error)
+        {
+            m_bakedSkyRequested = false;
+            GD.PushWarning("QUEST_SKY_CACHE_FAILED: " + error.Message);
         }
     }
 

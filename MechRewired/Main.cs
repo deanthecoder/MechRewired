@@ -2325,13 +2325,18 @@ public partial class Main : Node3D
                     GetTree().Paused = false;
                     GetTree().CallDeferred(SceneTree.MethodName.ReloadCurrentScene);
                 });
-            var benchmark = new QuestPerformanceBenchmark(levelRoot, playerMech, playerHud, missionSky.ProceduralSky,
+            var benchmark = new QuestPerformanceBenchmark(levelRoot, playerMech, playerHud, missionSky,
                 terrainSurface, terrainRocks, battlefieldActors, enemyMechs,
                 Path.GetFileNameWithoutExtension(missionResources.ScenarioEntry.Name));
+            var combatBenchmark = new QuestCombatBenchmark(playerMech, playerHud, graphics, missionSky,
+                terrainSurface, terrainRocks, enemyMechs,
+                Path.GetFileNameWithoutExtension(missionResources.ScenarioEntry.Name));
             vrMenu.RunBenchmark = benchmark.Start;
+            vrMenu.RunCombatBenchmark = combatBenchmark.Start;
             AddChild(vrMenu);
             rig.Menu = vrMenu;
             AddChild(benchmark);
+            AddChild(combatBenchmark);
 #if DEBUG
             if (QuestVrRuntime.Preview && OS.GetCmdlineUserArgs().Contains("--vr-smoke"))
                 AddChild(new QuestVrSmokeCheck(playerMech, playerHud));
@@ -2686,6 +2691,8 @@ public partial class Main : Node3D
             enemy.RotationDegrees = MechWarriorCoordinateSystem.ToGodotRotation(
                 new System.Numerics.Vector3(0.0f, gamePiece.SpawnPoint.StartingAngle, 0.0f));
             enemies.Add(enemy);
+            // Prepare only Quest missile-armed pools, after the parent has finished adding the enemy.
+            enemy.PrewarmMissiles();
             if (animatedGaitParts == 0 && !enemy.IsStationaryEmplacement)
             {
                 GD.PushWarning(

@@ -38,10 +38,9 @@ public sealed class QuestBenchmarkGraphics : IDisposable
         """;
 
     private static readonly string[] s_variantNames =
-    ["baseline", "terrain-triplanar", "terrain-albedo-only", "terrain-hidden", "sky-panorama", "sky-plain", "hud-hidden", "cockpit-hidden", "rocks-hidden"];
+    ["baseline", "terrain-triplanar", "terrain-albedo-only", "sky-panorama", "hud-hidden", "cockpit-hidden", "cockpit-lights-off", "rocks-hidden"];
 
     private readonly List<(ShaderMaterial Material, Shader Shader)> m_terrainShaders = [];
-    private readonly List<(GeometryInstance3D Node, bool Visible)> m_terrainNodes = [];
     private readonly List<(Node3D Node, bool Visible)> m_rockNodes = [];
     private readonly PlayerHud m_hud;
     private readonly bool m_hudVisible;
@@ -52,6 +51,7 @@ public sealed class QuestBenchmarkGraphics : IDisposable
     private readonly bool m_hudSurfaceVisible;
     private readonly PlayerCockpit m_cockpit;
     private readonly bool m_cockpitVisible;
+    private readonly bool m_cockpitInteriorLightsEnabled;
     private readonly Godot.Environment m_environment;
     private readonly Godot.Environment.BGMode m_backgroundMode;
     private readonly Color m_backgroundColor;
@@ -68,7 +68,7 @@ public sealed class QuestBenchmarkGraphics : IDisposable
     private readonly bool m_glowEnabled;
     private readonly bool m_cockpitGlassEnabled;
     private readonly Dictionary<Shader, Shader> m_albedoOnlyShaders = [];
-    private ImageTexture m_bakedPanorama;
+    private readonly Node m_owner;
     private Sky m_panoramaSky;
     private bool m_disposed;
 
@@ -79,6 +79,7 @@ public sealed class QuestBenchmarkGraphics : IDisposable
     {
         ArgumentNullException.ThrowIfNull(missionRoot);
         ArgumentNullException.ThrowIfNull(player);
+        m_owner = missionRoot;
         m_hud = hud ?? throw new ArgumentNullException(nameof(hud));
         m_proceduralSky = proceduralSky ?? throw new ArgumentNullException(nameof(proceduralSky));
         m_hudVisible = hud.Visible;
@@ -89,6 +90,7 @@ public sealed class QuestBenchmarkGraphics : IDisposable
         m_hudSurfaceVisible = m_hudSurface?.Visible ?? false;
         m_cockpit = player.Cockpit;
         m_cockpitVisible = m_cockpit?.Visible ?? false;
+        m_cockpitInteriorLightsEnabled = m_cockpit?.InteriorLightsEnabled ?? true;
 
         foreach (var node in Descendants(missionRoot))
         {
@@ -110,14 +112,12 @@ public sealed class QuestBenchmarkGraphics : IDisposable
             }
             if (node is GeometryInstance3D geometry)
             {
-                var isTerrain = CaptureTerrainMaterial(geometry.MaterialOverride);
+                CaptureTerrainMaterial(geometry.MaterialOverride);
                 if (geometry is MeshInstance3D meshInstance && meshInstance.Mesh != null)
                 {
                     for (var index = 0; index < meshInstance.Mesh.GetSurfaceCount(); ++index)
-                        isTerrain |= CaptureTerrainMaterial(meshInstance.GetSurfaceOverrideMaterial(index) ?? meshInstance.Mesh.SurfaceGetMaterial(index));
+                        CaptureTerrainMaterial(meshInstance.GetSurfaceOverrideMaterial(index) ?? meshInstance.Mesh.SurfaceGetMaterial(index));
                 }
-                if (isTerrain)
-                    m_terrainNodes.Add((geometry, geometry.Visible));
             }
             if (node is TerrainRockScatter scatter)
             {
@@ -137,7 +137,7 @@ public sealed class QuestBenchmarkGraphics : IDisposable
     }
 
     /// <summary>Resets to the cheap Quest baseline before applying one named ablation.</summary>
-    public void Apply(string variant)
+    public async Task ApplyAsync(string variant)
     {
         ObjectDisposedException.ThrowIf(m_disposed, this);
         if (!s_variantNames.Contains(variant, StringComparer.Ordinal))
@@ -150,13 +150,8 @@ public sealed class QuestBenchmarkGraphics : IDisposable
             case "terrain-albedo-only":
                 foreach (var (material, shader) in m_terrainShaders) material.Shader = GetAlbedoOnlyShader(shader);
                 break;
-            case "terrain-hidden":
-                foreach (var (node, _) in m_terrainNodes) node.Visible = false;
-                break;
             case "sky-panorama":
-                ApplyPanoramaSky(); break;
-            case "sky-plain":
-                ApplyPlainSky(); break;
+                await ApplyPanoramaSkyAsync(); break;
             case "hud-hidden":
                 m_hud.Visible = false;
                 m_hud.ProcessMode = Node.ProcessModeEnum.Disabled;
@@ -165,6 +160,9 @@ public sealed class QuestBenchmarkGraphics : IDisposable
                 break;
             case "cockpit-hidden":
                 if (m_cockpit != null) m_cockpit.Visible = false;
+                break;
+            case "cockpit-lights-off":
+                if (m_cockpit != null) m_cockpit.InteriorLightsEnabled = false;
                 break;
             case "rocks-hidden":
                 foreach (var (node, _) in m_rockNodes) node.Visible = false;
@@ -177,13 +175,13 @@ public sealed class QuestBenchmarkGraphics : IDisposable
         if (m_disposed) return;
         m_disposed = true;
         foreach (var (material, shader) in m_terrainShaders) material.Shader = shader;
-        foreach (var (node, visible) in m_terrainNodes) node.Visible = visible;
         foreach (var (node, visible) in m_rockNodes) node.Visible = visible;
         m_hud.Visible = m_hudVisible;
         m_hud.ProcessMode = m_hudProcessMode;
         if (m_hudViewport != null) m_hudViewport.RenderTargetUpdateMode = m_hudUpdateMode;
         if (m_hudSurface != null) m_hudSurface.Visible = m_hudSurfaceVisible;
         if (m_cockpit != null) m_cockpit.Visible = m_cockpitVisible;
+        if (m_cockpit != null) m_cockpit.InteriorLightsEnabled = m_cockpitInteriorLightsEnabled;
         if (m_cockpit != null) m_cockpit.GlassEnabled = m_cockpitGlassEnabled;
         if (m_sun != null) m_sun.ShadowEnabled = m_sunShadowsEnabled;
         if (m_environment != null) m_environment.GlowEnabled = m_glowEnabled;
@@ -194,13 +192,13 @@ public sealed class QuestBenchmarkGraphics : IDisposable
     {
         foreach (var (material, shader) in m_terrainShaders) material.Shader = shader;
         SetTerrainTriplanar(false);
-        foreach (var (node, visible) in m_terrainNodes) node.Visible = visible;
         foreach (var (node, visible) in m_rockNodes) node.Visible = visible;
         m_hud.Visible = m_hudVisible;
         m_hud.ProcessMode = m_hudProcessMode;
         if (m_hudViewport != null) m_hudViewport.RenderTargetUpdateMode = m_hudUpdateMode;
         if (m_hudSurface != null) m_hudSurface.Visible = m_hudSurfaceVisible;
         if (m_cockpit != null) m_cockpit.Visible = m_cockpitVisible;
+        if (m_cockpit != null) m_cockpit.InteriorLightsEnabled = m_cockpitInteriorLightsEnabled;
         if (m_cockpit != null) m_cockpit.GlassEnabled = false;
         if (m_sun != null) m_sun.ShadowEnabled = false;
         if (m_environment != null) m_environment.GlowEnabled = false;
@@ -221,30 +219,13 @@ public sealed class QuestBenchmarkGraphics : IDisposable
         foreach (var (material, _) in m_terrainShaders) TerrainSurfaceMaterial.SetTriplanarEnabled(material, enabled);
     }
 
-    private void ApplyPanoramaSky()
+    private async Task ApplyPanoramaSkyAsync()
     {
         if (m_environment?.Sky == null)
-            throw new InvalidOperationException("The mission has no Sky resource to bake for the panorama benchmark.");
-        if (m_bakedPanorama == null)
-        {
-            using var panorama = RenderingServer.EnvironmentBakePanorama(
-                m_environment.GetRid(), false, new Vector2I(1024, 512));
-            if (panorama == null || panorama.IsEmpty())
-                throw new InvalidOperationException("Godot could not bake the mission sky panorama for this renderer.");
-            m_bakedPanorama = ImageTexture.CreateFromImage(panorama);
-        }
-        m_panoramaSky ??= new Sky { SkyMaterial = new PanoramaSkyMaterial { Panorama = m_bakedPanorama } };
+            throw new InvalidOperationException("The mission has no Sky resource to cache.");
+        if (m_skyDome != null) m_skyDome.ProcessMode = Node.ProcessModeEnum.Disabled;
+        m_panoramaSky ??= await QuestCachedSky.CreateAsync(m_owner, m_environment, m_proceduralSky);
         m_environment.Sky = m_panoramaSky;
-        if (m_skyDome != null) m_skyDome.ProcessMode = Node.ProcessModeEnum.Disabled;
-    }
-
-    private void ApplyPlainSky()
-    {
-        if (m_environment == null)
-            throw new InvalidOperationException("The mission has no WorldEnvironment for the plain-sky benchmark.");
-        m_environment.BackgroundMode = Godot.Environment.BGMode.Color;
-        m_environment.BackgroundColor = m_backgroundColor;
-        if (m_skyDome != null) m_skyDome.ProcessMode = Node.ProcessModeEnum.Disabled;
     }
 
     private void RestoreSky(bool original = true)

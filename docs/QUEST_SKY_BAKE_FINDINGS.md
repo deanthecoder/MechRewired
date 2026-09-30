@@ -10,9 +10,43 @@ test app. It used the Mobile Vulkan renderer on a Quest 3 with an Adreno 740.
 The private test APK bundled `MW2.PRJ`; startup verified its SHA-256 and indexed
 7,735 resources. This was a local headset install, not a Meta Alpha update.
 
-## Current implementation and observed states
+## Replacement implementation (September 30)
 
-- **BAKED SKY OFF** is the default for each mission. Sky3D draws the procedural
+The September 29 measurements and headset observations below describe the old
+1024×512 panorama implementation only. They do not establish the appearance or
+performance of the replacement, which has not yet been validated on a headset.
+
+The replacement uses a shared asynchronous `QuestCachedSky` helper used by
+the menu and the `sky-panorama` benchmark variant. It captures a frozen,
+sunless HDR sky from six 1024×1024 cubemap faces and exports a 2048×1024 panorama. A
+cheap visible sampler uses that cache, while a separate copy of the original
+procedural sun contribution draws the disc only where present, preserving cloud
+attenuation and tone mapping. Final sky radiance keeps the frozen original
+procedural sky, including the sun, for ambient and reflection lighting.
+
+In the Quest menu, **BAKED SKY** remains default-off. Enabling it starts capture
+asynchronously and shows **BAKING** while pending; the user can turn it off
+during capture. Switching OFF restores the procedural sky and cloud drift. The setting remains
+mission-local. Headset visual and performance checks are still required.
+
+The benchmark format is schema 3 and records
+`skyCache=hdr-2048x1024-separate-sun-v1`. Capture is excluded from measured
+trial timing. The panorama variant uses the same shared helper and cached
+sky path as the menu.
+
+A desktop Vulkan Mobile smoke test rendered both generated shaders and baked
+an actual 2048×1024 floating-point panorama with values above 1.0. The capture
+uses `SkyBakePanorama` at energy 1, then samples the linear HDR texture without
+an sRGB conversion. The capture viewport has its own world, so it does not
+replace the mission's environment during baking. Native shader validation also
+covers the in-memory shader's expanded common include. These checks are not
+Quest appearance or FPS evidence; the actual clouds and mountain lighting still
+need an ON/OFF headset comparison. Logs use `QUEST_SKY_CACHE` for capture size,
+format, radiance settings and light directions. No screenshots are captured.
+
+## Historical implementation and observed states (September 29)
+
+- **BAKED SKY OFF** was the default for each mission. Sky3D draws the procedural
   atmosphere, clouds drift, and the existing directional sun lights the scene.
 - **BAKED SKY ON** calls `RenderingServer.EnvironmentBakePanorama` once for that
   mission with `bake_irradiance=false` and a requested `1024×512` image. It
@@ -23,7 +57,7 @@ The private test APK bundled `MW2.PRJ`; startup verified its SHA-256 and indexed
 - The rendering benchmark forces a procedural-sky baseline even if the normal
   menu toggle was ON before the run, then restores the prior menu state. Its
   `sky-panorama` variant uses the same bake size and material approach.
-- This toggle is **experimental and visually unacceptable at present**. Leave
+- This old implementation was **experimental and visually unacceptable**. Leave
   it OFF for ordinary play. Do not make it the Quest default on performance
   numbers alone.
 

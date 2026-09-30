@@ -3,8 +3,9 @@
 The first headset run's complete variant comparisons and validation record are
 in [QUEST_PERFORMANCE_FINDINGS.md](QUEST_PERFORMANCE_FINDINGS.md), with all 40
 summary trials in [the committed CSV](data/quest-benchmark-2026-09-29-summary.csv).
-The baked-sky visual defects and follow-up ideas have a separate
-[sky note](QUEST_SKY_BAKE_FINDINGS.md).
+The September 29 baked-sky results are historical evidence for the superseded
+implementation; the replacement awaits headset validation. Current design notes and
+historical findings are in the [sky note](QUEST_SKY_BAKE_FINDINGS.md).
 
 This is a repeatable **rendering ablation**, available in Release builds on this
 development branch. It holds gameplay/AI/physics still while moving the pilot
@@ -22,11 +23,11 @@ measure the cost of a live battle, weapon simulation, destruction or AI.
 
    Leave this running. The log is written directly on your Mac in the terminal's
    current directory. Restart the mission to restore its initial state.
-3. Open the Quest menu and choose **RUN BENCHMARK**. Remain seated and keep your
+3. Open the Quest menu, select **BENCHMARKS > RENDERING TEST**, and remain seated. Keep your
    head in the same position, facing forward. The sweeps translate/turn the mech;
    native headset tracking remains live. Press **Menu** to stop at any time.
    Loss of headset tracking/focus also stops the run.
-4. Allow approximately six minutes plus setup/reporting overhead. The
+4. Allow approximately five minutes 24 seconds plus setup/reporting overhead. The
    headset label identifies the current fixture and variant.
 5. When the headset reports completion, stop log capture with Ctrl+C. Analyze it
    with `python3 scripts/analyze-quest-benchmark.py quest-benchmark.log`, or give
@@ -60,29 +61,35 @@ identities and poses. Missing enemy/building fixtures are explicitly omitted.
 | Building sweep | Chemical plant preferred, otherwise a named-order damageable large actor; same sweep |
 | Missile salvo | Three six-missile salvos at 0, 2 and 4 seconds; normal missile visuals/lights/smoke with fixed particle seeds; no damage callbacks |
 
-Each fixture runs baseline, eight feature comparisons, then baseline again.
+Each fixture runs baseline, seven feature comparisons, then baseline again
+(36 trials across four fixtures, including the added cockpit-light ablation).
 Every trial warms up for three seconds and measures six seconds. Rock cells
-are populated before timing. Shader swaps, pool construction, panorama baking,
-log output and disk writes occur outside the sample window. There are no screenshots.
+are populated before timing. Shader swaps, pool construction, cached-sky
+capture, log output and disk writes occur outside the sample window. Schema 3
+identifies the mode as `skyCache=hdr-2048x1024-separate-sun-v1`; capture time is
+excluded from the measured trial. There are no screenshots.
 Normal frame-to-frame particle simulation and rendering still occur inside it.
 Procedural sky animation also keeps running in the baseline; its cloud phase is
-reset before each measured trial. Panorama/plain cases disable that animation.
+reset before each measured trial. The cached-sky case disables that animation.
 
 | Variant | Difference from baseline |
 | --- | --- |
 | `terrain-triplanar` | Detailed biome shader, still without Quest parallax |
 | `terrain-albedo-only` | Unshaded UV terrain; samples existing colour textures, removing lighting |
-| `terrain-hidden` | Hide terrain geometry entirely |
-| `sky-panorama` | Bake current sky once into a 1024×512 panorama, then sample that image |
-| `sky-plain` | Solid background, keeping existing light settings; sky/fog/reflection appearance can differ |
+| `sky-panorama` | Shared cached-sky path: capture frozen sunless HDR from six 1024×1024 cubemap faces, export 2048×1024, sample cheaply, and add the original procedural sun separately |
 | `hud-hidden` | Hide HUD surface and stop HUD script/subviewport rendering |
 | `cockpit-hidden` | Hide cockpit geometry while retaining HUD |
+| `cockpit-lights-off` | Disable cockpit lighting while retaining cockpit geometry and HUD |
 | `rocks-hidden` | Hide the scattered-rock root, including its blend skirts |
 
 These modes are temporary. Original shaders/visibility, graphics state and pilot
 pose are restored when the run ends or is cancelled. Preferences are not saved.
 The mission remains paused at the result menu. No automatic APK upload or Git
 commit happens.
+
+The separate [live-combat test](QUEST_COMBAT_BENCHMARK.md) measures active AI,
+physics, and weapon effects over four fresh 15-second missions. It restarts the
+mission by design and provides a different workload from this rendering ablation.
 
 ## Results
 
@@ -136,3 +143,8 @@ Unavailable renderer timings are blank in the summary (raw zeros), not proof
 that rendering costs nothing. GPU timing is the main viewport and may exclude
 HUD/offscreen work; use it alongside global draw/primitive counts and frame time.
 For deeper validation, compare with a headset performance overlay/profiler.
+
+`cockpit-lights-off` removes the cockpit's dynamic lamps without replacing them
+with baked lighting. It measures lamp cost while retaining the cockpit geometry.
+Quest instrument canvases now redraw on state changes (at most 30 Hz); targeting
+stays full-rate. Trial JSON includes `hudInstrumentDraws` to verify the cache.

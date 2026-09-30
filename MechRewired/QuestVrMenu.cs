@@ -57,8 +57,11 @@ public sealed partial class QuestVrMenu : Node3D
         ProcessMode = ProcessModeEnum.Always;
     }
 
+    private string m_lastSkyStatus;
+    private string SkyStatus => m_settings.SkyBakePending ? "BAKING" : m_settings.BakedSkyEnabled ? "ON" : "OFF";
     public bool IsOpen => Visible;
     public Action RunBenchmark { get; set; }
+    public Action RunCombatBenchmark { get; set; }
 
     public override void _Ready()
     {
@@ -67,9 +70,15 @@ public sealed partial class QuestVrMenu : Node3D
         AddAction("RECENTER VIEW", RecenterAndClose);
         AddAction("GRAPHICS SETTINGS  >", () => SetPage(1));
         AddAction("HUD SETTINGS  >", () => SetPage(2));
-        if (RunBenchmark != null) AddAction("RUN BENCHMARK", () => RunBenchmark());
+        if (RunBenchmark != null || RunCombatBenchmark != null)
+        {
+            AddAction("BENCHMARKS  >", () => SetPage(3));
+            if (RunBenchmark != null) AddAction("RENDERING TEST", () => RunBenchmark(), 3);
+            if (RunCombatBenchmark != null) AddAction("COMBAT TEST (RESTARTS)", () => RunCombatBenchmark(), 3);
+            AddAction("<  BACK", () => SetPage(0), 3);
+        }
         AddToggle("SUN SHADOWS", () => m_settings.SunShadowsEnabled, value => m_settings.SunShadowsEnabled = value, 1);
-        AddToggle("BAKED SKY", () => m_settings.BakedSkyEnabled, value => m_settings.BakedSkyEnabled = value, 1);
+        AddRow("BAKED SKY", () => m_settings.BakedSkyEnabled = !m_settings.BakedSkyEnabled, () => SkyStatus, 1);
         AddToggle("SCENE GLOW", () => m_settings.GlowEnabled, value => m_settings.GlowEnabled = value, 1);
         AddToggle("COCKPIT GLASS", () => m_settings.CockpitGlassEnabled, value => m_settings.CockpitGlassEnabled = value, 1);
         AddToggle("TERRAIN TRIPLANAR", () => m_settings.TerrainTriplanarEnabled, value => m_settings.TerrainTriplanarEnabled = value, 1);
@@ -139,6 +148,11 @@ public sealed partial class QuestVrMenu : Node3D
             return;
         }
 
+        if (m_lastSkyStatus != SkyStatus)
+        {
+            m_lastSkyStatus = SkyStatus;
+            RefreshRows();
+        }
         UpdatePerformanceReadout();
         // Preview selection is driven by _UnhandledInput; do not overwrite its hover state
         // each frame with the deliberately untracked desktop controller nodes.

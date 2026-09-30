@@ -26,6 +26,10 @@ public partial class MissileEffect : Node3D
     private const float SmokeLifetimeSeconds = 1.35f;
     private const int SmokeParticleCount = 144;
     // Every pooled missile keeps its own simulation state, while immutable GPU resources are shared.
+    private static readonly StandardMaterial3D s_bodyMaterial = CreateBodyMaterial();
+    private static readonly CylinderMesh s_bodyMesh = CreateBodyMesh();
+    private static readonly StandardMaterial3D s_exhaustMaterial = CreateExhaustMaterial();
+    private static readonly CylinderMesh s_exhaustMesh = CreateExhaustMesh();
     private static readonly ParticleProcessMaterial s_smokeProcessMaterial = CreateSmokeProcessMaterial();
     private static readonly QuadMesh s_smokeMesh = CreateSmokeMesh();
     private static readonly ShaderMaterial s_smokeVisualMaterial = CreateSmokeVisualMaterial();
@@ -41,6 +45,9 @@ public partial class MissileEffect : Node3D
     private float m_smokeFadeRemaining;
     private bool m_isFlying;
     private bool m_isPowered;
+    private bool m_telemetryTracked;
+    private bool m_appliedLightsDisabled;
+    private bool m_appliedSmokeDisabled;
     private Vector3? m_previousTargetPosition;
     private Vector3 m_targetVelocity;
     private Func<Vector3?> m_targetPosition;
@@ -52,48 +59,19 @@ public partial class MissileEffect : Node3D
     {
         Name = "PooledMissile";
         m_carriesLight = carriesLight;
-        var bodyMaterial = new StandardMaterial3D
-        {
-            AlbedoColor = Color.FromHtml("565d63"),
-            Metallic = 0.7f,
-            Roughness = 0.35f
-        };
         m_body = new MeshInstance3D
         {
-            Mesh = new CylinderMesh
-            {
-                TopRadius = 0.055f,
-                BottomRadius = 0.07f,
-                Height = 0.75f,
-                RadialSegments = 8,
-                Rings = 1
-            },
-            MaterialOverride = bodyMaterial,
+            Mesh = s_bodyMesh,
+            MaterialOverride = s_bodyMaterial,
             CastShadow = GeometryInstance3D.ShadowCastingSetting.Off
         };
         AddChild(m_body);
 
-        var exhaustMaterial = new StandardMaterial3D
-        {
-            AlbedoColor = Color.FromHtml("fff070"),
-            EmissionEnabled = true,
-            Emission = Color.FromHtml("ffb020"),
-            EmissionEnergyMultiplier = 10.0f,
-            ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
-            CullMode = BaseMaterial3D.CullModeEnum.Disabled
-        };
         m_exhaust = new MeshInstance3D
         {
             Position = Vector3.Down * 0.52f,
-            Mesh = new CylinderMesh
-            {
-                TopRadius = 0.025f,
-                BottomRadius = 0.14f,
-                Height = 0.4f,
-                RadialSegments = 8,
-                Rings = 1
-            },
-            MaterialOverride = exhaustMaterial,
+            Mesh = s_exhaustMesh,
+            MaterialOverride = s_exhaustMaterial,
             CastShadow = GeometryInstance3D.ShadowCastingSetting.Off
         };
         AddChild(m_exhaust);
@@ -163,17 +141,20 @@ public partial class MissileEffect : Node3D
         m_terrainImpact = terrainImpact;
         Age = 0.0f;
         IsActive = true;
+        QuestCombatTelemetry.RecordMissileLaunch();
+        if (!m_telemetryTracked)
+        {
+            m_telemetryTracked = QuestCombatTelemetry.TrackMissileLaunched();
+        }
         m_isFlying = true;
         m_isPowered = true;
         Visible = true;
         m_body.Visible = true;
         m_exhaust.Visible = true;
-        m_light.Visible = m_carriesLight;
-        m_smokeTrail.Visible = true;
-        m_smokeTrail.Emitting = true;
+        UpdateVisualAblation();
         SetProcess(true);
         OrientToDirection();
-        m_smokeTrail.Restart();
+        if (!QuestCombatTelemetry.SmokeDisabled) m_smokeTrail.Restart();
     }
 
     public override void _Process(double delta)
@@ -186,11 +167,16 @@ public partial class MissileEffect : Node3D
             {
                 IsActive = false;
                 m_smokeTrail.Visible = false;
+                StopTelemetryTracking();
                 SetProcess(false);
             }
 
+            RefreshVisualAblation();
+
             return;
         }
+
+        RefreshVisualAblation();
 
         var elapsed = (float)delta;
         Age += elapsed;
@@ -241,6 +227,7 @@ public partial class MissileEffect : Node3D
         var nextPosition = GlobalPosition + movement;
         if (TryFindTerrainImpact(GlobalPosition, nextPosition, out var terrainImpact))
         {
+            QuestCombatTelemetry.RecordImpact();
             m_terrainImpact?.Invoke(terrainImpact);
             Deactivate();
             return;
@@ -249,6 +236,7 @@ public partial class MissileEffect : Node3D
         if (target.HasValue && DistanceToSegment(target.Value, GlobalPosition, nextPosition) <= ImpactRadius)
         {
             var impact = target.Value;
+            QuestCombatTelemetry.RecordImpact();
             m_impact?.Invoke(impact);
             Deactivate();
             return;
@@ -271,8 +259,7 @@ public partial class MissileEffect : Node3D
     {
         m_isPowered = false;
         m_exhaust.Visible = false;
-        m_light.Visible = false;
-        m_smokeTrail.Emitting = false;
+        UpdateVisualAblation();
     }
 
     private void OrientToDirection()
@@ -290,8 +277,7 @@ public partial class MissileEffect : Node3D
         m_smokeFadeRemaining = SmokeLifetimeSeconds;
         m_body.Visible = false;
         m_exhaust.Visible = false;
-        m_light.Visible = false;
-        m_smokeTrail.Emitting = false;
+        UpdateVisualAblation();
         m_targetPosition = null;
         m_impact = null;
         m_terrainImpact = null;
@@ -307,8 +293,76 @@ public partial class MissileEffect : Node3D
         m_exhaust.Visible = false;
         m_light.Visible = false;
         m_smokeTrail.Visible = false;
+        StopTelemetryTracking();
         SetProcess(false);
     }
+
+    public override void _ExitTree()
+    {
+        StopTelemetryTracking();
+    }
+
+    private void RefreshVisualAblation()
+    {
+        if (m_appliedLightsDisabled != QuestCombatTelemetry.WeaponLightsDisabled ||
+            m_appliedSmokeDisabled != QuestCombatTelemetry.SmokeDisabled)
+            UpdateVisualAblation();
+    }
+
+    private void UpdateVisualAblation()
+    {
+        m_appliedLightsDisabled = QuestCombatTelemetry.WeaponLightsDisabled;
+        m_appliedSmokeDisabled = QuestCombatTelemetry.SmokeDisabled;
+        m_light.Visible = m_isFlying && m_carriesLight && m_isPowered && !QuestCombatTelemetry.WeaponLightsDisabled;
+        m_smokeTrail.Visible = IsActive && !QuestCombatTelemetry.SmokeDisabled;
+        m_smokeTrail.Emitting = m_isFlying && m_isPowered && !QuestCombatTelemetry.SmokeDisabled;
+    }
+
+    private void StopTelemetryTracking()
+    {
+        if (!m_telemetryTracked)
+        {
+            return;
+        }
+
+        m_telemetryTracked = false;
+        QuestCombatTelemetry.TrackMissileStopped();
+    }
+
+    private static StandardMaterial3D CreateBodyMaterial() => new()
+    {
+        AlbedoColor = Color.FromHtml("565d63"),
+        Metallic = 0.7f,
+        Roughness = 0.35f
+    };
+
+    private static CylinderMesh CreateBodyMesh() => new()
+    {
+        TopRadius = 0.055f,
+        BottomRadius = 0.07f,
+        Height = 0.75f,
+        RadialSegments = 8,
+        Rings = 1
+    };
+
+    private static StandardMaterial3D CreateExhaustMaterial() => new()
+    {
+        AlbedoColor = Color.FromHtml("fff070"),
+        EmissionEnabled = true,
+        Emission = Color.FromHtml("ffb020"),
+        EmissionEnergyMultiplier = 10.0f,
+        ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+        CullMode = BaseMaterial3D.CullModeEnum.Disabled
+    };
+
+    private static CylinderMesh CreateExhaustMesh() => new()
+    {
+        TopRadius = 0.025f,
+        BottomRadius = 0.14f,
+        Height = 0.4f,
+        RadialSegments = 8,
+        Rings = 1
+    };
 
     private static ParticleProcessMaterial CreateSmokeProcessMaterial() =>
         new()

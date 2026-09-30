@@ -29,6 +29,7 @@ public partial class LaserEffect : Node3D
     private readonly float m_delay;
     private readonly MeshInstance3D m_pulse;
     private readonly OmniLight3D m_light;
+    private readonly bool m_telemetryTracked;
     private float m_age;
 
     public LaserEffect(Vector3 start, Vector3 end)
@@ -38,6 +39,7 @@ public partial class LaserEffect : Node3D
 
     public LaserEffect(Vector3 start, Vector3 end, Color color, float radius, float delay = 0.0f)
     {
+        m_telemetryTracked = QuestCombatTelemetry.TrackLaserCreated();
         m_start = start;
         m_distance = start.DistanceTo(end);
         m_delay = delay;
@@ -104,7 +106,7 @@ public partial class LaserEffect : Node3D
             LightEnergy = 5.0f,
             OmniRange = 8.0f,
             ShadowEnabled = false,
-            Visible = delay <= 0.0f
+            Visible = delay <= 0.0f && !QuestCombatTelemetry.WeaponLightsDisabled
         };
         AddChild(m_light);
     }
@@ -118,7 +120,7 @@ public partial class LaserEffect : Node3D
         }
 
         m_pulse.Visible = true;
-        m_light.Visible = true;
+        m_light.Visible = !QuestCombatTelemetry.WeaponLightsDisabled;
         var effectAge = m_age - m_delay;
         var launchLength = Math.Min(PulseLength, m_distance);
         float frontDistance;
@@ -145,6 +147,14 @@ public partial class LaserEffect : Node3D
         if (backDistance >= m_distance - 0.001f || m_distance <= 0.001f)
         {
             QueueFree();
+        }
+    }
+
+    public override void _ExitTree()
+    {
+        if (m_telemetryTracked)
+        {
+            QuestCombatTelemetry.TrackLaserStopped();
         }
     }
 }

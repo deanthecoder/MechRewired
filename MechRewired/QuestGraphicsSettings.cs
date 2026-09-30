@@ -57,7 +57,10 @@ public sealed class QuestGraphicsSettings
         set => m_sky.SunShadowsEnabled = value;
     }
 
-    /// <summary>Uses a once-per-mission sky panorama for normal Quest gameplay.</summary>
+    /// <summary>True while the high-resolution sky capture is being rendered.</summary>
+    public bool SkyBakePending => m_sky.SkyBakePending;
+
+    /// <summary>Uses the mission's cached HDR sky and separate sun for Quest gameplay.</summary>
     public bool BakedSkyEnabled
     {
         get => m_sky.BakedSkyEnabled;

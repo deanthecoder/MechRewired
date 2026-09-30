@@ -21,7 +21,7 @@ public sealed partial class QuestPerformanceBenchmark : Node
     private readonly Node m_world;
     private readonly PlayerMech m_player;
     private readonly PlayerHud m_hud;
-    private readonly Sky m_proceduralSky;
+    private readonly MissionSkyController m_missionSky;
     private readonly TerrainSurfaceIndex m_terrain;
     private readonly TerrainRockScatter m_rocks;
     private readonly IReadOnlyList<BattlefieldActor> m_actors;
@@ -37,14 +37,14 @@ public sealed partial class QuestPerformanceBenchmark : Node
     private sealed record Frame(double Milliseconds, double CpuMs, double GpuMs, double DrawCalls,
         double Primitives, double HeadTranslation, double HeadAngleDegrees);
 
-    public QuestPerformanceBenchmark(Node world, PlayerMech player, PlayerHud hud, Sky proceduralSky,
+    public QuestPerformanceBenchmark(Node world, PlayerMech player, PlayerHud hud, MissionSkyController missionSky,
         TerrainSurfaceIndex terrain, TerrainRockScatter rocks,
         IReadOnlyList<BattlefieldActor> actors, IReadOnlyList<EnemyMech> enemies, string mission)
     {
         m_world = world;
         m_player = player;
         m_hud = hud;
-        m_proceduralSky = proceduralSky;
+        m_missionSky = missionSky;
         m_terrain = terrain;
         m_rocks = rocks;
         m_actors = actors;
@@ -56,7 +56,8 @@ public sealed partial class QuestPerformanceBenchmark : Node
 
     public override void _Ready()
     {
-        if (OS.GetCmdlineUserArgs().Contains("--quest-benchmark"))
+        if (OS.GetCmdlineUserArgs().Contains("--quest-benchmark") &&
+            !OS.GetCmdlineUserArgs().Contains("--quest-combat-benchmark") && !QuestCombatBenchmark.IsSuiteActive)
             Callable.From(Start).CallDeferred();
     }
 
@@ -64,7 +65,7 @@ public sealed partial class QuestPerformanceBenchmark : Node
 
     public async void Start()
     {
-        if (m_running || m_player.IsDestroyed) return;
+        if (m_running || m_player.IsDestroyed || QuestCombatBenchmark.IsSuiteActive) return;
         m_running = true;
         m_cancelled = false;
         var originalPose = m_player.GlobalTransform;
@@ -91,14 +92,16 @@ public sealed partial class QuestPerformanceBenchmark : Node
             m_output = ProjectSettings.GlobalizePath("user://benchmarks/" +
                 DateTime.UtcNow.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture) + "-" + Guid.NewGuid().ToString("N")[..6]);
             Directory.CreateDirectory(m_output);
-            graphics = new QuestBenchmarkGraphics(m_world.GetParent(), m_player, m_hud, m_proceduralSky);
+            await m_missionSky.WaitForSkyBakeAsync();
+            CheckCancelled();
+            graphics = new QuestBenchmarkGraphics(m_world.GetParent(), m_player, m_hud, m_missionSky.ProceduralSky);
             var fixtures = BuildFixtures(originalPose);
             var xr = XRServer.FindInterface("OpenXR") as OpenXRInterface;
             var refreshRate = xr?.IsInitialized() == true ? xr.DisplayRefreshRate : 0;
             var frameBudget = 1000.0 / (refreshRate > 0 ? refreshRate : 72);
             var runMetadata = JsonSerializer.Serialize(new
             {
-                schema = 2, runId = Path.GetFileName(m_output), startedUtc = DateTime.UtcNow, mission = m_mission,
+                schema = 3, skyCache = "hdr-2048x1024-separate-sun-v1", runId = Path.GetFileName(m_output), startedUtc = DateTime.UtcNow, mission = m_mission,
                 engine = Engine.GetVersionInfo()["string"].ToString(),
                 build = OS.HasFeature("debug") ? "debug" : "release",
                 assembly = typeof(QuestPerformanceBenchmark).Assembly.FullName,
@@ -140,7 +143,7 @@ public sealed partial class QuestPerformanceBenchmark : Node
                 {
                     CheckCancelled();
                     trial++;
-                    try { graphics.Apply(variant); }
+                    try { await graphics.ApplyAsync(variant); CheckCancelled(); }
                     catch (InvalidOperationException error)
                     {
                         GD.PushWarning($"QUEST_BENCHMARK_SKIP {fixture.Name}/{variant}: {error.Message}");
@@ -160,6 +163,7 @@ public sealed partial class QuestPerformanceBenchmark : Node
                     m_player.GlobalTransform = fixture.Pose;
                     graphics.ResetAnimation();
                     var headAtStart = rig.Camera.Transform;
+                    var hudDrawsAtStart = m_hud.VrInstrumentDrawCount;
                     var frames = await Observe(fixture, SampleSeconds, true);
                     var stats = BenchmarkFrameStatistics.Calculate(frames.Select(f => f.Milliseconds), frameBudget);
                     var row = string.Join(",", new[]
@@ -178,6 +182,7 @@ public sealed partial class QuestPerformanceBenchmark : Node
                     {
                         trial, fixture = fixture.Name, variant, headAtStart = headAtStart.ToString(),
                         headAtEnd = rig.Camera.Transform.ToString(), playerAtEnd = m_player.GlobalTransform.ToString(),
+                        hudInstrumentDraws = m_hud.VrInstrumentDrawCount - hudDrawsAtStart,
                         finishedUtc = DateTime.UtcNow, stats
                     });
                     File.WriteAllText(Path.Combine(m_output, $"{trial:D3}-trial.json"), trialMetadata);
