@@ -1,5 +1,10 @@
 # Quest rendering benchmark (development branch)
 
+The 1 October replacement-sky and baked-cockpit headset run, with its captured
+trial data and visual notes, is in [QUEST_TESTS_2026-10-01.md](QUEST_TESTS_2026-10-01.md).
+The first terrain baseline escaped log capture; the other three fixtures have
+both baselines.
+
 The first headset run's complete variant comparisons and validation record are
 in [QUEST_PERFORMANCE_FINDINGS.md](QUEST_PERFORMANCE_FINDINGS.md), with all 40
 summary trials in [the committed CSV](data/quest-benchmark-2026-09-29-summary.csv).

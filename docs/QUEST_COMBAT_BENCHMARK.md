@@ -1,5 +1,8 @@
 # Quest live-combat benchmark
 
+The first complete headset run and its tagged telemetry are recorded in
+[QUEST_TESTS_2026-10-01.md](QUEST_TESTS_2026-10-01.md).
+
 The live-combat test measures frame pacing while the mission is actively running
 AI, physics, weapons, and damage. Unlike the rendering test, it does not replay a
 fixed scene or guarantee the same combat sequence each time. Use it to compare

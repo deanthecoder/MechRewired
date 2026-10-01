@@ -2,6 +2,8 @@
 
 For the complete 40-trial benchmark matrix, validation checks and other
 rendering variants, see [QUEST_PERFORMANCE_FINDINGS.md](QUEST_PERFORMANCE_FINDINGS.md).
+The replacement sky was checked on the headset on 1 October; its visual notes
+and new measurements are in [QUEST_TESTS_2026-10-01.md](QUEST_TESTS_2026-10-01.md).
 
 Recorded 29 September 2026 on `codex/quest-performance-benchmark`. The Quest
 build was a Godot 4.7.1 .NET **Release** export, version `0.1.0-alpha2`
@@ -13,8 +15,10 @@ The private test APK bundled `MW2.PRJ`; startup verified its SHA-256 and indexed
 ## Replacement implementation (September 30)
 
 The September 29 measurements and headset observations below describe the old
-1024×512 panorama implementation only. They do not establish the appearance or
-performance of the replacement, which has not yet been validated on a headset.
+1024×512 panorama implementation only. The replacement was checked on the
+headset on 1 October: the user found it acceptable, though the lack of sun
+bloom was noticeable. The new rendering benchmark results are separate from
+the historical numbers below.
 
 The replacement uses a shared asynchronous `QuestCachedSky` helper used by
 the menu and the `sky-panorama` benchmark variant. It captures a frozen,
@@ -27,7 +31,8 @@ procedural sky, including the sun, for ambient and reflection lighting.
 In the Quest menu, **BAKED SKY** remains default-off. Enabling it starts capture
 asynchronously and shows **BAKING** while pending; the user can turn it off
 during capture. Switching OFF restores the procedural sky and cloud drift. The setting remains
-mission-local. Headset visual and performance checks are still required.
+mission-local. Further stereo checks of sun bloom and a repeat rendering run
+with complete log capture remain useful.
 
 The benchmark format is schema 4 and records
 `skyCache=hdr-2048x1024-separate-sun-v1` and
