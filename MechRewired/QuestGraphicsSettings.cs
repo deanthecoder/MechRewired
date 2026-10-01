@@ -130,6 +130,30 @@ public sealed class QuestGraphicsSettings
         }
     }
 
+    /// <summary>Uses the cockpit's Quest UV material path for this mission.</summary>
+    public bool QuestUvMaterialsEnabled
+    {
+        get => m_cockpit?.QuestUvMaterialsEnabled ?? false;
+        set
+        {
+            if (m_cockpit == null) return;
+            m_cockpit.QuestUvMaterialsEnabled = value;
+            if (!value) m_cockpit.BakedInteriorLightingEnabled = false;
+        }
+    }
+
+    /// <summary>Uses the offline baked cabin lighting when the Quest UV path is active.</summary>
+    public bool BakedInteriorLightingEnabled
+    {
+        get => m_cockpit?.BakedInteriorLightingEnabled ?? false;
+        set
+        {
+            if (m_cockpit == null) return;
+            if (value) m_cockpit.QuestUvMaterialsEnabled = true;
+            m_cockpit.BakedInteriorLightingEnabled = value;
+        }
+    }
+
     public bool SmokeAndDustEnabled
     {
         get => m_effects?.SmokeAndDustEnabled ?? false;

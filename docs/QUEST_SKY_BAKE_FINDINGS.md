@@ -29,8 +29,9 @@ asynchronously and shows **BAKING** while pending; the user can turn it off
 during capture. Switching OFF restores the procedural sky and cloud drift. The setting remains
 mission-local. Headset visual and performance checks are still required.
 
-The benchmark format is schema 3 and records
-`skyCache=hdr-2048x1024-separate-sun-v1`. Capture is excluded from measured
+The benchmark format is schema 4 and records
+`skyCache=hdr-2048x1024-separate-sun-v1` and
+`cockpitMode=quest-uv-baked-interior-v1`. Capture is excluded from measured
 trial timing. The panorama variant uses the same shared helper and cached
 sky path as the menu.
 

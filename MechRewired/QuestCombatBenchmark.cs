@@ -39,6 +39,7 @@ public sealed partial class QuestCombatBenchmark : Node
     }
 
     private sealed record Options(bool SunShadows, bool Glow, bool Glass, bool Smoke, bool BakedSky,
+        bool QuestUvMaterials, bool BakedInteriorLighting,
         bool HudGlow, bool Radar, bool Weapons, bool Status, bool Navigation, bool Targeting);
 
     private readonly record struct Frame(double Seconds, double Ms, double GpuMs, double CpuMs,
@@ -153,7 +154,9 @@ public sealed partial class QuestCombatBenchmark : Node
                 variant, target = session.Target, pose = m_player.GlobalTransform.ToString(), hz,
                 missilePoolCount = m_enemies.Sum(e => e.MissilePoolCount),
                 missilePoolsReady = m_enemies.Where(e => e.HasMissileWeapons).All(e => e.MissilePoolReady),
-                bakedSky = m_settings.BakedSkyEnabled, smoke = m_settings.SmokeAndDustEnabled }));
+                bakedSky = m_settings.BakedSkyEnabled, smoke = m_settings.SmokeAndDustEnabled,
+                cockpitUv = m_settings.QuestUvMaterialsEnabled,
+                bakedInteriorLighting = m_settings.QuestUvMaterialsEnabled && m_settings.BakedInteriorLightingEnabled }));
             RenderingServer.ViewportSetMeasureRenderTime(viewport.GetViewportRid(), true);
             var frames = new List<Frame>(2400);
             var hudDrawsAtStart = m_hud.VrInstrumentDrawCount;
@@ -284,10 +287,13 @@ public sealed partial class QuestCombatBenchmark : Node
 
     private Options CaptureOptions() => new(m_settings.SunShadowsEnabled, m_settings.GlowEnabled,
         m_settings.CockpitGlassEnabled,m_settings.SmokeAndDustEnabled,m_settings.BakedSkyEnabled,
+        m_settings.QuestUvMaterialsEnabled,m_settings.BakedInteriorLightingEnabled,
         m_settings.HudGlowEnabled,m_hud.ShowRadar,m_hud.ShowWeapons,m_hud.ShowStatus,m_hud.ShowNavigation,m_hud.ShowTargeting);
     private void ApplyOptions(Options o)
     {
         m_settings.SunShadowsEnabled=o.SunShadows; m_settings.GlowEnabled=o.Glow; m_settings.CockpitGlassEnabled=o.Glass;
+        m_settings.QuestUvMaterialsEnabled=o.QuestUvMaterials;
+        m_settings.BakedInteriorLightingEnabled=o.BakedInteriorLighting;
         m_settings.SmokeAndDustEnabled=o.Smoke; m_settings.HudGlowEnabled=o.HudGlow;
         m_hud.ShowRadar=o.Radar; m_hud.ShowWeapons=o.Weapons; m_hud.ShowStatus=o.Status;
         m_hud.ShowNavigation=o.Navigation; m_hud.ShowTargeting=o.Targeting;

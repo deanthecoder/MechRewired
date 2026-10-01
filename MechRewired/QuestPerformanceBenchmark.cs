@@ -101,7 +101,10 @@ public sealed partial class QuestPerformanceBenchmark : Node
             var frameBudget = 1000.0 / (refreshRate > 0 ? refreshRate : 72);
             var runMetadata = JsonSerializer.Serialize(new
             {
-                schema = 3, skyCache = "hdr-2048x1024-separate-sun-v1", runId = Path.GetFileName(m_output), startedUtc = DateTime.UtcNow, mission = m_mission,
+                schema = 4, skyCache = "hdr-2048x1024-separate-sun-v1", cockpitMode = "quest-uv-baked-interior-v1",
+                cockpitLightingStrength = m_player.Cockpit.LightingStrength,
+                cockpitOriginalTextureScale = m_player.Cockpit.FrameTextureScale,
+                runId = Path.GetFileName(m_output), startedUtc = DateTime.UtcNow, mission = m_mission,
                 engine = Engine.GetVersionInfo()["string"].ToString(),
                 build = OS.HasFeature("debug") ? "debug" : "release",
                 assembly = typeof(QuestPerformanceBenchmark).Assembly.FullName,
@@ -183,6 +186,8 @@ public sealed partial class QuestPerformanceBenchmark : Node
                         trial, fixture = fixture.Name, variant, headAtStart = headAtStart.ToString(),
                         headAtEnd = rig.Camera.Transform.ToString(), playerAtEnd = m_player.GlobalTransform.ToString(),
                         hudInstrumentDraws = m_hud.VrInstrumentDrawCount - hudDrawsAtStart,
+                        cockpitUv = m_player.Cockpit.QuestUvMaterialsEnabled,
+                        bakedInteriorLighting = m_player.Cockpit.BakedInteriorLightingEnabled,
                         finishedUtc = DateTime.UtcNow, stats
                     });
                     File.WriteAllText(Path.Combine(m_output, $"{trial:D3}-trial.json"), trialMetadata);

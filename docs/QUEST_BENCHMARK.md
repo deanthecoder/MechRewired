@@ -27,7 +27,7 @@ measure the cost of a live battle, weapon simulation, destruction or AI.
    head in the same position, facing forward. The sweeps translate/turn the mech;
    native headset tracking remains live. Press **Menu** to stop at any time.
    Loss of headset tracking/focus also stops the run.
-4. Allow approximately five minutes 24 seconds plus setup/reporting overhead. The
+4. Allow approximately six minutes plus setup/reporting overhead. The
    headset label identifies the current fixture and variant.
 5. When the headset reports completion, stop log capture with Ctrl+C. Analyze it
    with `python3 scripts/analyze-quest-benchmark.py quest-benchmark.log`, or give
@@ -45,8 +45,9 @@ performance evidence. Use the same headset refresh rate, resolution, graphics
 options, battery/charging state and mission each time. Run at least twice;
 reverse fixture variant order is already alternated, but thermal drift remains.
 The comparison baseline uses cheap UV terrain, the procedural sky, no scene glow,
-no sun shadows, and no cockpit glass; other pre-existing scene/HUD choices remain
-as configured. The normal BAKED SKY menu choice is restored after the run.
+no sun shadows, no cockpit glass, and both cockpit UV materials and baked cabin
+lighting off; other pre-existing scene/HUD choices remain as configured. The
+normal BAKED SKY menu choice is restored after the run.
 Always start from the same settings and a fresh mission.
 
 ## Fixtures and comparisons
@@ -61,12 +62,13 @@ identities and poses. Missing enemy/building fixtures are explicitly omitted.
 | Building sweep | Chemical plant preferred, otherwise a named-order damageable large actor; same sweep |
 | Missile salvo | Three six-missile salvos at 0, 2 and 4 seconds; normal missile visuals/lights/smoke with fixed particle seeds; no damage callbacks |
 
-Each fixture runs baseline, seven feature comparisons, then baseline again
-(36 trials across four fixtures, including the added cockpit-light ablation).
+Each fixture runs baseline, eight feature comparisons, then baseline again
+(40 trials across four fixtures).
 Every trial warms up for three seconds and measures six seconds. Rock cells
 are populated before timing. Shader swaps, pool construction, cached-sky
-capture, log output and disk writes occur outside the sample window. Schema 3
-identifies the mode as `skyCache=hdr-2048x1024-separate-sun-v1`; capture time is
+capture, log output and disk writes occur outside the sample window. Schema 4
+identifies the sky mode as `skyCache=hdr-2048x1024-separate-sun-v1` and the
+cockpit mode contract as `cockpitMode=quest-uv-baked-interior-v1`; capture time is
 excluded from the measured trial. There are no screenshots.
 Normal frame-to-frame particle simulation and rendering still occur inside it.
 Procedural sky animation also keeps running in the baseline; its cloud phase is
@@ -79,7 +81,8 @@ reset before each measured trial. The cached-sky case disables that animation.
 | `sky-panorama` | Shared cached-sky path: capture frozen sunless HDR from six 1024×1024 cubemap faces, export 2048×1024, sample cheaply, and add the original procedural sun separately |
 | `hud-hidden` | Hide HUD surface and stop HUD script/subviewport rendering |
 | `cockpit-hidden` | Hide cockpit geometry while retaining HUD |
-| `cockpit-lights-off` | Disable cockpit lighting while retaining cockpit geometry and HUD |
+| `cockpit-uv` | Enable the Quest UV cockpit materials with baked cabin lighting off |
+| `cockpit-uv-baked` | Enable Quest UV cockpit materials and offline baked interior lighting |
 | `rocks-hidden` | Hide the scattered-rock root, including its blend skirts |
 
 These modes are temporary. Original shaders/visibility, graphics state and pilot
@@ -144,7 +147,10 @@ that rendering costs nothing. GPU timing is the main viewport and may exclude
 HUD/offscreen work; use it alongside global draw/primitive counts and frame time.
 For deeper validation, compare with a headset performance overlay/profiler.
 
-`cockpit-lights-off` removes the cockpit's dynamic lamps without replacing them
-with baked lighting. It measures lamp cost while retaining the cockpit geometry.
-Quest instrument canvases now redraw on state changes (at most 30 Hz); targeting
+The Quest graphics menu exposes **COCKPIT UV** and **BAKED CABIN**. Enabling
+BAKED CABIN also enables COCKPIT UV; disabling COCKPIT UV disables baked cabin
+lighting. The baked interior lightmap is generated offline and excludes sun
+lighting, so **SUN SHADOWS** remains a separate runtime choice. Generated asset
+fidelity has not been verified on a headset. Quest instrument canvases now redraw
+on state changes (at most 30 Hz); targeting
 stays full-rate. Trial JSON includes `hudInstrumentDraws` to verify the cache.

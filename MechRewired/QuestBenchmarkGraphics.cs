@@ -38,7 +38,7 @@ public sealed class QuestBenchmarkGraphics : IDisposable
         """;
 
     private static readonly string[] s_variantNames =
-    ["baseline", "terrain-triplanar", "terrain-albedo-only", "sky-panorama", "hud-hidden", "cockpit-hidden", "cockpit-lights-off", "rocks-hidden"];
+    ["baseline", "terrain-triplanar", "terrain-albedo-only", "sky-panorama", "hud-hidden", "cockpit-hidden", "cockpit-uv", "cockpit-uv-baked", "rocks-hidden"];
 
     private readonly List<(ShaderMaterial Material, Shader Shader)> m_terrainShaders = [];
     private readonly List<(Node3D Node, bool Visible)> m_rockNodes = [];
@@ -52,6 +52,8 @@ public sealed class QuestBenchmarkGraphics : IDisposable
     private readonly PlayerCockpit m_cockpit;
     private readonly bool m_cockpitVisible;
     private readonly bool m_cockpitInteriorLightsEnabled;
+    private readonly bool m_cockpitQuestUvMaterialsEnabled;
+    private readonly bool m_cockpitBakedInteriorLightingEnabled;
     private readonly Godot.Environment m_environment;
     private readonly Godot.Environment.BGMode m_backgroundMode;
     private readonly Color m_backgroundColor;
@@ -91,6 +93,8 @@ public sealed class QuestBenchmarkGraphics : IDisposable
         m_cockpit = player.Cockpit;
         m_cockpitVisible = m_cockpit?.Visible ?? false;
         m_cockpitInteriorLightsEnabled = m_cockpit?.InteriorLightsEnabled ?? true;
+        m_cockpitQuestUvMaterialsEnabled = m_cockpit?.QuestUvMaterialsEnabled ?? false;
+        m_cockpitBakedInteriorLightingEnabled = m_cockpit?.BakedInteriorLightingEnabled ?? false;
 
         foreach (var node in Descendants(missionRoot))
         {
@@ -161,8 +165,15 @@ public sealed class QuestBenchmarkGraphics : IDisposable
             case "cockpit-hidden":
                 if (m_cockpit != null) m_cockpit.Visible = false;
                 break;
-            case "cockpit-lights-off":
-                if (m_cockpit != null) m_cockpit.InteriorLightsEnabled = false;
+            case "cockpit-uv":
+                if (m_cockpit != null) m_cockpit.QuestUvMaterialsEnabled = true;
+                break;
+            case "cockpit-uv-baked":
+                if (m_cockpit != null)
+                {
+                    m_cockpit.QuestUvMaterialsEnabled = true;
+                    m_cockpit.BakedInteriorLightingEnabled = true;
+                }
                 break;
             case "rocks-hidden":
                 foreach (var (node, _) in m_rockNodes) node.Visible = false;
@@ -182,6 +193,8 @@ public sealed class QuestBenchmarkGraphics : IDisposable
         if (m_hudSurface != null) m_hudSurface.Visible = m_hudSurfaceVisible;
         if (m_cockpit != null) m_cockpit.Visible = m_cockpitVisible;
         if (m_cockpit != null) m_cockpit.InteriorLightsEnabled = m_cockpitInteriorLightsEnabled;
+        if (m_cockpit != null) m_cockpit.QuestUvMaterialsEnabled = m_cockpitQuestUvMaterialsEnabled;
+        if (m_cockpit != null) m_cockpit.BakedInteriorLightingEnabled = m_cockpitBakedInteriorLightingEnabled;
         if (m_cockpit != null) m_cockpit.GlassEnabled = m_cockpitGlassEnabled;
         if (m_sun != null) m_sun.ShadowEnabled = m_sunShadowsEnabled;
         if (m_environment != null) m_environment.GlowEnabled = m_glowEnabled;
@@ -199,6 +212,11 @@ public sealed class QuestBenchmarkGraphics : IDisposable
         if (m_hudSurface != null) m_hudSurface.Visible = m_hudSurfaceVisible;
         if (m_cockpit != null) m_cockpit.Visible = m_cockpitVisible;
         if (m_cockpit != null) m_cockpit.InteriorLightsEnabled = m_cockpitInteriorLightsEnabled;
+        if (m_cockpit != null)
+        {
+            m_cockpit.QuestUvMaterialsEnabled = false;
+            m_cockpit.BakedInteriorLightingEnabled = false;
+        }
         if (m_cockpit != null) m_cockpit.GlassEnabled = false;
         if (m_sun != null) m_sun.ShadowEnabled = false;
         if (m_environment != null) m_environment.GlowEnabled = false;

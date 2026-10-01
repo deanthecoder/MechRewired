@@ -82,9 +82,11 @@ reports the total enemy pool count and whether all missile pools are ready.
 Measured pool creation should now be zero; a nonzero count identifies a fallback.
 Shader and driver caches can remain warm across mission reloads.
 
-The `cockpit-lights-off` rendering-test stage was added to the rendering
-ablation. It brings that suite to 36 trials, or 5 minutes 24 seconds of warm-up and sampling, plus setup and reporting. It belongs to the separate **RENDERING TEST**;
-the combat suite remains the four 15-second trials above.
+The rendering test now includes `cockpit-uv` and `cockpit-uv-baked` stages, for
+40 trials or six minutes of warm-up and sampling, plus setup and reporting. They
+belong to the separate **RENDERING TEST**; the combat suite remains the four
+15-second trials above. Combat trials capture and restore both cockpit options
+across mission reloads, and each trial log records their effective values.
 
 ## Logs and interpretation
 
@@ -128,10 +130,11 @@ not screenshots or automated visual-quality evidence.
 
 ## Comparison validity and production changes
 
-Lights-off stages remove dynamic illumination. They do **not** bake replacement
-lighting; emissive weapon appearances remain, and cockpit/ambient/sun lights
-are outside the weapon-light test. The cockpit-light rendering stage likewise
-has no baked substitute.
+Weapon lights-off stages remove dynamic illumination. They do **not** bake
+replacement lighting; emissive weapon appearances remain, and cockpit/ambient/sun
+lights are outside the weapon-light test. The rendering test's offline baked
+cabin lighting is a separate option, excludes sun lighting, and has not been
+visually verified on a headset.
 
 The analyzer prints per-trial timings even for incomplete runs. It withholds
 percentage comparisons unless both bracketing baselines and the candidate have

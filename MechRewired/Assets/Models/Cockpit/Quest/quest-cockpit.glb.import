@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://blthffmul60iy"
-path="res://.godot/imported/cockpit.glb-fc019252e77bda0971f1dd0985132e7e.scn"
+uid="uid://dlehydm047uqm"
+path="res://.godot/imported/quest-cockpit.glb-1bb0d540e6819cdccb60845d5e150c25.scn"
 
 [deps]
 
-source_file="res://Assets/Models/Cockpit/cockpit.glb"
-dest_files=["res://.godot/imported/cockpit.glb-fc019252e77bda0971f1dd0985132e7e.scn"]
+source_file="res://Assets/Models/Cockpit/Quest/quest-cockpit.glb"
+dest_files=["res://.godot/imported/quest-cockpit.glb-1bb0d540e6819cdccb60845d5e150c25.scn"]
 
 [params]
 
