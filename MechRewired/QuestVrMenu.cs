@@ -58,7 +58,7 @@ public sealed partial class QuestVrMenu : Node3D
     }
 
     private string m_lastSkyStatus;
-    private string SkyStatus => m_settings.SkyBakePending ? "BAKING" : m_settings.BakedSkyEnabled ? "ON" : "OFF";
+    private string SkyStatus => m_settings.SkyBakePending ? "BAKING" : m_settings.BakedProfileEnabled ? "ON" : "OFF";
     public bool IsOpen => Visible;
     public Action RunBenchmark { get; set; }
     public Action RunCombatBenchmark { get; set; }
@@ -78,11 +78,9 @@ public sealed partial class QuestVrMenu : Node3D
             AddAction("<  BACK", () => SetPage(0), 3);
         }
         AddToggle("SUN SHADOWS", () => m_settings.SunShadowsEnabled, value => m_settings.SunShadowsEnabled = value, 1);
-        AddRow("BAKED SKY", () => m_settings.BakedSkyEnabled = !m_settings.BakedSkyEnabled, () => SkyStatus, 1);
+        AddRow("BAKED SKY + CABIN", () => m_settings.BakedProfileEnabled = !m_settings.BakedProfileEnabled, () => SkyStatus, 1);
         AddToggle("SCENE GLOW", () => m_settings.GlowEnabled, value => m_settings.GlowEnabled = value, 1);
         AddToggle("COCKPIT GLASS", () => m_settings.CockpitGlassEnabled, value => m_settings.CockpitGlassEnabled = value, 1);
-        AddToggle("COCKPIT UV", () => m_settings.QuestUvMaterialsEnabled, value => m_settings.QuestUvMaterialsEnabled = value, 1);
-        AddToggle("BAKED CABIN", () => m_settings.BakedInteriorLightingEnabled, value => m_settings.BakedInteriorLightingEnabled = value, 1);
         AddToggle("TERRAIN TRIPLANAR", () => m_settings.TerrainTriplanarEnabled, value => m_settings.TerrainTriplanarEnabled = value, 1);
         AddToggle("SMOKE / DUST", () => m_settings.SmokeAndDustEnabled, value => m_settings.SmokeAndDustEnabled = value, 1);
         AddAction("<  BACK", () => SetPage(0), 1);

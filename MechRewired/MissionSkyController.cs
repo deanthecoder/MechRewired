@@ -39,6 +39,7 @@ public sealed class MissionSkyController
     private const float DefaultFogStartFraction = 0.35f;
     private const float DesertFogAerialPerspective = 0.72f;
     private const float DesertFogSunScatter = 0.09f;
+    private const float QuestDesertFogRangeScale = 1.75f;
     private const float WarmMountainFogMultiplier = 1.35f;
     private const float WarmMountainFogStartFraction = 0.20f;
     private const float WarmMountainFogAerialPerspective = 0.32f;
@@ -605,6 +606,12 @@ public sealed class MissionSkyController
             ? m_profile.VisibilityDistance
             : m_profile.DepthCueDistance;
         var fogEnd = Math.Max(100.0f, authoredFogEnd / m_fogMultiplier);
+        // In the Quest desert profile, the deployment ridges otherwise reach opaque fog
+        // beneath the sun. Preserve atmospheric depth without flattening their surface shading.
+        if (QuestVrRuntime.Active && m_profile.TerrainBiome == MechWarriorTerrainBiome.Desert)
+        {
+            fogEnd *= QuestDesertFogRangeScale;
+        }
         m_environment.FogDepthBegin = fogEnd * m_fogStartFraction;
         m_environment.FogDepthEnd = fogEnd;
     }

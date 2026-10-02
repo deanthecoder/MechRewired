@@ -9,6 +9,7 @@
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
 using Godot;
+using MechRewired.Simulation;
 
 namespace MechRewired;
 
@@ -17,6 +18,37 @@ namespace MechRewired;
 /// </summary>
 public static class DebugTriangleRaycaster
 {
+    /// <summary>
+    /// Returns on the first blocker before the target margin, using current triangle positions.
+    /// </summary>
+    public static bool IsSegmentBlocked(
+        IReadOnlyList<DebugTriangle> triangles,
+        Vector3 start,
+        Vector3 end,
+        float targetMargin)
+    {
+        var segment = new TriangleSightSegment(ToNumerics(start), ToNumerics(end), targetMargin);
+        if (!segment.HasLength)
+        {
+            return false;
+        }
+
+        // The scene list is updated in place by moving aircraft and authored paths.
+        // Do not retain triangle bounds or a spatial index without tracking those updates.
+        for (var i = 0; i < triangles.Count; i++)
+        {
+            var triangle = triangles[i];
+            if (segment.IsBlockedBy(ToNumerics(triangle.A), ToNumerics(triangle.B), ToNumerics(triangle.C)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static System.Numerics.Vector3 ToNumerics(Vector3 value) => new(value.X, value.Y, value.Z);
+
     public static bool TryFindNearest(
         IEnumerable<DebugTriangle> triangles,
         Vector3 origin,

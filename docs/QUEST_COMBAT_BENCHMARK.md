@@ -6,7 +6,7 @@ The first complete headset run and its tagged telemetry are recorded in
 The live-combat test measures frame pacing while the mission is actively running
 AI, physics, weapons, and damage. Unlike the rendering test, it does not replay a
 fixed scene or guarantee the same combat sequence each time. Use it to compare
-the two controlled visual changes across repeated runs; actual fighting can vary,
+the weapon-light change across repeated runs; actual fighting can vary,
 so the result cannot identify one unique bottleneck by itself.
 
 ## Run on the headset
@@ -24,9 +24,9 @@ so the result cannot identify one unique bottleneck by itself.
 3. Open the Quest menu, select **BENCHMARKS > COMBAT TEST (RESTARTS)**, and keep
    your head still. Menu cancels the suite; losing headset focus also cancels it.
    This action intentionally restarts the mission, as the menu label says.
-4. The suite runs four fresh missions, each measured for 15 seconds, plus a final
+4. The suite runs three fresh missions, each measured for 15 seconds, plus a final
    fresh mission that restores the captured settings and leaves the result menu
-   paused. Expect at least 1 minute plus mission loading, sky setup, and reporting
+   paused. Expect 45 seconds plus mission loading, sky setup, and reporting
    overhead. Stop log capture after the result appears.
 5. Analyze the log on the Mac:
 
@@ -55,17 +55,26 @@ node name breaking ties. On each fresh mission it searches eight directions at
 65 m, then 45 m and 90 m, accepting only terrain-supported positions with clear
 enemy line of sight. It fails setup instead of timing an obstructed encounter.
 The player starts facing the enemy; the chosen target and pose are logged. Enemy AI, physics, and damage remain active.
+
+The `segment-bounds-quest-250ms-v1` targeting policy checks awareness every 0.25
+seconds on Quest, with staggered initial sensor phases. Targets outside observation
+range skip the scene query. Sight queries reject triangles outside the segment's
+bounds and stop at the first blocker, reading current vertices so moving scenery
+remains correct. A fresh muzzle-to-target check still runs before each shot.
+Desktop awareness retains its 0.2-second interval. Compare LOS time per call and
+combat p95/p99 with the 1 October logs; headset gains are not yet measured.
 The player fires at 0.5 seconds and then every two seconds for the 15-second
 measurement. Normal enemy actions and the resulting fight are not deterministic.
 
-The four trials are:
+All measured trials explicitly enable the combined baked sky, UV cockpit and
+baked cabin profile, waiting for sky capture before warm-up. Other captured
+settings are held constant. The three trials are:
 
 | Trial | Variant | Change |
 | --- | --- | --- |
-| 1 | `baseline` | Captured settings |
+| 1 | `baseline` | Combined baked profile |
 | 2 | `weapon-lights-off` | Disables weapon, missile, laser, impact, and explosion lights; ambient, cockpit, and sun lighting remain |
-| 3 | `smoke-off` | Disables missile trails and `BattlefieldEffectsSmokeAndDust`; this setting is often already off in the baseline |
-| 4 | `baseline` | Captured settings again |
+| 3 | `baseline` | Combined baked profile again |
 
 Each starts in a fresh mission, so damage, ammunition, and lazily-created pools
 do not carry between trials. The final fresh mission restores the captured
@@ -80,16 +89,17 @@ own flight, impact and particle state. This shifts allocation to loading and
 increases upfront pool memory; per-mech capacities and recycling rules stay the
 same. It does not guarantee that every driver pipeline is compiled in advance.
 
-Combat schema 2 records `poolPolicy=quest-prewarmed-per-mech-v1`. Trial metadata
+Combat schema 3 records `poolPolicy=quest-prewarmed-per-mech-v1`. Trial metadata
 reports the total enemy pool count and whether all missile pools are ready.
 Measured pool creation should now be zero; a nonzero count identifies a fallback.
 Shader and driver caches can remain warm across mission reloads.
 
-The rendering test now includes `cockpit-uv` and `cockpit-uv-baked` stages, for
-40 trials or six minutes of warm-up and sampling, plus setup and reporting. They
-belong to the separate **RENDERING TEST**; the combat suite remains the four
-15-second trials above. Combat trials capture and restore both cockpit options
-across mission reloads, and each trial log records their effective values.
+The inactive smoke-off comparison has been removed. The rendering test compares
+the same combined baked profile and a version with unlit terrain, bracketed by
+baselines: 16 trials, or 144 seconds of warm-up and sampling, plus setup and
+reporting. Combat retains both baselines to detect drift. Each combat trial and
+summary records the effective baked sky and cockpit flags; the final mission
+restores the user's original individual options, including after cancellation.
 
 ## Logs and interpretation
 
@@ -136,8 +146,9 @@ not screenshots or automated visual-quality evidence.
 Weapon lights-off stages remove dynamic illumination. They do **not** bake
 replacement lighting; emissive weapon appearances remain, and cockpit/ambient/sun
 lights are outside the weapon-light test. The rendering test's offline baked
-cabin lighting is a separate option, excludes sun lighting, and has not been
-visually verified on a headset.
+cabin lighting is part of the combined profile and excludes sun lighting. The
+1 October headset notes found it visually acceptable; combined savings still
+need measurement and must not be inferred by adding individual savings.
 
 The analyzer prints per-trial timings even for incomplete runs. It withholds
 percentage comparisons unless both bracketing baselines and the candidate have
@@ -146,7 +157,10 @@ actual enemy fire and impacts, valid frame counts, and head movement within
 or workload differences in enemy shots, missile launches or impacts exceeding
 the larger of two events and 25% of the baseline count. Duplicate summary lines
 do not count as additional baselines. These gates reduce misleading comparisons;
-they do not turn live combat into a deterministic replay.
+they do not turn live combat into a deterministic replay. Historical smoke-off
+records are still accepted, but their deltas are withheld when baseline smoke
+was disabled or its state was not recorded. New suites do not expect a smoke-off
+trial. Mismatched effective graphics profiles also suppress comparisons.
 
 Quest HUD instruments reuse their canvas commands while instrument state stays
 unchanged, with a 30 Hz ceiling on updates during movement/combat. Reticles and

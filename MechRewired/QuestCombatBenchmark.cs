@@ -13,7 +13,7 @@ namespace MechRewired;
 public sealed partial class QuestCombatBenchmark : Node
 {
     private const double TrialSeconds = 15;
-    private static readonly string[] Variants = ["baseline", "weapon-lights-off", "smoke-off", "baseline"];
+    private static readonly string[] Variants = ["baseline", "weapon-lights-off", "baseline"];
     private static Session s_session;
     private readonly PlayerMech m_player;
     private readonly PlayerHud m_hud;
@@ -88,7 +88,8 @@ public sealed partial class QuestCombatBenchmark : Node
         s_session = new Session(target.Name, m_mission, CaptureOptions());
         GD.Print("QUEST_COMBAT_RUN: " + JsonSerializer.Serialize(new
         {
-            runId = s_session.RunId, schema = 2, poolPolicy = "quest-prewarmed-per-mech-v1", mission = m_mission, target = s_session.Target,
+            runId = s_session.RunId, schema = 3, graphicsProfile = "baked-profile", poolPolicy = "quest-prewarmed-per-mech-v1", mission = m_mission, target = s_session.Target,
+            targetingPolicy = "segment-bounds-quest-250ms-v1",
             variants = Variants, secondsPerTrial = TrialSeconds, enemyCount = m_enemies.Count, options = s_session.Settings,
             build = OS.HasFeature("debug") ? "debug" : "release", engine = Engine.GetVersionInfo()["string"].ToString(),
             device = OS.GetModelName(), gpu = RenderingServer.GetVideoAdapterName(),
@@ -113,9 +114,13 @@ public sealed partial class QuestCombatBenchmark : Node
         try
         {
             ApplyOptions(session.Settings);
+            if (!session.Restoring)
+            {
+                m_settings.BakedProfileEnabled = true;
+            }
             await m_sky.WaitForSkyBakeAsync();
             if (!GodotObject.IsInstanceValid(this) || !IsInsideTree()) return;
-            if (m_settings.BakedSkyEnabled != session.Settings.BakedSky)
+            if (m_settings.BakedSkyEnabled != (session.Restoring ? session.Settings.BakedSky : true))
                 throw new InvalidOperationException("Could not restore the requested sky setting for this trial.");
             if (session.Restoring)
             {
@@ -137,8 +142,7 @@ public sealed partial class QuestCombatBenchmark : Node
             m_rocks.ConfigureObserver(m_player);
             var variant = Variants[session.Trial];
             QuestCombatTelemetry.WeaponLightsDisabled = variant == "weapon-lights-off";
-            QuestCombatTelemetry.SmokeDisabled = variant == "smoke-off";
-            if (variant == "smoke-off") m_settings.SmokeAndDustEnabled = false;
+            QuestCombatTelemetry.SmokeDisabled = false;
             m_label = new Label3D { Text = "COMBAT / " + variant + "\nKeep head still; Menu cancels", FontSize = 22,
                 Position = new Vector3(0, .30f, -1.2f), PixelSize = .00065f, NoDepthTest = true };
             rig.Camera.AddChild(m_label);
@@ -151,7 +155,7 @@ public sealed partial class QuestCombatBenchmark : Node
             var xr = XRServer.FindInterface("OpenXR") as OpenXRInterface;
             var hz = xr?.IsInitialized() == true ? xr.DisplayRefreshRate : 72;
             GD.Print("QUEST_COMBAT_TRIAL: " + JsonSerializer.Serialize(new { runId = session.RunId, trial = session.Trial+1,
-                variant, target = session.Target, pose = m_player.GlobalTransform.ToString(), hz,
+                variant, graphicsProfile = "baked-profile", target = session.Target, pose = m_player.GlobalTransform.ToString(), hz,
                 missilePoolCount = m_enemies.Sum(e => e.MissilePoolCount),
                 missilePoolsReady = m_enemies.Where(e => e.HasMissileWeapons).All(e => e.MissilePoolReady),
                 bakedSky = m_settings.BakedSkyEnabled, smoke = m_settings.SmokeAndDustEnabled,
@@ -222,7 +226,7 @@ public sealed partial class QuestCombatBenchmark : Node
         if (s_session != null && GodotObject.IsInstanceValid(this) && IsInsideTree()) Reload();
     }
 
-    private static void Report(Session session, string variant, string status, List<Frame> frames, double budget, long hudInstrumentDraws)
+    private void Report(Session session, string variant, string status, List<Frame> frames, double budget, long hudInstrumentDraws)
     {
         if (frames.Count == 0) return;
         var stats = BenchmarkFrameStatistics.Calculate(frames.Select(f => f.Ms), budget);
@@ -234,6 +238,10 @@ public sealed partial class QuestCombatBenchmark : Node
         var firstImpact = frames.FindIndex(f => f.Combat.Impacts > 0);
         var summary = new
         {
+            graphicsProfile = "baked-profile", bakedSky = m_settings.BakedSkyEnabled,
+            cockpitUv = m_settings.QuestUvMaterialsEnabled,
+            bakedInteriorLighting = m_settings.QuestUvMaterialsEnabled && m_settings.BakedInteriorLightingEnabled,
+            smoke = m_settings.SmokeAndDustEnabled,
             runId = session.RunId, trial = session.Trial+1, variant, status, target = session.Target, frames = frames.Count,
             hudInstrumentDraws, meanMs = stats.MeanFrameMs, p95Ms = stats.P95FrameMs, p99Ms = stats.P99FrameMs,
             averageFps = stats.AverageFps, onePercentLowFps = stats.OnePercentLowFps,

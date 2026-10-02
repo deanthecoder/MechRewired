@@ -9,7 +9,7 @@ The first headset run's complete variant comparisons and validation record are
 in [QUEST_PERFORMANCE_FINDINGS.md](QUEST_PERFORMANCE_FINDINGS.md), with all 40
 summary trials in [the committed CSV](data/quest-benchmark-2026-09-29-summary.csv).
 The September 29 baked-sky results are historical evidence for the superseded
-implementation; the replacement awaits headset validation. Current design notes and
+implementation; the 1 October run covers the replacement. Current design notes and
 historical findings are in the [sky note](QUEST_SKY_BAKE_FINDINGS.md).
 
 This is a repeatable **rendering ablation**, available in Release builds on this
@@ -32,7 +32,7 @@ measure the cost of a live battle, weapon simulation, destruction or AI.
    head in the same position, facing forward. The sweeps translate/turn the mech;
    native headset tracking remains live. Press **Menu** to stop at any time.
    Loss of headset tracking/focus also stops the run.
-4. Allow approximately six minutes plus setup/reporting overhead. The
+4. Allow approximately three minutes plus setup/reporting overhead. The
    headset label identifies the current fixture and variant.
 5. When the headset reports completion, stop log capture with Ctrl+C. Analyze it
    with `python3 scripts/analyze-quest-benchmark.py quest-benchmark.log`, or give
@@ -52,7 +52,7 @@ reverse fixture variant order is already alternated, but thermal drift remains.
 The comparison baseline uses cheap UV terrain, the procedural sky, no scene glow,
 no sun shadows, no cockpit glass, and both cockpit UV materials and baked cabin
 lighting off; other pre-existing scene/HUD choices remain as configured. The
-normal BAKED SKY menu choice is restored after the run.
+normal BAKED SKY + CABIN menu choice is restored after the run.
 Always start from the same settings and a fresh mission.
 
 ## Fixtures and comparisons
@@ -67,11 +67,11 @@ identities and poses. Missing enemy/building fixtures are explicitly omitted.
 | Building sweep | Chemical plant preferred, otherwise a named-order damageable large actor; same sweep |
 | Missile salvo | Three six-missile salvos at 0, 2 and 4 seconds; normal missile visuals/lights/smoke with fixed particle seeds; no damage callbacks |
 
-Each fixture runs baseline, eight feature comparisons, then baseline again
-(40 trials across four fixtures).
+Each fixture runs baseline, three combined profiles, then baseline again
+(20 trials across four fixtures; 180 seconds of warm-up and sampling).
 Every trial warms up for three seconds and measures six seconds. Rock cells
 are populated before timing. Shader swaps, pool construction, cached-sky
-capture, log output and disk writes occur outside the sample window. Schema 4
+capture, log output and disk writes occur outside the sample window. Schema 5
 identifies the sky mode as `skyCache=hdr-2048x1024-separate-sun-v1` and the
 cockpit mode contract as `cockpitMode=quest-uv-baked-interior-v1`; capture time is
 excluded from the measured trial. There are no screenshots.
@@ -81,14 +81,15 @@ reset before each measured trial. The cached-sky case disables that animation.
 
 | Variant | Difference from baseline |
 | --- | --- |
-| `terrain-triplanar` | Detailed biome shader, still without Quest parallax |
-| `terrain-albedo-only` | Unshaded UV terrain; samples existing colour textures, removing lighting |
-| `sky-panorama` | Shared cached-sky path: capture frozen sunless HDR from six 1024×1024 cubemap faces, export 2048×1024, sample cheaply, and add the original procedural sun separately |
-| `hud-hidden` | Hide HUD surface and stop HUD script/subviewport rendering |
-| `cockpit-hidden` | Hide cockpit geometry while retaining HUD |
-| `cockpit-uv` | Enable the Quest UV cockpit materials with baked cabin lighting off |
-| `cockpit-uv-baked` | Enable Quest UV cockpit materials and offline baked interior lighting |
-| `rocks-hidden` | Hide the scattered-rock root, including its blend skirts |
+| `baked-profile` | Cached HDR sky with separate procedural sun, plus UV cockpit materials and offline baked cabin lighting |
+| `baked-profile-unlit-terrain` | The same combined profile, plus unshaded UV terrain using the existing colour textures |
+| `baked-profile-glass` | The same combined profile as `baked-profile`, with cockpit glass enabled |
+
+The separate HUD, rocks, cockpit visibility, triplanar, sky-only and UV-only
+ablations have been retired. These profiles measure the combined change directly;
+do not add the savings from the older individual comparisons. The unlit terrain
+profile remains a diagnostic of terrain shading cost, not a production quality
+recommendation.
 
 These modes are temporary. Original shaders/visibility, graphics state and pilot
 pose are restored when the run ends or is cancelled. Preferences are not saved.
@@ -96,7 +97,7 @@ The mission remains paused at the result menu. No automatic APK upload or Git
 commit happens.
 
 The separate [live-combat test](QUEST_COMBAT_BENCHMARK.md) measures active AI,
-physics, and weapon effects over four fresh 15-second missions. It restarts the
+physics, and weapon effects over three fresh 15-second missions. It restarts the
 mission by design and provides a different workload from this rendering ablation.
 
 ## Results
@@ -141,6 +142,9 @@ feature is worth investigating; they are not additive, causal proof of a single
 bottleneck, or a guaranteed improvement in a real battle. Inspect p95/p99 as well
 as means. The 1% low is 1000 divided by the mean of the slowest ceil(N/100) frames;
 p95/p99 use nearest-rank percentiles.
+When both profiles completed for a fixture, the script also prints glass-on minus
+`baked-profile` app-frame and renderer-GPU time in milliseconds and percent, so
+glass cost can be read directly without inferring it from the general baseline comparison.
 
 Frame intervals use a monotonic wall clock rather than Godot's smoothed FPS
 counter. They measure **app pacing**, not compositor-presented/reprojected FPS.
@@ -152,10 +156,10 @@ that rendering costs nothing. GPU timing is the main viewport and may exclude
 HUD/offscreen work; use it alongside global draw/primitive counts and frame time.
 For deeper validation, compare with a headset performance overlay/profiler.
 
-The Quest graphics menu exposes **COCKPIT UV** and **BAKED CABIN**. Enabling
-BAKED CABIN also enables COCKPIT UV; disabling COCKPIT UV disables baked cabin
-lighting. The baked interior lightmap is generated offline and excludes sun
-lighting, so **SUN SHADOWS** remains a separate runtime choice. Generated asset
-fidelity has not been verified on a headset. Quest instrument canvases now redraw
-on state changes (at most 30 Hz); targeting
-stays full-rate. Trial JSON includes `hudInstrumentDraws` to verify the cache.
+The Quest graphics menu exposes **BAKED SKY + CABIN** as one combined option.
+The offline interior lightmap excludes sunlight, so the cockpit still receives
+dynamic sun lighting. The 1 October headset notes found both the replacement sky
+and baked cockpit acceptable; the combined profile still needs measurement.
+Quest instrument canvases redraw on state changes (at most 30 Hz); targeting
+stays full-rate. Trial JSON includes `hudInstrumentDraws`, `bakedSky`,
+`cockpitUv`, `bakedInteriorLighting`, and `cockpitGlass` to verify effective state.

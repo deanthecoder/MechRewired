@@ -3,6 +3,7 @@
 // for any purpose. THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
 using Godot;
+using MechRewired.Rendering;
 
 namespace MechRewired;
 
@@ -10,6 +11,8 @@ namespace MechRewired;
 public partial class QuestVrRig : XROrigin3D
 {
     private static readonly Vector3 SeatOffset = new(0.0f, 0.12f, 0.10f);
+    // Includes the reticle radius and the frame overlapping the authored glass edges.
+    private const float WindshieldAimInset = 0.16f;
     private readonly PlayerMech m_player;
     private readonly OpenXRInterface m_interface;
     private readonly HashSet<string> m_held = new();
@@ -20,6 +23,8 @@ public partial class QuestVrRig : XROrigin3D
     private int m_throttleDirection;
     private bool m_waitForThrottleCenter = true;
     private float m_fireRepeat;
+    private Vector2 m_headAimPoint;
+    private bool m_hasHeadAim;
 
     public XRCamera3D Camera { get; }
     public XRController3D Left { get; }
@@ -30,6 +35,11 @@ public partial class QuestVrRig : XROrigin3D
     public Action BenchmarkCancelRequested { get; set; }
     public float Steering { get; private set; }
     public bool JumpJetsRequested { get; private set; }
+    public MeshInstance3D AimSurface { get; set; }
+    public bool HasHeadAim => m_hasHeadAim;
+    public Vector3 HeadAimDirection => m_hasHeadAim && GodotObject.IsInstanceValid(AimSurface)
+        ? Camera.GlobalPosition.DirectionTo(AimSurface.ToGlobal(new Vector3(m_headAimPoint.X, m_headAimPoint.Y, 0)))
+        : -m_player.Torso.GlobalBasis.Z.Normalized();
 
     public QuestVrRig(PlayerMech player)
     {
@@ -104,6 +114,10 @@ public partial class QuestVrRig : XROrigin3D
         if (menuPressed) Menu?.Toggle();
         var firing = rightTracked && Right.GetFloat("trigger") > 0.65f;
         var jumpJetsHeld = leftTracked && Left.GetFloat("grip") > 0.65f;
+        if (!GetTree().Paused && sessionFocused && m_seatCentered && (QuestVrRuntime.Preview || headTracked))
+            UpdateHeadAim();
+        else
+            m_hasHeadAim = false;
         if (GetTree().Paused || !sessionFocused || m_player.IsDestroyed || !m_seatCentered || (!QuestVrRuntime.Preview && (!headTracked || !leftTracked || !rightTracked)))
         {
             Steering = 0;
@@ -127,7 +141,11 @@ public partial class QuestVrRig : XROrigin3D
         if (weaponButtonPressed || weaponGripPressed) m_player.VrCycleWeapon();
         if (targetButtonPressed || targetTriggerPressed) m_player.VrCycleTarget();
         if (inspectPressed) m_player.VrInspect();
-        if (centerPressed) RecenterSeat();
+        if (centerPressed)
+        {
+            RecenterSeat();
+            UpdateHeadAim();
+        }
 
         var movement = leftTracked ? Left.GetVector2("primary") : Vector2.Zero;
         var aimStick = rightTracked ? Right.GetVector2("primary") : Vector2.Zero;
@@ -143,7 +161,6 @@ public partial class QuestVrRig : XROrigin3D
         }
         m_throttleDirection = direction;
 
-        m_player.SetVrPitch(m_player.VrAim.Y + Deadzone(aimStick.Y) * 0.6f * (float)delta);
         m_fireRepeat -= (float)delta;
         if (firing && !m_requireRelease && m_fireRepeat <= 0)
         {
@@ -161,6 +178,27 @@ public partial class QuestVrRig : XROrigin3D
             else Menu?.Toggle();
         }
     }
+
+    private void UpdateHeadAim()
+    {
+        m_hasHeadAim = false;
+        if (!GodotObject.IsInstanceValid(AimSurface) || AimSurface.Mesh is not QuadMesh quad) return;
+        var vertices = m_player.Cockpit.MainWindshieldVertices;
+        if (vertices.Length is < 3 or > 32) return;
+        Span<System.Numerics.Vector3> projectedVertices = stackalloc System.Numerics.Vector3[vertices.Length];
+        var glassToHud = AimSurface.GlobalTransform.AffineInverse() * m_player.Cockpit.MainWindshieldTransform;
+        for (var i = 0; i < vertices.Length; i++) projectedVertices[i] = ToNumerics(glassToHud * vertices[i]);
+        var eye = AimSurface.ToLocal(Camera.GlobalPosition);
+        var forward = AimSurface.GlobalBasis.Inverse() * -Camera.GlobalBasis.Z;
+        if (CockpitGazeAim.TryGetAimPoint(ToNumerics(eye), ToNumerics(forward), projectedVertices,
+                new System.Numerics.Vector2(quad.Size.X, quad.Size.Y) * 0.5f, WindshieldAimInset, out var point))
+        {
+            m_headAimPoint = new Vector2(point.X, point.Y);
+            m_hasHeadAim = true;
+        }
+    }
+
+    private static System.Numerics.Vector3 ToNumerics(Vector3 value) => new(value.X, value.Y, value.Z);
 
     private bool Pressed(string action, bool down)
     {

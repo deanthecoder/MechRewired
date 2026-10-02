@@ -67,6 +67,18 @@ public sealed class QuestGraphicsSettings
         set => m_sky.BakedSkyEnabled = value;
     }
 
+    /// <summary>Enables the tested sky and cabin combination without exposing the slower UV-only option.</summary>
+    public bool BakedProfileEnabled
+    {
+        get => BakedSkyEnabled && QuestUvMaterialsEnabled && BakedInteriorLightingEnabled;
+        set
+        {
+            QuestUvMaterialsEnabled = value;
+            BakedInteriorLightingEnabled = value;
+            BakedSkyEnabled = value;
+        }
+    }
+
     /// <summary>Persists the Quest-only mapping choice and updates all loaded terrain immediately.</summary>
     public bool TerrainTriplanarEnabled
     {

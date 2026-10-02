@@ -86,8 +86,18 @@ def percent_reduction(baseline, candidate):
     return (baseline - candidate) * 100.0 / baseline
 
 
+def percent_increase(reference, candidate):
+    if reference is None or candidate is None or reference <= 0:
+        return None
+    return (candidate - reference) * 100.0 / reference
+
+
 def fmt(value, suffix=""):
     return "n/a" if value is None else f"{value:.2f}{suffix}"
+
+
+def fmt_signed(value, suffix=""):
+    return "n/a" if value is None else f"{value:+.2f}{suffix}"
 
 
 def analyze(header, rows, run_index, output):
@@ -104,9 +114,22 @@ def analyze(header, rows, run_index, output):
     fixtures = sorted({row["fixture"] for row in rows if row.get("fixture")})
     for fixture in fixtures:
         fixture_rows = [row for row in rows if row.get("fixture") == fixture]
+        baked_rows = [row for row in fixture_rows if row.get("variant", "").lower() == "baked-profile"]
+        glass_rows = [row for row in fixture_rows if row.get("variant", "").lower() == "baked-profile-glass"]
+        if baked_rows and glass_rows:
+            baked_app = average(positive_values(baked_rows, APP_FRAME_FIELD))
+            glass_app = average(positive_values(glass_rows, APP_FRAME_FIELD))
+            baked_gpu = average(positive_values(baked_rows, GPU_FIELD))
+            glass_gpu = average(positive_values(glass_rows, GPU_FIELD))
+            app_cost = None if baked_app is None or glass_app is None else glass_app - baked_app
+            gpu_cost = None if baked_gpu is None or glass_gpu is None else glass_gpu - baked_gpu
+            print(f"  {fixture} glass incremental vs baked-profile: "
+                  f"app frame {fmt_signed(app_cost, ' ms')} ({fmt_signed(percent_increase(baked_app, glass_app), '%')}); "
+                  f"renderer GPU {fmt_signed(gpu_cost, ' ms')} ({fmt_signed(percent_increase(baked_gpu, glass_gpu), '%')})", file=output)
+
         baseline_rows = ordered([row for row in fixture_rows if row.get("variant", "").lower() == "baseline"])
         if not baseline_rows:
-            print(f"  {fixture}: no baseline; variants skipped", file=output)
+            print(f"  {fixture}: no baseline; baseline comparisons skipped", file=output)
             continue
 
         first, last = baseline_rows[0], baseline_rows[-1]

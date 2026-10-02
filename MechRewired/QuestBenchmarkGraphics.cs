@@ -38,19 +38,10 @@ public sealed class QuestBenchmarkGraphics : IDisposable
         """;
 
     private static readonly string[] s_variantNames =
-    ["baseline", "terrain-triplanar", "terrain-albedo-only", "sky-panorama", "hud-hidden", "cockpit-hidden", "cockpit-uv", "cockpit-uv-baked", "rocks-hidden"];
+    ["baseline", "baked-profile", "baked-profile-unlit-terrain", "baked-profile-glass"];
 
     private readonly List<(ShaderMaterial Material, Shader Shader)> m_terrainShaders = [];
-    private readonly List<(Node3D Node, bool Visible)> m_rockNodes = [];
-    private readonly PlayerHud m_hud;
-    private readonly bool m_hudVisible;
-    private readonly Node.ProcessModeEnum m_hudProcessMode;
-    private readonly SubViewport m_hudViewport;
-    private readonly SubViewport.UpdateMode m_hudUpdateMode;
-    private readonly MeshInstance3D m_hudSurface;
-    private readonly bool m_hudSurfaceVisible;
     private readonly PlayerCockpit m_cockpit;
-    private readonly bool m_cockpitVisible;
     private readonly bool m_cockpitInteriorLightsEnabled;
     private readonly bool m_cockpitQuestUvMaterialsEnabled;
     private readonly bool m_cockpitBakedInteriorLightingEnabled;
@@ -74,24 +65,18 @@ public sealed class QuestBenchmarkGraphics : IDisposable
     private Sky m_panoramaSky;
     private bool m_disposed;
 
+    public bool BakedSkyEnabled => m_panoramaSky != null && m_environment?.Sky == m_panoramaSky;
+
     /// <summary>Baseline forces Quest's cheap two-sample UV terrain path; it does not save a preference.</summary>
     public static IReadOnlyList<string> VariantNames => s_variantNames;
 
-    public QuestBenchmarkGraphics(Node missionRoot, PlayerMech player, PlayerHud hud, Sky proceduralSky)
+    public QuestBenchmarkGraphics(Node missionRoot, PlayerMech player, Sky proceduralSky)
     {
         ArgumentNullException.ThrowIfNull(missionRoot);
         ArgumentNullException.ThrowIfNull(player);
         m_owner = missionRoot;
-        m_hud = hud ?? throw new ArgumentNullException(nameof(hud));
         m_proceduralSky = proceduralSky ?? throw new ArgumentNullException(nameof(proceduralSky));
-        m_hudVisible = hud.Visible;
-        m_hudProcessMode = hud.ProcessMode;
-        m_hudViewport = hud.GetViewport() as SubViewport;
-        m_hudUpdateMode = m_hudViewport?.RenderTargetUpdateMode ?? SubViewport.UpdateMode.Disabled;
-        m_hudSurface = hud.VrSurface;
-        m_hudSurfaceVisible = m_hudSurface?.Visible ?? false;
         m_cockpit = player.Cockpit;
-        m_cockpitVisible = m_cockpit?.Visible ?? false;
         m_cockpitInteriorLightsEnabled = m_cockpit?.InteriorLightsEnabled ?? true;
         m_cockpitQuestUvMaterialsEnabled = m_cockpit?.QuestUvMaterialsEnabled ?? false;
         m_cockpitBakedInteriorLightingEnabled = m_cockpit?.BakedInteriorLightingEnabled ?? false;
@@ -123,10 +108,6 @@ public sealed class QuestBenchmarkGraphics : IDisposable
                         CaptureTerrainMaterial(meshInstance.GetSurfaceOverrideMaterial(index) ?? meshInstance.Mesh.SurfaceGetMaterial(index));
                 }
             }
-            if (node is TerrainRockScatter scatter)
-            {
-                m_rockNodes.Add((scatter, scatter.Visible));
-            }
         }
         m_sunShadowsEnabled = m_sun?.ShadowEnabled ?? false;
         m_glowEnabled = m_environment?.GlowEnabled ?? false;
@@ -140,44 +121,24 @@ public sealed class QuestBenchmarkGraphics : IDisposable
         }
     }
 
-    /// <summary>Resets to the cheap Quest baseline before applying one named ablation.</summary>
+    /// <summary>Resets to the cheap Quest baseline before applying one named profile.</summary>
     public async Task ApplyAsync(string variant)
     {
         ObjectDisposedException.ThrowIf(m_disposed, this);
         if (!s_variantNames.Contains(variant, StringComparer.Ordinal))
             throw new ArgumentOutOfRangeException(nameof(variant), variant, "Unknown Quest benchmark graphics variant.");
         ResetToBaseline();
-        switch (variant)
+        if (variant is "baked-profile" or "baked-profile-unlit-terrain" or "baked-profile-glass")
         {
-            case "terrain-triplanar":
-                SetTerrainTriplanar(true); break;
-            case "terrain-albedo-only":
+            await ApplyPanoramaSkyAsync();
+            if (m_cockpit != null)
+            {
+                m_cockpit.QuestUvMaterialsEnabled = true;
+                m_cockpit.BakedInteriorLightingEnabled = true;
+            }
+            if (variant == "baked-profile-unlit-terrain")
                 foreach (var (material, shader) in m_terrainShaders) material.Shader = GetAlbedoOnlyShader(shader);
-                break;
-            case "sky-panorama":
-                await ApplyPanoramaSkyAsync(); break;
-            case "hud-hidden":
-                m_hud.Visible = false;
-                m_hud.ProcessMode = Node.ProcessModeEnum.Disabled;
-                if (m_hudViewport != null) m_hudViewport.RenderTargetUpdateMode = SubViewport.UpdateMode.Disabled;
-                if (m_hudSurface != null) m_hudSurface.Visible = false;
-                break;
-            case "cockpit-hidden":
-                if (m_cockpit != null) m_cockpit.Visible = false;
-                break;
-            case "cockpit-uv":
-                if (m_cockpit != null) m_cockpit.QuestUvMaterialsEnabled = true;
-                break;
-            case "cockpit-uv-baked":
-                if (m_cockpit != null)
-                {
-                    m_cockpit.QuestUvMaterialsEnabled = true;
-                    m_cockpit.BakedInteriorLightingEnabled = true;
-                }
-                break;
-            case "rocks-hidden":
-                foreach (var (node, _) in m_rockNodes) node.Visible = false;
-                break;
+            if (variant == "baked-profile-glass" && m_cockpit != null) m_cockpit.GlassEnabled = true;
         }
     }
 
@@ -186,12 +147,6 @@ public sealed class QuestBenchmarkGraphics : IDisposable
         if (m_disposed) return;
         m_disposed = true;
         foreach (var (material, shader) in m_terrainShaders) material.Shader = shader;
-        foreach (var (node, visible) in m_rockNodes) node.Visible = visible;
-        m_hud.Visible = m_hudVisible;
-        m_hud.ProcessMode = m_hudProcessMode;
-        if (m_hudViewport != null) m_hudViewport.RenderTargetUpdateMode = m_hudUpdateMode;
-        if (m_hudSurface != null) m_hudSurface.Visible = m_hudSurfaceVisible;
-        if (m_cockpit != null) m_cockpit.Visible = m_cockpitVisible;
         if (m_cockpit != null) m_cockpit.InteriorLightsEnabled = m_cockpitInteriorLightsEnabled;
         if (m_cockpit != null) m_cockpit.QuestUvMaterialsEnabled = m_cockpitQuestUvMaterialsEnabled;
         if (m_cockpit != null) m_cockpit.BakedInteriorLightingEnabled = m_cockpitBakedInteriorLightingEnabled;
@@ -205,12 +160,6 @@ public sealed class QuestBenchmarkGraphics : IDisposable
     {
         foreach (var (material, shader) in m_terrainShaders) material.Shader = shader;
         SetTerrainTriplanar(false);
-        foreach (var (node, visible) in m_rockNodes) node.Visible = visible;
-        m_hud.Visible = m_hudVisible;
-        m_hud.ProcessMode = m_hudProcessMode;
-        if (m_hudViewport != null) m_hudViewport.RenderTargetUpdateMode = m_hudUpdateMode;
-        if (m_hudSurface != null) m_hudSurface.Visible = m_hudSurfaceVisible;
-        if (m_cockpit != null) m_cockpit.Visible = m_cockpitVisible;
         if (m_cockpit != null) m_cockpit.InteriorLightsEnabled = m_cockpitInteriorLightsEnabled;
         if (m_cockpit != null)
         {

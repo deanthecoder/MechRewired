@@ -478,8 +478,8 @@ public partial class PlayerHud : Control
     private Vector2 ProjectToHud(Camera3D camera, Vector3 worldPosition)
     {
         if (VrSurface == null) return camera.UnprojectPosition(worldPosition);
-        // Intersect the head-to-target ray with the fixed HUD glass. This keeps aiming independent
-        // of looking, and accounts for leaning without using the desktop viewport's projection.
+        // Intersect the head-to-target ray with the fixed HUD glass, accounting for leaning
+        // without using the desktop viewport's projection.
         var eye = VrSurface.ToLocal(camera.GlobalPosition);
         var direction = VrSurface.ToLocal(worldPosition) - eye;
         var divisor = Math.Abs(direction.Z) < 0.0001f ? -0.0001f : direction.Z;
@@ -939,14 +939,15 @@ public partial class PlayerHud : Control
 
     private void DrawCombatReticle()
     {
+        if (m_playerMech.IsVr && !m_playerMech.VrRig.BenchmarkActive && !m_playerMech.VrRig.HasHeadAim) return;
         var camera = m_playerMech.PilotCamera;
         if (camera == null)
         {
             return;
         }
 
-        var firingDirection = -m_playerMech.Torso.GlobalBasis.Z.Normalized();
-        var aimPosition = m_playerMech.CockpitCamera.GlobalPosition + firingDirection * ReticleProjectionDistance;
+        var firingDirection = m_playerMech.WeaponAimDirection;
+        var aimPosition = m_playerMech.WeaponAimOrigin + firingDirection * ReticleProjectionDistance;
         if (camera.IsPositionBehind(aimPosition))
         {
             return;

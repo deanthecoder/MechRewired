@@ -303,6 +303,13 @@ public partial class PlayerMech : Node3D
 
     public Camera3D PilotCamera => VrRig?.Camera ?? (Camera3D)CockpitCamera;
 
+    /// <summary>One ray shared by the reticle, direct weapons and missile acquisition.</summary>
+    public Vector3 WeaponAimOrigin => IsVr && !VrRig.BenchmarkActive
+        ? VrRig.Camera.GlobalPosition : CockpitCamera.GlobalPosition;
+
+    public Vector3 WeaponAimDirection => IsVr && !VrRig.BenchmarkActive
+        ? VrRig.HeadAimDirection : -Torso.GlobalBasis.Z.Normalized();
+
     /// <summary>Attaches tracking directly to the seat, bypassing synthetic view bob and damage shake.</summary>
     public QuestVrRig EnableVr()
     {
@@ -320,7 +327,11 @@ public partial class PlayerMech : Node3D
 
     public Vector2 VrAim => new(m_targetTorsoYaw, m_targetTorsoPitch);
 
-    public void VrFire() { if (!IsDestroyed && !IsShutdown) FireRequested?.Invoke(); }
+    public void VrFire()
+    {
+        if (IsVr && !VrRig.BenchmarkActive && !VrRig.HasHeadAim) return;
+        if (!IsDestroyed && !IsShutdown) FireRequested?.Invoke();
+    }
     public void VrCycleWeapon() => CycleWeaponRequested?.Invoke();
     public void VrCycleTarget() => NextTargetRequested?.Invoke();
     public void VrInspect() => InspectTargetRequested?.Invoke();

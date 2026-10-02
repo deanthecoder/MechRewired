@@ -94,14 +94,14 @@ public sealed partial class QuestPerformanceBenchmark : Node
             Directory.CreateDirectory(m_output);
             await m_missionSky.WaitForSkyBakeAsync();
             CheckCancelled();
-            graphics = new QuestBenchmarkGraphics(m_world.GetParent(), m_player, m_hud, m_missionSky.ProceduralSky);
+            graphics = new QuestBenchmarkGraphics(m_world.GetParent(), m_player, m_missionSky.ProceduralSky);
             var fixtures = BuildFixtures(originalPose);
             var xr = XRServer.FindInterface("OpenXR") as OpenXRInterface;
             var refreshRate = xr?.IsInitialized() == true ? xr.DisplayRefreshRate : 0;
             var frameBudget = 1000.0 / (refreshRate > 0 ? refreshRate : 72);
             var runMetadata = JsonSerializer.Serialize(new
             {
-                schema = 4, skyCache = "hdr-2048x1024-separate-sun-v1", cockpitMode = "quest-uv-baked-interior-v1",
+                schema = 5, graphicsProfiles = "combined-bakes-v1", skyCache = "hdr-2048x1024-separate-sun-v1", cockpitMode = "quest-uv-baked-interior-v1",
                 cockpitLightingStrength = m_player.Cockpit.LightingStrength,
                 cockpitOriginalTextureScale = m_player.Cockpit.FrameTextureScale,
                 runId = Path.GetFileName(m_output), startedUtc = DateTime.UtcNow, mission = m_mission,
@@ -186,8 +186,10 @@ public sealed partial class QuestPerformanceBenchmark : Node
                         trial, fixture = fixture.Name, variant, headAtStart = headAtStart.ToString(),
                         headAtEnd = rig.Camera.Transform.ToString(), playerAtEnd = m_player.GlobalTransform.ToString(),
                         hudInstrumentDraws = m_hud.VrInstrumentDrawCount - hudDrawsAtStart,
+                        bakedSky = graphics.BakedSkyEnabled,
                         cockpitUv = m_player.Cockpit.QuestUvMaterialsEnabled,
                         bakedInteriorLighting = m_player.Cockpit.BakedInteriorLightingEnabled,
+                        cockpitGlass = m_player.Cockpit.GlassEnabled,
                         finishedUtc = DateTime.UtcNow, stats
                     });
                     File.WriteAllText(Path.Combine(m_output, $"{trial:D3}-trial.json"), trialMetadata);

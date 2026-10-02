@@ -29,7 +29,7 @@ public partial class EnemyMech : Node3D
     private const float TorsoTurnDegreesPerSecond = 58.0f;
     private const float MaximumTorsoYawRadians = Mathf.Pi / 2.0f;
     private const float MaximumTorsoPitchRadians = Mathf.Pi / 5.0f;
-    private const float SensorIntervalSeconds = 0.2f;
+    private static float SensorIntervalSeconds => QuestVrRuntime.Active ? 0.25f : 0.2f;
     private const float TargetMemorySeconds = 4.0f;
     private const float MaximumSustainedHeatFraction = 0.75f;
     private const int MissilePoolSize = 24;
@@ -115,6 +115,12 @@ public partial class EnemyMech : Node3D
             MechHeat.GetCriticalHeatThreshold(effectiveHeatSinks),
             effectiveHeatSinks / 10.0);
         m_random = new Random(HashCode.Combine(definition.Specification.GroupId, definition.Specification.MechResourceIndex));
+        // Spread initial sensor work over the interval without consuming combat random samples.
+        if (QuestVrRuntime.Active)
+        {
+            var sensorPhase = unchecked((uint)definition.Specification.GroupId * 2654435761u);
+            m_sensorCooldown = sensorPhase % 1000 / 1000.0f * SensorIntervalSeconds;
+        }
         // Combat manoeuvres use the authored walking/cruising speed. Running is reserved for later pursuit states.
         m_maximumSpeedMetersPerSecond = (float)(mechDefinition.CruisingSpeedKph / 3.6);
         m_weaponRange = Math.Max(definition.Specification.TargetRange, 120);
@@ -395,10 +401,8 @@ public partial class EnemyMech : Node3D
             }
 
             PowerUp();
-            m_hasLineOfSight = EnemyAwareness.CanObserve(
-                playerDistance,
-                m_observationRange,
-                HasLineOfSight(TargetPosition, playerTargetPosition));
+            m_hasLineOfSight = playerDistance <= m_observationRange &&
+                               HasLineOfSight(TargetPosition, playerTargetPosition);
             if (m_hasLineOfSight)
             {
                 m_targetMemoryRemaining = TargetMemorySeconds;
@@ -421,10 +425,8 @@ public partial class EnemyMech : Node3D
             if (m_sensorCooldown <= 0.0f)
             {
                 m_sensorCooldown = SensorIntervalSeconds;
-                m_hasLineOfSight = EnemyAwareness.CanObserve(
-                    playerDistance,
-                    m_observationRange,
-                    HasLineOfSight(TargetPosition, playerTargetPosition));
+                m_hasLineOfSight = playerDistance <= m_observationRange &&
+                                   HasLineOfSight(TargetPosition, playerTargetPosition);
                 if (m_hasLineOfSight)
                 {
                     m_targetMemoryRemaining = TargetMemorySeconds;
@@ -1053,19 +1055,9 @@ public partial class EnemyMech : Node3D
         var telemetryStart = telemetryActive ? Stopwatch.GetTimestamp() : 0L;
         try
         {
-            var distance = start.DistanceTo(end);
-            if (distance <= 0.01f)
-            {
-                return true;
-            }
-
-            return !DebugTriangleRaycaster.TryFindNearest(
-                       m_sceneTriangles,
-                       start,
-                       start.DirectionTo(end),
-                       out _,
-                       out var hitDistance) ||
-                   hitDistance >= distance - 1.0f;
+            // Awareness is throttled, but weapon muzzle checks still use the current geometry
+            // immediately before firing. Ignore the final metre as in the original query.
+            return !DebugTriangleRaycaster.IsSegmentBlocked(m_sceneTriangles, start, end, 1.0f);
         }
         finally
         {

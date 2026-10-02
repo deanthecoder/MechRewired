@@ -168,11 +168,18 @@ def analyze(records, output):
             print(f"  {target}: average of {len(base_rows)} complete baselines", file=output)
             for key, label, suffix in METRICS:
                 print(f"    baseline {label}: {fmt(summarize(base_rows, key), suffix)}", file=output)
-            for variant in VARIANTS[1:]:
+            for variant in (v for v in VARIANTS[1:] if any(r.get("variant") == v for r in target_records)):
                 candidates = [r for r in target_records if r.get("variant") == variant and
                               eligible(r)]
                 if not candidates:
                     print(f"    {variant}: no valid combat trial", file=output)
+                    continue
+                if variant == "smoke-off" and not all(r.get("smoke") is True for r in base_rows):
+                    print("    smoke-off: legacy baseline smoke was disabled or unrecorded; deltas withheld", file=output)
+                    continue
+                profile_fields = ("graphicsProfile", "bakedSky", "cockpitUv", "bakedInteriorLighting")
+                if any(len({json.dumps(r.get(field)) for r in base_rows + candidates}) > 1 for field in profile_fields):
+                    print(f"    {variant}: graphics profiles differ; variant deltas withheld", file=output)
                     continue
                 different = [field for field in ("enemyShots", "missileLaunches", "impacts")
                              if summarize(base_rows, field) is not None and summarize(candidates, field) is not None

@@ -802,8 +802,8 @@ public partial class PlayerTargeting : Node
 
     private void FireDirectWeapon(MechMountedWeapon weapon, float visualDelay)
     {
-        var aimOrigin = m_playerMech.CockpitCamera.GlobalPosition;
-        var direction = -m_playerMech.Torso.GlobalBasis.Z.Normalized();
+        var aimOrigin = m_playerMech.WeaponAimOrigin;
+        var direction = m_playerMech.WeaponAimDirection;
         var start = GetWeaponStart(weapon, 0);
         var end = aimOrigin + direction * (float)weapon.Specification.RangeMeters;
         if (TryRaycast(
@@ -891,7 +891,7 @@ public partial class PlayerTargeting : Node
 
     private void QueueMissileSalvo(MechMountedWeapon weapon)
     {
-        var forward = -m_playerMech.Torso.GlobalBasis.Z.Normalized();
+        var forward = m_playerMech.WeaponAimDirection;
         var lockedTarget = MissileLocked && ReferenceEquals(SelectedEnemy, m_lockedEnemy)
             ? m_lockedEnemy
             : null;
@@ -1149,7 +1149,7 @@ public partial class PlayerTargeting : Node
             return false;
         }
 
-        var origin = m_playerMech.CockpitCamera.GlobalPosition;
+        var origin = m_playerMech.WeaponAimOrigin;
         var toTarget = enemy.TargetPosition - origin;
         if (toTarget.LengthSquared() > missile.Specification.RangeMeters * missile.Specification.RangeMeters)
         {
@@ -1165,7 +1165,7 @@ public partial class PlayerTargeting : Node
             new Vector3(center.X, Mathf.Lerp(center.Y, top, 0.65f), center.Z),
             new Vector3(center.X, Mathf.Lerp(center.Y, top, 0.9f), center.Z)
         ];
-        var forward = -m_playerMech.Torso.GlobalBasis.Z.Normalized();
+        var forward = m_playerMech.WeaponAimDirection;
         return aimPoints.Any(point =>
         {
             var direction = origin.DirectionTo(point);
@@ -1374,8 +1374,8 @@ public partial class PlayerTargeting : Node
         out float distance,
         out Vector3 hitPosition)
     {
-        var origin = m_playerMech.CockpitCamera.GlobalPosition;
-        var direction = -m_playerMech.Torso.GlobalBasis.Z.Normalized();
+        var origin = m_playerMech.WeaponAimOrigin;
+        var direction = m_playerMech.WeaponAimDirection;
         var candidates = m_sceneTriangles.Where(triangle =>
             !m_actorsByObject.TryGetValue(
                 (triangle.SourceResourcePath, triangle.ObjectId),

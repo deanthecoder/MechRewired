@@ -102,7 +102,8 @@ can read the following names from its left or right controller tracker:
 The seated mapping currently uses the left thumbstick for signed, persistent
 throttle: 20–100% forward, through neutral, then reverse. Click it to stop;
 return it to neutral before choosing another throttle. The right thumbstick
-steers the mech left/right and pitches the torso up/down. Torso yaw is disabled.
+steers the mech left/right. Head direction aims the weapons and moves the reticle;
+right-stick vertical input no longer pitches the torso in VR. Torso yaw is disabled.
 Hold the right index trigger to fire the selected weapon; squeeze the right grip
 to cycle weapons. Squeeze the left index trigger to select the next target;
 hold the left grip for jump jets. A and B also cycle weapons and targets,
@@ -110,7 +111,17 @@ respectively. X inspects, Y recentres, and left Menu pauses.
 
 ## WIP scope and verification
 
-Looking around does not aim the weapons; the right stick controls torso pitch.
+Head aim uses headset orientation, not eye tracking. The existing reticle is
+constrained to the projected main cockpit glazing and the HUD surface, with an
+inset keeping its full shape away from the frame. Looking beyond that area holds
+the aim at its boundary. Leaning is included in the projection. Direct weapons,
+unguided missiles, target picking and the missile-lock cone share that same ray;
+locked missiles retain their existing homing behaviour. Head aim does not rotate
+the cockpit or the player's view. It works with cockpit glass rendering off too.
+If the head pose has no valid projection into the window, the reticle and firing
+are suppressed until a valid aim returns.
+Benchmarks keep their scripted torso aim so head movement cannot redirect shots.
+Desktop aiming is unchanged. Headset comfort and edge alignment still need testing.
 The seated view is raised 12 cm and moved back 10 cm. The XR camera attaches
 to the seat above the synthetic camera-bob node.
 Headset focus/tracking loss opens the pause menu; controller loss stops throttle.
@@ -122,28 +133,32 @@ onto a transparent cockpit surface. Radar, weapons, status, navigation and
 targeting can be toggled separately. Its finite-depth targeting presentation
 still needs binocular alignment/readability testing on Quest.
 
-Graphics controls currently cover shadows, baked sky, scene glow, cockpit glass and
-battlefield smoke/dust. The cheap preset leaves baked sky off initially so the
-procedural sky remains available for direct visual comparison. Turning **BAKED SKY**
-on captures the current mission sky once as a 1024x512 panorama and stops cloud
-drift; turning it off restores the procedural sky and cloud drift. The sun light
-continues to illuminate the scene in both modes. This choice lasts for the
-current mission only. The other expensive graphics effects start disabled.
-The baked result currently has visible resolution, sun-position and mountain-top
-colour problems on the headset; keep it off for ordinary play. Measurements and
-follow-up options are in [QUEST_SKY_BAKE_FINDINGS.md](QUEST_SKY_BAKE_FINDINGS.md),
-with all rendering test results in
-[QUEST_PERFORMANCE_FINDINGS.md](QUEST_PERFORMANCE_FINDINGS.md).
+Graphics controls cover shadows, combined baked sky/cabin, scene glow, cockpit
+glass, terrain mapping and battlefield smoke/dust. **BAKED SKY + CABIN** enables
+the cached 2048x1024 HDR sky together with UV cockpit materials and baked cabin
+lighting. It replaces the three separate experimental controls, avoiding the
+slower UV-only cockpit combination. Capture shows **BAKING** while pending.
+Turning it off restores the procedural sky, cloud drift and original cockpit
+lighting. Sunlight continues to illuminate the scene in both modes. The switch
+starts off and lasts for the current mission only; desktop defaults are unchanged.
+The replacement sky and cabin were visually accepted on Quest on 1 October,
+though the sky's missing sun halo remains visible. Results are in
+[QUEST_TESTS_2026-10-01.md](QUEST_TESTS_2026-10-01.md); the shorter combined-profile
+test is described in [QUEST_BENCHMARK.md](QUEST_BENCHMARK.md).
 
 Terrain parallax is always off in VR, including desktop VR preview, and has no menu toggle.
 The **TERRAIN TRIPLANAR** graphics toggle is off by default. Off selects a separate
 UV shader with two colour-texture samples and constant roughness; it does not run
-triplanar projection, normal-map, height-map or procedural-noise sampling. Terrain
-meshes carry metre-scaled UVs, with a single projection chosen per face when the
+triplanar projection, normal-map, height-map or procedural-noise sampling.
+Terrain meshes carry metre-scaled UVs, with a single projection chosen per face when the
 mesh is built so cliff faces and sealing skirts do not have collapsed UVs. This
 cheaper path has less surface detail and can show seams between projection planes.
 On restores the detailed biome triplanar shader, while keeping VR parallax off.
 Both modes use the existing terrain textures and retain the same geometry.
+
+Quest desert missions use a 1.75x longer distance-fog range, retaining haze while
+keeping the sun-facing deployment mountains from reaching opaque fog too early.
+Terrain reflectivity is unchanged. Desktop and rocky-mountain fog ranges are unchanged.
 
 Triplanar changes apply to the loaded terrain immediately and are saved in
 `user://settings.cfg`, under `[quest_graphics]` as `terrain_triplanar`. The saved
@@ -176,7 +191,7 @@ logcat CSV reports without saving its temporary graphics changes.
 
 In a debug build with original data installed, run Godot with
 `-- --vr-preview --vr-smoke` to exercise synthetic XR controller input, latched
-throttle/stop, steering and pitch-only aim, trigger/grip controls, menu input
+throttle/stop, steering, trigger/grip controls, menu input
 suppression and mission-result
 presentation. A graphics run also captures cockpit/menu previews into the
 ignored `artifacts/` directory. This harness does not validate real tracking,

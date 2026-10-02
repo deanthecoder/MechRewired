@@ -21,20 +21,21 @@ bloom was noticeable. The new rendering benchmark results are separate from
 the historical numbers below.
 
 The replacement uses a shared asynchronous `QuestCachedSky` helper used by
-the menu and the `sky-panorama` benchmark variant. It captures a frozen,
+the menu and the combined baked-profile benchmark variants. It captures a frozen,
 sunless HDR sky from six 1024×1024 cubemap faces and exports a 2048×1024 panorama. A
 cheap visible sampler uses that cache, while a separate copy of the original
 procedural sun contribution draws the disc only where present, preserving cloud
 attenuation and tone mapping. Final sky radiance keeps the frozen original
 procedural sky, including the sun, for ambient and reflection lighting.
 
-In the Quest menu, **BAKED SKY** remains default-off. Enabling it starts capture
+In the Quest menu, the combined **BAKED SKY + CABIN** remains default-off. It also
+enables UV cockpit materials and baked interior lighting. Enabling it starts capture
 asynchronously and shows **BAKING** while pending; the user can turn it off
 during capture. Switching OFF restores the procedural sky and cloud drift. The setting remains
 mission-local. Further stereo checks of sun bloom and a repeat rendering run
 with complete log capture remain useful.
 
-The benchmark format is schema 4 and records
+The current benchmark format is schema 5 (the 1 October logs used schema 4) and records
 `skyCache=hdr-2048x1024-separate-sun-v1` and
 `cockpitMode=quest-uv-baked-interior-v1`. Capture is excluded from measured
 trial timing. The panorama variant uses the same shared helper and cached

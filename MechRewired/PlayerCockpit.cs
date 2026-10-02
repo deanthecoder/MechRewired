@@ -71,6 +71,9 @@ public partial class PlayerCockpit : Node3D
     private StandardMaterial3D m_frameMaterial;
     private MeshInstance3D m_frameMesh;
     private MeshInstance3D m_glassMesh;
+    private Vector3[] m_mainWindshieldVertices = [];
+    internal ReadOnlySpan<Vector3> MainWindshieldVertices => m_mainWindshieldVertices;
+    internal Transform3D MainWindshieldTransform => m_glassMesh.GlobalTransform;
     private ShaderMaterial m_glassMaterial;
     private float m_frameTextureScale = DefaultFrameTextureScale;
     private float m_frameMetallic = DefaultFrameMetallic;
@@ -346,6 +349,24 @@ public partial class PlayerCockpit : Node3D
 
         m_glassMaterial = CreateGlassMaterial();
         m_glassMesh = glass;
+        // The main windshield is the upper forward pane (local Y >= 0). Exclude the
+        // lower nose and side panes: their combined silhouette is not a convex opening.
+        // Cache its actual vertices even when glass rendering is disabled.
+        var windshieldVertices = new HashSet<Vector3>();
+        var glassFaces = glass.Mesh.GetFaces();
+        for (var i = 0; i + 2 < glassFaces.Length; i += 3)
+        {
+            var a = glassFaces[i];
+            var b = glassFaces[i + 1];
+            var c = glassFaces[i + 2];
+            var normal = (b - a).Cross(c - a).Normalized();
+            if (Mathf.Abs(normal.Z) < 0.5f || Math.Max(a.Z, Math.Max(b.Z, c.Z)) >= 0 ||
+                Math.Min(a.Y, Math.Min(b.Y, c.Y)) < -0.00001f) continue;
+            windshieldVertices.Add(a);
+            windshieldVertices.Add(b);
+            windshieldVertices.Add(c);
+        }
+        m_mainWindshieldVertices = windshieldVertices.ToArray();
         glass.MaterialOverride = m_glassMaterial;
         glass.CastShadow = GeometryInstance3D.ShadowCastingSetting.Off;
         glass.Visible = m_glassEnabled;
