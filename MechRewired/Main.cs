@@ -247,8 +247,9 @@ public partial class Main : Node3D
         return campaign != ClanCampaignSelection.None;
     }
 
-    private void StartCampaign(MechWarriorProjectArchive archive, ClanCampaignSelection campaign)
+    private async void StartCampaign(MechWarriorProjectArchive archive, ClanCampaignSelection campaign)
     {
+        var startupTimer = System.Diagnostics.Stopwatch.StartNew();
         var clanSelection = GetNodeOrNull<ClanSelectionScreen>("ClanSelection");
         clanSelection?.Hide();
         var (scenarioPath, playerMechPath) = campaign switch
@@ -285,7 +286,8 @@ public partial class Main : Node3D
                 archive,
                 missionResources,
                 missionDefinition);
-            BuildScene(
+            GD.Print($"MISSION_STARTUP: mission data {startupTimer.Elapsed.TotalMilliseconds:F0} ms.");
+            var player = BuildScene(
                 archive,
                 palette,
                 playerChassis,
@@ -300,6 +302,31 @@ public partial class Main : Node3D
                 playerMechDefinition,
                 missionGamePieces,
                 missionResources);
+
+            GD.Print($"MISSION_STARTUP: scene assembled {startupTimer.Elapsed.TotalMilliseconds:F0} ms total.");
+            // Audio runs independently of rendering. Keep deployment and mission time from
+            // starting while the renderer uploads resources and prepares the first frame.
+            var tree = GetTree();
+            var wasPaused = tree.Paused;
+            tree.Paused = true;
+            try
+            {
+                if (DisplayServer.GetName() == "headless")
+                    await ToSignal(tree, SceneTree.SignalName.ProcessFrame);
+                else
+                    await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
+
+                if (!IsInstanceValid(player) || !player.IsInsideTree())
+                    return;
+
+                GD.Print($"MISSION_STARTUP: first frame ready {startupTimer.Elapsed.TotalMilliseconds:F0} ms total.");
+            }
+            finally
+            {
+                if (IsInstanceValid(tree))
+                    tree.Paused = wasPaused;
+            }
+            player.BeginDeploymentAudio();
         }
         catch (Exception exception)
         {
@@ -1439,7 +1466,7 @@ public partial class Main : Node3D
         return ordered;
     }
 
-    private void BuildScene(
+    private PlayerMech BuildScene(
         MechWarriorProjectArchive archive,
         MechWarriorPalette palette,
         MechWarriorMechChassis playerChassis,
@@ -1455,6 +1482,12 @@ public partial class Main : Node3D
         IReadOnlyList<MechWarriorMissionGamePiece> missionGamePieces,
         MechWarriorMissionResources missionResources)
     {
+        var stageTimer = System.Diagnostics.Stopwatch.StartNew();
+        void LogStage(string stage)
+        {
+            GD.Print($"MISSION_STARTUP: {stage} {stageTimer.Elapsed.TotalMilliseconds:F0} ms.");
+            stageTimer.Restart();
+        }
         var runtimeContent = new MissionRuntimeContent();
         var terrainBiome = level.TerrainBiome;
         var usesDesertTerrain = terrainBiome == MechWarriorTerrainBiome.Desert;
@@ -1878,6 +1911,7 @@ public partial class Main : Node3D
             $"{renderedActorComponentCount} active actor components, {renderedDebrisCount} ground-settled debris objects, " +
             $"{meshCache.Count} unique models; luminosity levels {GeneralIlluminationLevel} terrain / " +
             $"{ObjectIlluminationLevel} objects).");
+        LogStage("world objects");
         IReadOnlyList<DebugTriangle> groundCoverageTriangles;
         if (usesDesertTerrain)
         {
@@ -1918,6 +1952,7 @@ public partial class Main : Node3D
             groundCoverageTriangles = derivedTerrain.CollisionTriangles;
         }
 
+        LogStage("derived terrain");
         foreach (var sourceTerrainRoot in sourceTerrainRoots)
         {
             sourceTerrainRoot.QueueFree();
@@ -1940,6 +1975,7 @@ public partial class Main : Node3D
             "derived terrain",
             "The original terrain control meshes are supplemented by the derived terrain surface and implicit ground.");
         GD.Print($"MechRewired: prepared {terrainBiome.ToString().ToLowerInvariant()} terrain surface.");
+        LogStage("implicit ground and terrain index");
         var terrainRocks = TerrainRockScatter.Create(
             terrainSurface,
             GetTerrainBounds(debugTriangles),
@@ -2032,6 +2068,7 @@ public partial class Main : Node3D
             dropShipDepartureDirection,
             runtimeContent);
 
+        LogStage("scenery and effects");
         var playerMechSounds = PlayerMechSounds.Load(archive, missionResources.MissionPrefix);
         GD.Print("MechRewired: loaded player and mission audio.");
         var playerMech = new PlayerMech(
@@ -2151,7 +2188,9 @@ public partial class Main : Node3D
             BuildWeaponMounts(playerChassis, playerObjectsById, playerTorsoObjectId),
             terrainSurface,
             () => GetSceneryObstacles(staticSceneryObstacles, battlefieldActors));
+        LogStage("player and audio");
         terrainRocks?.ConfigureObserver(playerMech);
+        LogStage("initial rock population");
 #if DEBUG
         RegisterDebugConsoleCockpit(playerMech.Cockpit);
         RegisterDebugConsoleSky(
@@ -2431,6 +2470,8 @@ public partial class Main : Node3D
             gallery.CaptureMission(playerMech, playerHud, missionSky, battlefieldActors, enemyMechs,
                 Path.GetFileNameWithoutExtension(missionResources.ScenarioEntry.Name));
 #endif
+        LogStage("mission systems and HUD");
+        return playerMech;
     }
 
 #if DEBUG

@@ -7,6 +7,21 @@ the desktop drag-and-drop importer is not available in VR.
 Use `-- --vr-preview` for a flat desktop preview, or
 `--xr-mode on --rendering-method mobile -- --vr` for a PC OpenXR headset.
 
+Mission startup builds the scene before starting the deployment voice and reactor
+audio. Gameplay is paused until the first frame has rendered, so first-frame
+resource uploads and shader preparation do not consume the announcement or
+mission time. Headless checks use a process-frame boundary instead.
+The terrain render and collision meshes, and initial rock-cell placements, are
+calculated with at most two concurrent workers per stage; Godot resources and
+scene nodes are still created on the main thread. Rock placement remains deterministic.
+
+Startup logs prefixed `MISSION_STARTUP:` report mission parsing, world objects,
+derived terrain, implicit ground/indexing, scenery/effects, player/audio, initial rocks, and
+mission/HUD setup. The scene-assembled and first-frame timestamps are cumulative
+from campaign selection; the other scene stages report their individual durations.
+Compare those timestamps on the headset to distinguish CPU construction from
+first-frame rendering costs. They exclude engine boot and opening the game archive.
+
 ## Release builds
 
 On macOS, the repository script builds the signed release APKs with the .NET

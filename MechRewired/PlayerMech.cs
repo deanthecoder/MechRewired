@@ -782,10 +782,14 @@ public partial class PlayerMech : Node3D
             CullMask = 1u | ExteriorRenderLayer
         };
         AddChild(WeaponCamera);
+    }
+
+    /// <summary>Starts deployment audio once the complete mission has rendered its first frame.</summary>
+    public void BeginDeploymentAudio()
+    {
         m_startup.Play();
         m_reactorHum.Play();
         m_deploymentReport.Play();
-
     }
 
     public bool TryGetWeaponOrigin(MechMountedWeapon weapon, out Vector3 origin)

@@ -154,12 +154,16 @@ public sealed partial class TerrainRockScatter : Node3D
         m_observer = observer;
         m_hasObserverCell = false;
         UpdateActiveCells();
-        // This runs during scene construction, before PlayerHud.BeginPowerUp() fades from black.
-        // Pay the initial population cost while the loading screen is still opaque; traversal later
-        // remains time-sliced by _Process().
-        while (m_pendingCells.Count > 0)
+        // Sample independent cells against the read-only terrain index in parallel. Preserve
+        // cell order and create all Godot nodes/resources on the main thread after sampling.
+        // Traversal later remains time-sliced by _Process().
+        var requests = m_pendingCells.Values.OrderByDescending(request => request.AllowsShadows).ToArray();
+        var placements = new IReadOnlyList<RockPlacement>[requests.Length];
+        Parallel.For(0, requests.Length, new ParallelOptions { MaxDegreeOfParallelism = 2 },
+            index => placements[index] = CalculateCellPlacements(requests[index]));
+        for (var index = 0; index < requests.Length; index++)
         {
-            ProcessOnePendingCell();
+            PopulateCell(requests[index], placements[index]);
         }
     }
 
@@ -269,8 +273,13 @@ public sealed partial class TerrainRockScatter : Node3D
         var request = m_pendingCells.Values
             .OrderByDescending(candidate => candidate.AllowsShadows)
             .First();
+        PopulateCell(request, CalculateCellPlacements(request));
+    }
+
+    private void PopulateCell(CellRequest request, IReadOnlyList<RockPlacement> placements)
+    {
         m_pendingCells.Remove(request.Cell);
-        var cellNode = BuildCell(request.Cell, request.IsDense, request.AllowsShadows);
+        var cellNode = BuildCell(request.Cell, request.IsDense, placements);
         if (m_activeCells.Remove(request.Cell, out var previous))
         {
             previous.Node.QueueFree();
@@ -283,15 +292,17 @@ public sealed partial class TerrainRockScatter : Node3D
         }
     }
 
-    private Node3D BuildCell(Vector2I cell, bool dense, bool allowShadows)
-    {
-        var placements = BuildCellPlacements(
-            m_terrainSurface, m_terrainBounds, cell.X, cell.Y,
-            (dense ? m_profile.DenseCandidateSpacingMetres : m_profile.SparseCandidateSpacingMetres) *
+    private IReadOnlyList<RockPlacement> CalculateCellPlacements(CellRequest request) =>
+        BuildCellPlacements(
+            m_terrainSurface, m_terrainBounds, request.Cell.X, request.Cell.Y,
+            (request.IsDense ? m_profile.DenseCandidateSpacingMetres : m_profile.SparseCandidateSpacingMetres) *
                 (m_useQuestProfile ? QuestCandidateSpacingScale : 1.0f),
-            dense ? m_profile.DensePlacementMultiplier : 1.0f,
+            request.IsDense ? m_profile.DensePlacementMultiplier : 1.0f,
             m_profile,
-            allowShadows);
+            request.AllowsShadows);
+
+    private Node3D BuildCell(Vector2I cell, bool dense, IReadOnlyList<RockPlacement> placements)
+    {
         if (placements.Count == 0)
         {
             return null;
