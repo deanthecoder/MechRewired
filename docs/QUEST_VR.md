@@ -121,7 +121,8 @@ steers the mech left/right and pitches the torso up/down. Head direction aims
 the weapons and moves the reticle. Automatic torso following is disabled after
 a headset camera displacement regression.
 Click the right stick to align the legs with your horizontal gaze bearing.
-Hold the right index trigger to fire the selected weapon; squeeze the right grip
+Press the right index trigger to fire the selected weapon once; release it below
+45% before firing again (the firing threshold is 65%). Squeeze the right grip
 to cycle weapons. Squeeze the left index trigger to select the next target;
 hold the left grip for jump jets. A and B also cycle weapons and targets,
 respectively. X inspects, Y recentres, and left Menu pauses.

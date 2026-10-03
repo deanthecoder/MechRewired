@@ -724,6 +724,7 @@ public partial class PlayerMech : Node3D
     {
         ArgumentNullException.ThrowIfNull(mesh);
         ArgumentException.ThrowIfNullOrWhiteSpace(partName);
+        MechSectionHitTester.PrepareMesh(mesh.Mesh);
         m_destructibleParts.Add((mesh, partName));
     }
 

@@ -130,7 +130,19 @@ public partial class QuestVrSmokeCheck : Node
             right.SetInput("trigger", 1.0f);
             left.SetInput("grip", 1.0f);
             await Frames(3);
-            Check(fires > 0 && rig.JumpJetsRequested, "fresh trigger and grip work after resume");
+            Check(fires == 1 && rig.JumpJetsRequested, "fresh trigger and grip work after resume");
+            await Frames(30);
+            Check(fires == 1, "held fire trigger requests only one weapon");
+            right.SetInput("trigger", 0.55f);
+            await Frames(3);
+            right.SetInput("trigger", 0.8f);
+            await Frames(3);
+            Check(fires == 1, "trigger jitter above release threshold does not fire again");
+            right.SetInput("trigger", 0.4f);
+            await Frames(3);
+            right.SetInput("trigger", 0.8f);
+            await Frames(3);
+            Check(fires == 2, "partial trigger release permits the next weapon request");
             right.SetInput("trigger", 0.0f);
             left.SetInput("grip", 0.0f);
 

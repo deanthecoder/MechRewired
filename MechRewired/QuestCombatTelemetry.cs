@@ -34,6 +34,10 @@ public static class QuestCombatTelemetry
     private static long s_playerDirectDamageElapsedTicks;
     private static long s_playerWeaponVisualCalls;
     private static long s_playerWeaponVisualElapsedTicks;
+    private static long s_playerWorldRaycastElapsedTicks;
+    private static long s_playerMechRaycastElapsedTicks;
+    private static long s_weaponEffectPoolBuilds;
+    private static long s_weaponEffectPoolFallbacks;
     private static long s_weaponLaunches;
     private static long s_enemyWeaponLaunches;
     private static long s_missileLaunches;
@@ -66,7 +70,11 @@ public static class QuestCombatTelemetry
         Interlocked.Exchange(ref s_missileLaunches, 0),
         Interlocked.Exchange(ref s_impacts, 0),
         Volatile.Read(ref s_activeMissiles),
-        Volatile.Read(ref s_activeLasers));
+        Volatile.Read(ref s_activeLasers),
+        Interlocked.Exchange(ref s_playerWorldRaycastElapsedTicks, 0),
+        Interlocked.Exchange(ref s_playerMechRaycastElapsedTicks, 0),
+        Interlocked.Exchange(ref s_weaponEffectPoolBuilds, 0),
+        Interlocked.Exchange(ref s_weaponEffectPoolFallbacks, 0));
 
     /// <summary>Alias used by frame-based benchmark runners.</summary>
     public static QuestCombatTelemetrySnapshot TakeFrameSnapshot() => SnapshotAndReset();
@@ -99,6 +107,26 @@ public static class QuestCombatTelemetry
         if (!Active) return;
         Interlocked.Increment(ref s_playerDirectRaycastCalls);
         Interlocked.Add(ref s_playerDirectRaycastElapsedTicks, elapsedTicks);
+    }
+
+    internal static void RecordPlayerWorldRaycast(long elapsedTicks)
+    {
+        if (Active) Interlocked.Add(ref s_playerWorldRaycastElapsedTicks, elapsedTicks);
+    }
+
+    internal static void RecordPlayerMechRaycast(long elapsedTicks)
+    {
+        if (Active) Interlocked.Add(ref s_playerMechRaycastElapsedTicks, elapsedTicks);
+    }
+
+    internal static void RecordWeaponEffectPoolBuild(bool laser)
+    {
+        if (Active) Interlocked.Increment(ref s_weaponEffectPoolBuilds);
+    }
+
+    internal static void RecordWeaponEffectPoolFallback(bool laser)
+    {
+        if (Active) Interlocked.Increment(ref s_weaponEffectPoolFallbacks);
     }
 
     internal static void RecordPlayerDirectDamage(long elapsedTicks)
@@ -181,7 +209,11 @@ public readonly record struct QuestCombatTelemetrySnapshot(
     long MissileLaunches,
     long Impacts,
     int ActiveMissiles,
-    int ActiveLasers)
+    int ActiveLasers,
+    long PlayerWorldRaycastElapsedTicks,
+    long PlayerMechRaycastElapsedTicks,
+    long WeaponEffectPoolBuilds,
+    long WeaponEffectPoolFallbacks)
 {
     public double EnemyAiMilliseconds => EnemyAiElapsedTicks * 1000.0 / Stopwatch.Frequency;
 
@@ -196,6 +228,10 @@ public readonly record struct QuestCombatTelemetrySnapshot(
     public double MissilePoolCreationElapsedMs => MissilePoolCreationMilliseconds;
 
     public double PlayerDirectRaycastMilliseconds => PlayerDirectRaycastElapsedTicks * 1000.0 / Stopwatch.Frequency;
+
+    public double PlayerWorldRaycastMilliseconds => PlayerWorldRaycastElapsedTicks * 1000.0 / Stopwatch.Frequency;
+
+    public double PlayerMechRaycastMilliseconds => PlayerMechRaycastElapsedTicks * 1000.0 / Stopwatch.Frequency;
 
     public double PlayerDirectDamageMilliseconds => PlayerDirectDamageElapsedTicks * 1000.0 / Stopwatch.Frequency;
 

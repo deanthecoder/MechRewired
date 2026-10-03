@@ -24,7 +24,6 @@ public partial class QuestVrRig : XROrigin3D
     private float m_throttleRepeat;
     private int m_throttleDirection;
     private bool m_waitForThrottleCenter = true;
-    private float m_fireRepeat;
     private Vector2 m_headAimPoint;
     private bool m_hasHeadAim;
     private int m_initialTrackingFrames;
@@ -128,7 +127,8 @@ public partial class QuestVrRig : XROrigin3D
         var centerPressed = Pressed("center", leftTracked && Left.IsButtonPressed("by_button"));
         var alignLegsPressed = Pressed("align_legs", rightTracked && Right.IsButtonPressed("primary_click"));
         if (menuPressed) Menu?.Toggle();
-        var firing = rightTracked && Right.GetFloat("trigger") > 0.65f;
+        var fireTrigger = rightTracked ? Right.GetFloat("trigger") : 0.0f;
+        var firing = fireTrigger > 0.65f;
         var jumpJetsHeld = leftTracked && Left.GetFloat("grip") > 0.65f;
         if (!GetTree().Paused && sessionFocused && m_seatCentered && (QuestVrRuntime.Preview || headTracked))
             UpdateHeadAim((float)delta);
@@ -159,7 +159,8 @@ public partial class QuestVrRig : XROrigin3D
             if (!GetTree().Paused && (!leftTracked || !rightTracked)) m_player.StopVrMovement();
             return;
         }
-        if (!firing) m_requireRelease = false;
+        // Hysteresis requires a deliberate partial release between weapon requests.
+        if (fireTrigger < 0.45f) m_requireRelease = false;
         if (!jumpJetsHeld) m_jumpJetsRequireRelease = false;
         JumpJetsRequested = jumpJetsHeld && !m_jumpJetsRequireRelease;
         if (stopPressed)
@@ -194,13 +195,11 @@ public partial class QuestVrRig : XROrigin3D
         }
         m_throttleDirection = direction;
 
-        m_fireRepeat -= (float)delta;
-        if (firing && !m_requireRelease && m_fireRepeat <= 0)
+        if (firing && !m_requireRelease)
         {
+            m_requireRelease = true;
             m_player.VrFire();
-            m_fireRepeat = 0.15f;
         }
-        if (!firing) m_fireRepeat = 0;
     }
 
     public override void _UnhandledInput(InputEvent inputEvent)

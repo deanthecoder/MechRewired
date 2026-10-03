@@ -33,6 +33,13 @@ public static class DebugTriangleRaycaster
             return false;
         }
 
+        if (triangles is TerrainRayIndex indexed)
+        {
+            var direction = (end - start).Normalized();
+            return indexed.VisitCandidates(start, direction, start.DistanceTo(end), triangle =>
+                segment.IsBlockedBy(ToNumerics(triangle.A), ToNumerics(triangle.B), ToNumerics(triangle.C)));
+        }
+
         // The scene list is updated in place by moving aircraft and authored paths.
         // Do not retain triangle bounds or a spatial index without tracking those updates.
         for (var i = 0; i < triangles.Count; i++)
@@ -54,13 +61,33 @@ public static class DebugTriangleRaycaster
         Vector3 origin,
         Vector3 direction,
         out DebugTriangle nearestTriangle,
-        out float nearestDistance)
+        out float nearestDistance,
+        Func<DebugTriangle, bool> predicate = null,
+        float maximumDistance = float.PositiveInfinity)
     {
         nearestTriangle = null;
         nearestDistance = float.PositiveInfinity;
+        if (triangles is TerrainRayIndex indexed)
+        {
+            DebugTriangle found = null;
+            var foundDistance = float.PositiveInfinity;
+            indexed.VisitCandidates(origin, direction, maximumDistance, triangle =>
+            {
+                if ((predicate == null || predicate(triangle)) &&
+                    TryIntersectRay(origin, direction, triangle, out var distance) && distance < foundDistance && distance <= maximumDistance)
+                {
+                    found = triangle;
+                    foundDistance = distance;
+                }
+                return false;
+            });
+            nearestTriangle = found;
+            nearestDistance = foundDistance;
+            return found != null;
+        }
         foreach (var triangle in triangles)
         {
-            if (TryIntersectRay(origin, direction, triangle, out var distance) && distance < nearestDistance)
+            if ((predicate == null || predicate(triangle)) && TryIntersectRay(origin, direction, triangle, out var distance) && distance < nearestDistance && distance <= maximumDistance)
             {
                 nearestTriangle = triangle;
                 nearestDistance = distance;

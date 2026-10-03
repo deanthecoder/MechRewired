@@ -33,6 +33,8 @@ public partial class AuthoredWorldPathController : Node3D
     private readonly IReadOnlyList<Node3D> m_movedRoots;
     private readonly IList<DebugTriangle> m_sceneTriangles;
     private readonly int[] m_triangleIndices;
+
+    internal IReadOnlyList<int> MovingTriangleIndices => m_triangleIndices;
     private readonly IList<SceneryObstacle> m_staticObstacles;
     private readonly (int Index, SceneryObstacle Original)[] m_obstacleSlots;
     private readonly Transform3D m_parentTransform;

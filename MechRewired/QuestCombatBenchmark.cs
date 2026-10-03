@@ -13,7 +13,7 @@ namespace MechRewired;
 public sealed partial class QuestCombatBenchmark : Node
 {
     private const double TrialSeconds = 15;
-    private static readonly string[] Variants = ["baseline", "baseline"];
+    private static readonly string[] Variants = ["baseline", "smoke-off", "weapon-lights-off", "baseline"];
     private static Session s_session;
     private readonly PlayerMech m_player;
     private readonly PlayerHud m_hud;
@@ -89,7 +89,8 @@ public sealed partial class QuestCombatBenchmark : Node
         s_session = new Session(target.Name, m_mission, CaptureOptions());
         PrintJson("RUN", JsonSerializer.Serialize(new
         {
-            runId = s_session.RunId, schema = 4, graphicsProfile = "baked-profile", poolPolicy = "quest-prewarmed-per-mech-v1", mission = m_mission, target = s_session.Target,
+            runId = s_session.RunId, schema = 5, graphicsProfile = "baked-profile", poolPolicy = "quest-prewarmed-per-mech-v1", mission = m_mission, target = s_session.Target,
+            weaponEffectPoolPolicy = "mission64-per-family-limit128-v1",
             targetingPolicy = "segment-bounds-quest-250ms-v1",
             variants = Variants, secondsPerTrial = TrialSeconds, enemyCount = m_enemies.Count,
             options = s_session.Settings,
@@ -151,8 +152,11 @@ public sealed partial class QuestCombatBenchmark : Node
             m_player.SetVrTorsoAim(0, 0);
             m_rocks.ConfigureObserver(m_player);
             var variant = Variants[session.Trial];
-            QuestCombatTelemetry.WeaponLightsDisabled = false;
-            QuestCombatTelemetry.SmokeDisabled = false;
+            var smokeEnabled = variant != "smoke-off";
+            var weaponLightsEnabled = variant != "weapon-lights-off";
+            m_settings.SmokeAndDustEnabled = smokeEnabled;
+            QuestCombatTelemetry.SmokeDisabled = !smokeEnabled;
+            QuestCombatTelemetry.WeaponLightsDisabled = !weaponLightsEnabled;
             m_label = new Label3D { Text = "COMBAT / " + variant + "\nKeep head still; Menu cancels", FontSize = 22,
                 Position = new Vector3(0, .30f, -1.2f), PixelSize = .00065f, NoDepthTest = true };
             rig.Camera.AddChild(m_label);
@@ -169,7 +173,7 @@ public sealed partial class QuestCombatBenchmark : Node
                 missilePoolCount = m_enemies.Sum(e => e.MissilePoolCount),
                 missilePoolsReady = m_enemies.Where(e => e.HasMissileWeapons).All(e => e.MissilePoolReady),
                 bakedSky = m_settings.BakedSkyEnabled, smoke = m_settings.SmokeAndDustEnabled,
-                weaponLights = !QuestCombatTelemetry.WeaponLightsDisabled,
+                missileSmoke = !QuestCombatTelemetry.SmokeDisabled, weaponLights = !QuestCombatTelemetry.WeaponLightsDisabled,
                 cockpitUv = m_settings.QuestUvMaterialsEnabled,
                 bakedInteriorLighting = m_settings.QuestUvMaterialsEnabled && m_settings.BakedInteriorLightingEnabled }));
             RenderingServer.ViewportSetMeasureRenderTime(viewport.GetViewportRid(), true);
@@ -252,7 +256,8 @@ public sealed partial class QuestCombatBenchmark : Node
             graphicsProfile = "baked-profile", bakedSky = m_settings.BakedSkyEnabled,
             cockpitUv = m_settings.QuestUvMaterialsEnabled,
             bakedInteriorLighting = m_settings.QuestUvMaterialsEnabled && m_settings.BakedInteriorLightingEnabled,
-            smoke = m_settings.SmokeAndDustEnabled,
+            smoke = m_settings.SmokeAndDustEnabled, missileSmoke = !QuestCombatTelemetry.SmokeDisabled,
+            weaponLights = !QuestCombatTelemetry.WeaponLightsDisabled,
             runId = session.RunId, trial = session.Trial+1, variant, status, target = session.Target, frames = frames.Count,
             hudInstrumentDraws, meanMs = stats.MeanFrameMs, p95Ms = stats.P95FrameMs, p99Ms = stats.P99FrameMs,
             averageFps = stats.AverageFps, onePercentLowFps = stats.OnePercentLowFps,
@@ -271,6 +276,10 @@ public sealed partial class QuestCombatBenchmark : Node
             playerDirectDamageMs=frames.Sum(f=>f.Combat.PlayerDirectDamageMilliseconds),
             playerWeaponVisualCalls=frames.Sum(f=>f.Combat.PlayerWeaponVisualCalls),
             playerWeaponVisualMs=frames.Sum(f=>f.Combat.PlayerWeaponVisualMilliseconds),
+            playerWorldRaycastMs=frames.Sum(f=>f.Combat.PlayerWorldRaycastMilliseconds),
+            playerMechRaycastMs=frames.Sum(f=>f.Combat.PlayerMechRaycastMilliseconds),
+            weaponEffectPoolBuilds=frames.Sum(f=>f.Combat.WeaponEffectPoolBuilds),
+            weaponEffectPoolFallbacks=frames.Sum(f=>f.Combat.WeaponEffectPoolFallbacks),
             enemyShots=frames.Sum(f=>f.Combat.EnemyWeaponLaunches), missileLaunches=frames.Sum(f=>f.Combat.MissileLaunches), impacts=frames.Sum(f=>f.Combat.Impacts),
             maxHeadTranslation=frames.Max(f=>f.HeadTranslation), maxHeadAngle=frames.Max(f=>f.HeadAngle)
         };

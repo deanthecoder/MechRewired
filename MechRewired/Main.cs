@@ -2249,6 +2249,16 @@ public partial class Main : Node3D
             battlefieldActor.ConfigureEffectPersistence(playerMech);
         }
 
+        // Aircraft and authored paths replace triangle records as they move. Only immutable
+        // terrain may enter the cached XZ hierarchy; all other entries remain live.
+        var movingTriangleIndices = FindChildren("*", string.Empty, true, false)
+            .OfType<AuthoredAircraftController>()
+            .SelectMany(controller => controller.MovingTriangleIndices)
+            .Concat(FindChildren("*", string.Empty, true, false)
+                .OfType<AuthoredWorldPathController>()
+                .SelectMany(controller => controller.MovingTriangleIndices))
+            .ToHashSet();
+        var combatTriangles = new TerrainRayIndex(debugTriangles.AsReadOnly(), movingTriangleIndices);
         var enemyMechs = LoadEnemyMechs(
             archive,
             palette,
@@ -2264,7 +2274,7 @@ public partial class Main : Node3D
             atmosphericVisibilityRange,
             () => GetSceneryObstacles(staticSceneryObstacles, battlefieldActors),
             terrainSurface,
-            debugTriangles.AsReadOnly(),
+            combatTriangles,
             runtimeContent);
         GD.Print(
             $"MechRewired: configured {staticSceneryObstacles.Count} static and " +
@@ -2296,7 +2306,7 @@ public partial class Main : Node3D
         var playerTargeting = new PlayerTargeting(
             playerMech,
             playerMission,
-            debugTriangles.AsReadOnly(),
+            combatTriangles,
             battlefieldActors,
             hostileAircraft,
             enemyMechs,
@@ -2305,6 +2315,7 @@ public partial class Main : Node3D
             playerMechSounds,
             battlefieldEffects);
         AddChild(playerTargeting);
+        WeaponEffectPool.Prewarm(this);
         playerNavigation.MissionAreaBoundaryExited += boundary =>
         {
             var previousOutcome = playerMission.Outcome;
@@ -2570,6 +2581,7 @@ public partial class Main : Node3D
     {
         var enemyRoot = new Node3D { Name = "EnemyMechs" };
         AddChild(enemyRoot);
+        WeaponEffectPool.Prewarm(enemyRoot);
         var enemies = new List<EnemyMech>();
         var damageSilhouettes = new Dictionary<string, MechDamageSilhouette>(StringComparer.OrdinalIgnoreCase);
         var chassisWithoutDamageSilhouettes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

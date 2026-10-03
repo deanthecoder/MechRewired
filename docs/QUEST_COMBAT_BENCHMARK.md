@@ -6,7 +6,7 @@ The first complete headset run and its tagged telemetry are recorded in
 The live-combat test measures frame pacing while the mission is actively running
 AI, physics, weapons, and damage. Unlike the rendering test, it does not replay a
 fixed scene or guarantee the same combat sequence each time. Use it to compare
-the weapon-light change across repeated runs; actual fighting can vary,
+smoke and weapon-light changes across repeated runs; actual fighting can vary,
 so the result cannot identify one unique bottleneck by itself.
 
 ## Run on the headset
@@ -24,10 +24,10 @@ so the result cannot identify one unique bottleneck by itself.
 3. Open the Quest menu, select **BENCHMARKS > COMBAT TEST (RESTARTS)**, and keep
    your head still. Menu cancels the suite; losing headset focus also cancels it.
    This action intentionally restarts the mission, as the menu label says.
-4. The suite runs two fresh missions, each measured for 15 seconds, plus a final
+4. The suite runs four fresh combat trials measured for 15 seconds each, then a
    fresh mission that restores the captured settings and resumes normal play
    after a complete run. Failed or cancelled runs leave the result menu paused.
-   Expect 30 seconds plus mission loading, sky setup, and reporting overhead.
+   Expect 60 seconds plus mission loading, sky setup, and reporting overhead.
    Stop log capture after `QUEST_COMBAT_STATUS: ... "complete"` appears.
 5. Analyze the log on the Mac:
 
@@ -59,9 +59,9 @@ The player starts facing the enemy; the chosen target and pose are logged. Enemy
 
 The `segment-bounds-quest-250ms-v1` targeting policy checks awareness every 0.25
 seconds on Quest, with staggered initial sensor phases. Targets outside observation
-range skip the scene query. Sight queries reject triangles outside the segment's
-bounds and stop at the first blocker, reading current vertices so moving scenery
-remains correct. A fresh muzzle-to-target check still runs before each shot.
+range skip the scene query. Sight queries reject terrain groups outside the segment's horizontal bounds,
+then perform exact triangle checks and stop at the first blocker. Moving scenery
+uses current vertices, so aircraft and scripted paths remain correct. A fresh muzzle-to-target check still runs before each shot.
 Desktop awareness retains its 0.2-second interval. Compare LOS time per call and
 combat p95/p99 with the 1 October logs; headset gains are not yet measured.
 The player fires at 0.5 seconds and then every two seconds for the 15-second
@@ -69,12 +69,14 @@ measurement. Normal enemy actions and the resulting fight are not deterministic.
 
 All measured trials explicitly enable the combined baked sky, UV cockpit and
 baked cabin profile, waiting for sky capture before warm-up. Other captured
-settings are held constant. The two trials are:
+settings are held constant. The four trials are:
 
 | Trial | Variant | Change |
 | --- | --- | --- |
-| 1 | `baseline` | Combined baked profile |
-| 2 | `baseline` | Combined baked profile again; weapon lights and smoke remain ON |
+| 1 | `baseline` | Combined baked profile; smoke and weapon lights ON |
+| 2 | `smoke-off` | Smoke/dust and missile smoke OFF; weapon lights ON |
+| 3 | `weapon-lights-off` | Smoke/dust and missile smoke ON; weapon lights OFF |
+| 4 | `baseline` | Repeat the initial baseline to check drift |
 
 Each starts in a fresh mission, so damage, ammunition, and lazily-created pools
 do not carry between trials. The final fresh mission restores the captured
@@ -89,18 +91,24 @@ own flight, impact and particle state. This shifts allocation to loading and
 increases upfront pool memory; per-mech capacities and recycling rules stay the
 same. It does not guarantee that every driver pipeline is compiled in advance.
 
-Combat schema 4 records `poolPolicy=quest-prewarmed-per-mech-v1`. Trial metadata
+Combat schema 5 records `poolPolicy=quest-prewarmed-per-mech-v1`, player world
+and mech raycast timings, and weapon-effect pool builds/fallbacks. The run record
+also declares `weaponEffectPoolPolicy=mission64-per-family-limit128-v1`. Trial metadata
 reports the total enemy pool count and whether all missile pools are ready.
 Measured pool creation should now be zero; a nonzero count identifies a fallback.
 Shader and driver caches can remain warm across mission reloads.
 
-Smoke-off and weapon-lights-off comparisons have been removed from new combat
-suites now that the production baseline retains both effects. Historical logs
-remain supported by the analyzer. The rendering test compares
+Smoke-off and weapon-lights-off trials isolate one effect at a time against
+smoke-on/light-on baselines. Both baseline trials bracket the variants and let
+the analyzer check drift. Trial metadata and summaries record smoke/dust, missile
+smoke, and weapon-light state. Deltas are withheld when either the baselines or
+the ablation trial does not report the required isolated states. Historical
+logs remain parseable, though older records can lack the fields needed for a
+variant comparison. The rendering test compares
 the same combined baked profile, its glass variant, and a version with unlit
 terrain, bracketed by baselines: 20 trials, or 180 seconds of warm-up and
-sampling, plus setup and reporting. Combat retains two baseline trials and
-baselines to detect drift. Each combat trial and
+sampling, plus setup and reporting. Combat retains two bracketing baseline trials
+to detect drift. Each combat trial and
 summary records the effective baked sky and cockpit flags; the final mission
 restores the user's original individual options, including after cancellation.
 
@@ -109,7 +117,7 @@ restores the user's original individual options, including after cancellation.
 The runner emits:
 
 - `QUEST_COMBAT_RUN:` device/build/settings and workload metadata as JSON,
-  including the enemy count in the mission. Schema 4 adds scoped direct-weapon
+  including the enemy count in the mission. Schema 5 adds scoped direct-weapon
   profiling. `options` records the user's pre-run choices for restoration;
   `baselineSettings` explicitly records baked lighting, smoke/dust, and weapon
   lights as ON. A fresh Quest graphics profile also defaults baked lighting and

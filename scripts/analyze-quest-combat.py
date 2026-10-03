@@ -10,7 +10,7 @@ from pathlib import Path
 
 PREFIX = "QUEST_COMBAT_SUMMARY:"
 CHUNK_PREFIX = "QUEST_COMBAT_CHUNK:"
-VARIANTS = ("baseline", "weapon-lights-off", "smoke-off")
+VARIANTS = ("baseline", "smoke-off", "weapon-lights-off")
 METRICS = (
     ("hudInstrumentDraws", "HUD instrument redraws", ""),
     ("meanMs", "mean frame", " ms"),
@@ -31,6 +31,10 @@ METRICS = (
     ("losCalls", "LOS calls", ""),
     ("poolBuilds", "pool builds", ""),
     ("poolBuildMs", "pool build total", " ms"),
+    ("playerWorldRaycastMs", "player world raycast", " ms"),
+    ("playerMechRaycastMs", "player mech raycast", " ms"),
+    ("weaponEffectPoolBuilds", "weapon effect pool builds", ""),
+    ("weaponEffectPoolFallbacks", "weapon effect pool fallbacks", ""),
     ("weaponShots", "weapon shots", ""),
     ("enemyShots", "enemy weapon shots", ""),
     ("missileLaunches", "missile launches", ""),
@@ -173,14 +177,21 @@ def analyze(records, output):
             print(f"  Trial {rec.get('trial', '?')} {rec.get('variant', '?')} [{status}]: "
                   f"mean {fmt(number(rec, 'meanMs'), ' ms')}, p95 {fmt(number(rec, 'p95Ms'), ' ms')}, "
                   f"GPU {fmt(number(rec, 'gpuMs'), ' ms')}, enemy shots {fmt(number(rec, 'enemyShots'))}, "
-                  f"pool builds {fmt(number(rec, 'poolBuilds'))} / {fmt(number(rec, 'poolBuildMs'), ' ms')}", file=output)
+                  f"missile pool builds {fmt(number(rec, 'poolBuilds'))} / {fmt(number(rec, 'poolBuildMs'), ' ms')}; "
+                  f"weapon effect pools {fmt(number(rec, 'weaponEffectPoolBuilds'))} builds / "
+                  f"{fmt(number(rec, 'weaponEffectPoolFallbacks'))} fallbacks", file=output)
             for calls_key, time_key, label in (
                 ("playerDirectRaycastCalls", "playerDirectRaycastMs", "player raycast"),
+                (None, "playerWorldRaycastMs", "player world raycast"),
+                (None, "playerMechRaycastMs", "player mech raycast"),
                 ("playerDirectDamageCalls", "playerDirectDamageMs", "player damage/impact"),
                 ("playerWeaponVisualCalls", "playerWeaponVisualMs", "player beam/tracer creation"),
             ):
                 if time_key in rec:
-                    calls, total = number(rec, calls_key), number(rec, time_key)
+                    calls, total = number(rec, calls_key) if calls_key else None, number(rec, time_key)
+                    if calls_key is None:
+                        print(f"    {label}: {fmt(total, ' ms')}", file=output)
+                        continue
                     mean = total / calls if total is not None and calls else None
                     print(f"    {label}: {fmt(total, ' ms')} / {fmt(calls)} calls; "
                           f"{fmt(mean, ' ms/call')}", file=output)
@@ -221,9 +232,33 @@ def analyze(records, output):
                 if not candidates:
                     print(f"    {variant}: no valid combat trial", file=output)
                     continue
-                if variant == "smoke-off" and not all(r.get("smoke") is True for r in base_rows):
-                    print("    smoke-off: legacy baseline smoke was disabled or unrecorded; deltas withheld", file=output)
-                    continue
+                if variant == "smoke-off":
+                    if not all(r.get("smoke") is True for r in base_rows):
+                        print("    smoke-off: baseline smoke was disabled or unrecorded; deltas withheld", file=output)
+                        continue
+                    if not all(r.get("missileSmoke") is True for r in base_rows):
+                        print("    smoke-off: baseline missile smoke was disabled or unrecorded; deltas withheld", file=output)
+                        continue
+                    if not all(r.get("smoke") is False for r in candidates):
+                        print("    smoke-off: trial smoke was enabled or unrecorded; deltas withheld", file=output)
+                        continue
+                    if not all(r.get("missileSmoke") is False for r in candidates):
+                        print("    smoke-off: trial missile smoke was enabled or unrecorded; deltas withheld", file=output)
+                        continue
+                    if not all(r.get("weaponLights") is True for r in base_rows + candidates):
+                        print("    smoke-off: weapon lights were disabled or unrecorded; deltas withheld", file=output)
+                        continue
+                if variant == "weapon-lights-off":
+                    if not all(r.get("smoke") is True and r.get("missileSmoke") is True
+                               for r in base_rows + candidates):
+                        print("    weapon-lights-off: smoke was disabled or unrecorded; deltas withheld", file=output)
+                        continue
+                    if not all(r.get("weaponLights") is True for r in base_rows):
+                        print("    weapon-lights-off: baseline weapon lights were disabled or unrecorded; deltas withheld", file=output)
+                        continue
+                    if not all(r.get("weaponLights") is False for r in candidates):
+                        print("    weapon-lights-off: trial weapon lights were enabled or unrecorded; deltas withheld", file=output)
+                        continue
                 profile_fields = ("graphicsProfile", "bakedSky", "cockpitUv", "bakedInteriorLighting")
                 if any(len({json.dumps(r.get(field)) for r in base_rows + candidates}) > 1 for field in profile_fields):
                     print(f"    {variant}: graphics profiles differ; variant deltas withheld", file=output)

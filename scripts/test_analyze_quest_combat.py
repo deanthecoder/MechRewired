@@ -1,4 +1,5 @@
 import importlib.util
+import io
 import json
 import tempfile
 import unittest
@@ -51,6 +52,62 @@ class ReadRecordsTests(unittest.TestCase):
 
         self.assertEqual(records, [expected])
         self.assertEqual(malformed, 0)
+
+
+class AnalyzeVariantTests(unittest.TestCase):
+    @staticmethod
+    def record(trial, variant, smoke, weapon_lights, mean_ms=10):
+        return {
+            "runId": "run-1", "trial": trial, "variant": variant, "target": "Enemy",
+            "status": "complete", "frames": 100, "meanMs": mean_ms,
+            "weaponShots": 3, "enemyShots": 3, "impacts": 3, "missileLaunches": 2,
+            "maxHeadTranslation": 0, "maxHeadAngle": 0,
+            "smoke": smoke, "missileSmoke": smoke, "weaponLights": weapon_lights,
+            "playerWorldRaycastMs": 1, "playerMechRaycastMs": 2,
+            "weaponEffectPoolBuilds": 0, "weaponEffectPoolFallbacks": 0,
+        }
+
+    def test_isolated_variants_compare_against_bracketing_baselines(self):
+        records = [
+            self.record(1, "baseline", True, True),
+            self.record(2, "smoke-off", False, True),
+            self.record(3, "weapon-lights-off", True, False),
+            self.record(4, "baseline", True, True),
+        ]
+        output = io.StringIO()
+
+        ANALYZER.analyze(records, output)
+
+        self.assertIn("smoke-off (1 complete trial(s))", output.getvalue())
+        self.assertIn("weapon-lights-off (1 complete trial(s))", output.getvalue())
+        self.assertIn("player world raycast: 1.00 ms", output.getvalue())
+        self.assertIn("weapon effect pools 0.00 builds / 0.00 fallbacks", output.getvalue())
+
+    def test_weapon_light_delta_is_withheld_when_actual_state_differs(self):
+        records = [
+            self.record(1, "baseline", True, True),
+            self.record(2, "smoke-off", False, True),
+            self.record(3, "weapon-lights-off", True, True),
+            self.record(4, "baseline", True, True),
+        ]
+        output = io.StringIO()
+
+        ANALYZER.analyze(records, output)
+
+        self.assertIn("weapon-lights-off: trial weapon lights were enabled or unrecorded", output.getvalue())
+
+    def test_weapon_light_delta_is_withheld_when_smoke_state_varies(self):
+        records = [
+            self.record(1, "baseline", True, True),
+            self.record(2, "smoke-off", False, True),
+            self.record(3, "weapon-lights-off", False, False),
+            self.record(4, "baseline", True, True),
+        ]
+        output = io.StringIO()
+
+        ANALYZER.analyze(records, output)
+
+        self.assertIn("weapon-lights-off: smoke was disabled or unrecorded", output.getvalue())
 
 
 if __name__ == "__main__":

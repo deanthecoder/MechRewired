@@ -235,6 +235,7 @@ public partial class EnemyMech : Node3D
     {
         ArgumentNullException.ThrowIfNull(mesh);
         ArgumentException.ThrowIfNullOrWhiteSpace(partName);
+        MechSectionHitTester.PrepareMesh(mesh.Mesh);
         m_destructibleParts.Add((mesh, partName));
     }
 
@@ -674,7 +675,7 @@ public partial class EnemyMech : Node3D
         for (var pulse = 0; pulse < pulseCount; pulse++)
         {
             var lateral = basis.X * ((pulse - (pulseCount - 1) * 0.5f) * 0.05f);
-            GetParent().AddChild(new LaserEffect(start + lateral, end + lateral, color, 0.055f));
+            WeaponEffectPool.FireLaser(GetParent(), start + lateral, end + lateral, color, 0.055f);
         }
     }
 
@@ -685,7 +686,7 @@ public partial class EnemyMech : Node3D
         {
             var spread = basis.X * ((float)Random.Shared.NextDouble() - 0.5f) * 0.08f +
                          basis.Y * ((float)Random.Shared.NextDouble() - 0.5f) * 0.08f;
-            GetParent().AddChild(new BallisticTracerEffect(start + spread, end + spread, tracer * 0.045f));
+            WeaponEffectPool.FireTracer(GetParent(), start + spread, end + spread, tracer * 0.045f);
         }
     }
 

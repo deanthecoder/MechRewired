@@ -24,6 +24,8 @@ public partial class AuthoredAircraftController : Node3D
     private readonly bool m_rotateWithPath;
     private readonly IList<DebugTriangle> m_sceneTriangles;
     private readonly int[] m_triangleIndices;
+
+    internal IReadOnlyList<int> MovingTriangleIndices => m_triangleIndices;
     private readonly AudioStreamPlayer3D m_engine;
     private readonly BattlefieldEffects m_battlefieldEffects;
     private int m_segmentIndex;

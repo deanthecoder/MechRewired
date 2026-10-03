@@ -19,45 +19,68 @@ public partial class BallisticTracerEffect : Node3D
 {
     private const float SpeedMetersPerSecond = 360.0f;
     private const float TracerLength = 1.4f;
-    private readonly Vector3 m_start;
-    private readonly Vector3 m_direction;
-    private readonly float m_distance;
-    private readonly float m_delay;
+    private Vector3 m_start;
+    private Vector3 m_direction;
+    private float m_distance;
+    private float m_delay;
     private readonly MeshInstance3D m_tracer;
     private float m_age;
+    private bool m_reusable;
+    public bool IsActive { get; private set; }
+    private static readonly CylinderMesh s_mesh = new() { TopRadius = 0.012f, BottomRadius = 0.012f, Height = 1.0f, RadialSegments = 6, Rings = 1 };
+    private static readonly StandardMaterial3D s_material = new()
+    {
+        AlbedoColor = Color.FromHtml("ffc050"), EmissionEnabled = true,
+        Emission = Color.FromHtml("ffc050"), EmissionEnergyMultiplier = 4.0f,
+        ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded
+    };
 
     public BallisticTracerEffect(Vector3 start, Vector3 end, float delay)
+        : this()
+    {
+        Launch(start, end, delay, false);
+    }
+
+    public BallisticTracerEffect()
+    {
+        m_tracer = new MeshInstance3D
+        {
+            Mesh = s_mesh,
+            MaterialOverride = s_material,
+            Visible = false,
+            CastShadow = GeometryInstance3D.ShadowCastingSetting.Off
+        };
+        AddChild(m_tracer);
+        Visible = false;
+        SetProcess(false);
+    }
+
+    internal void Launch(Vector3 start, Vector3 end, float delay, bool reusable = true)
     {
         m_start = start;
         m_distance = start.DistanceTo(end);
         m_direction = m_distance > 0.0001f ? start.DirectionTo(end) : Vector3.Forward;
         m_delay = delay;
-        var color = Color.FromHtml("ffc050");
-        m_tracer = new MeshInstance3D
-        {
-            Mesh = new CylinderMesh
-            {
-                TopRadius = 0.012f,
-                BottomRadius = 0.012f,
-                Height = 1.0f,
-                RadialSegments = 6,
-                Rings = 1
-            },
-            MaterialOverride = new StandardMaterial3D
-            {
-                AlbedoColor = color,
-                EmissionEnabled = true,
-                Emission = color,
-                EmissionEnergyMultiplier = 4.0f,
-                ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded
-            },
-            Basis = new Basis(new Quaternion(Vector3.Up, m_direction)),
-            Position = start,
-            Visible = false,
-            CastShadow = GeometryInstance3D.ShadowCastingSetting.Off
-        };
-        AddChild(m_tracer);
+        m_age = 0.0f;
+        m_reusable = reusable;
+        m_tracer.Basis = new Basis(new Quaternion(Vector3.Up, m_direction));
+        m_tracer.Scale = Vector3.One;
+        m_tracer.Position = start;
+        m_tracer.Visible = false;
+        IsActive = true;
+        Visible = true;
+        SetProcess(true);
     }
+
+    internal void ResetImmediately()
+    {
+        IsActive = false;
+        Visible = false;
+        SetProcess(false);
+    }
+
+    // Godot enables overridden process callbacks when a node enters the tree.
+    public override void _Ready() => SetProcess(IsActive);
 
     public override void _Process(double delta)
     {
@@ -75,7 +98,8 @@ public partial class BallisticTracerEffect : Node3D
         m_tracer.Position = m_start + m_direction * ((frontDistance + backDistance) * 0.5f);
         if (frontDistance >= m_distance - 0.001f || m_distance <= 0.001f)
         {
-            QueueFree();
+            ResetImmediately();
+            if (!m_reusable) QueueFree();
         }
     }
 }

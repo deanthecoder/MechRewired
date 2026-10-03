@@ -822,7 +822,8 @@ public partial class PlayerTargeting : Node
                 out enemyMech,
                 out enemyHit,
                 out _,
-                out hitPosition);
+                out hitPosition,
+                profileDirect: true);
         }
         finally
         {
@@ -866,10 +867,10 @@ public partial class PlayerTargeting : Node
                 {
                     var spread = basis.X * ((m_missileLaunchRandom.NextSingle() - 0.5f) * 0.08f) +
                                  basis.Y * ((m_missileLaunchRandom.NextSingle() - 0.5f) * 0.08f);
-                    GetParent().AddChild(new BallisticTracerEffect(
+                    WeaponEffectPool.FireTracer(GetParent(),
                         start + spread,
                         end + spread,
-                        tracer * 0.045f));
+                        tracer * 0.045f);
                 }
 
                 return;
@@ -881,12 +882,12 @@ public partial class PlayerTargeting : Node
             for (var pulse = 0; pulse < pulseCount; pulse++)
             {
                 var lateral = m_playerMech.Torso.GlobalBasis.X.Normalized() * ((pulse - (pulseCount - 1) * 0.5f) * 0.05f);
-                GetParent().AddChild(new LaserEffect(
+                WeaponEffectPool.FireLaser(GetParent(),
                     start + lateral,
                     end + lateral,
                     color,
                     0.055f,
-                    visualDelay));
+                    visualDelay);
             }
         }
         finally
@@ -1224,17 +1225,14 @@ public partial class PlayerTargeting : Node
             return true;
         }
 
-        var candidates = m_sceneTriangles.Where(triangle =>
-            !m_actorsByObject.TryGetValue(
-                (triangle.SourceResourcePath, triangle.ObjectId),
-                out var actor) ||
-            !actor.IsDestroyed);
         return !DebugTriangleRaycaster.TryFindNearest(
-                   candidates,
+                   m_sceneTriangles,
                    origin,
                    origin.DirectionTo(target),
                    out _,
-                   out var obstructionDistance) ||
+                   out var obstructionDistance,
+                   IsLiveSceneTriangle,
+                   Math.Max(0, distance - 2.0f)) ||
                obstructionDistance >= distance - 2.0f;
     }
 
@@ -1408,41 +1406,62 @@ public partial class PlayerTargeting : Node
         }
     }
 
+    private bool IsLiveSceneTriangle(DebugTriangle triangle) =>
+        !m_actorsByObject.TryGetValue((triangle.SourceResourcePath, triangle.ObjectId), out var actor) ||
+        !actor.IsDestroyed;
+
     private bool TryRaycast(
         float maximumRange,
         out BattlefieldActor actor,
         out EnemyMech enemyMech,
         out MechSectionHit enemyHit,
         out float distance,
-        out Vector3 hitPosition)
+        out Vector3 hitPosition,
+        bool profileDirect = false)
     {
         var origin = m_playerMech.WeaponAimOrigin;
         var direction = m_playerMech.WeaponAimDirection;
-        var candidates = m_sceneTriangles.Where(triangle =>
-            !m_actorsByObject.TryGetValue(
-                (triangle.SourceResourcePath, triangle.ObjectId),
-                out var candidate) ||
-            !candidate.IsDestroyed);
-        var hitStatic = DebugTriangleRaycaster.TryFindNearest(
-                candidates,
-                origin,
-                direction,
-                out var triangle,
-                out var staticDistance) &&
-            staticDistance <= maximumRange;
+        var telemetryActive = profileDirect && QuestCombatTelemetry.Active;
+        var worldStarted = telemetryActive ? Stopwatch.GetTimestamp() : 0L;
+        DebugTriangle triangle;
+        float staticDistance;
+        bool hitStatic;
+        try
+        {
+            hitStatic = DebugTriangleRaycaster.TryFindNearest(
+                    m_sceneTriangles,
+                    origin,
+                    direction,
+                    out triangle,
+                    out staticDistance,
+                    IsLiveSceneTriangle,
+                    maximumRange);
+        }
+        finally
+        {
+            if (telemetryActive) QuestCombatTelemetry.RecordPlayerWorldRaycast(Stopwatch.GetTimestamp() - worldStarted);
+        }
         enemyMech = null;
         enemyHit = null;
         var enemyDistance = float.PositiveInfinity;
-        foreach (var candidate in m_enemyMechs.Where(candidate => !candidate.IsDestroyed))
+        var mechStarted = telemetryActive ? Stopwatch.GetTimestamp() : 0L;
+        try
         {
-            if (candidate.TryRaycastSections(origin, direction, out var candidateHit) &&
-                candidateHit.Distance <= maximumRange &&
-                candidateHit.Distance < enemyDistance)
+            foreach (var candidate in m_enemyMechs.Where(candidate => !candidate.IsDestroyed))
             {
-                enemyMech = candidate;
-                enemyHit = candidateHit;
-                enemyDistance = candidateHit.Distance;
+                if (candidate.TryRaycastSections(origin, direction, out var candidateHit) &&
+                    candidateHit.Distance <= maximumRange &&
+                    candidateHit.Distance < enemyDistance)
+                {
+                    enemyMech = candidate;
+                    enemyHit = candidateHit;
+                    enemyDistance = candidateHit.Distance;
+                }
             }
+        }
+        finally
+        {
+            if (telemetryActive) QuestCombatTelemetry.RecordPlayerMechRaycast(Stopwatch.GetTimestamp() - mechStarted);
         }
 
         if (enemyMech != null && (!hitStatic || enemyDistance < staticDistance))
