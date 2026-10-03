@@ -25,9 +25,10 @@ so the result cannot identify one unique bottleneck by itself.
    your head still. Menu cancels the suite; losing headset focus also cancels it.
    This action intentionally restarts the mission, as the menu label says.
 4. The suite runs three fresh missions, each measured for 15 seconds, plus a final
-   fresh mission that restores the captured settings and leaves the result menu
-   paused. Expect 45 seconds plus mission loading, sky setup, and reporting
-   overhead. Stop log capture after the result appears.
+   fresh mission that restores the captured settings and resumes normal play
+   after a complete run. Failed or cancelled runs leave the result menu paused.
+   Expect 45 seconds plus mission loading, sky setup, and reporting overhead.
+   Stop log capture after `QUEST_COMBAT_STATUS: ... "complete"` appears.
 5. Analyze the log on the Mac:
 
    ```sh

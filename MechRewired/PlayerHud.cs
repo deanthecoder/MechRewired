@@ -49,6 +49,8 @@ public partial class PlayerHud : Control
     private const float PlayerDamageRight = 1225.0f;
     private const float PlayerDamageSize = 130.5f;
     private const float PlayerDamageCenterX = PlayerDamageRight - PlayerDamageSize * 0.5f;
+    private const float VrPlayerDamageLeft = 200.0f;
+    private const float VrNavigationPanelLeft = 950.0f;
     private static readonly float[] RadarRanges = [500.0f, 1000.0f, 2000.0f, 4000.0f];
     private static readonly MechDamageSection[] DamageSections = Enum.GetValues<MechDamageSection>();
     private static readonly Color HudGreen = Color.FromHtml("00f000");
@@ -753,7 +755,7 @@ public partial class PlayerHud : Control
 
     private void DrawNavigationTarget()
     {
-        const float panelLeft = 40.0f;
+        var panelLeft = m_playerMech.IsVr ? VrNavigationPanelLeft : 40.0f;
         const float panelTop = 518.0f;
         const float panelWidth = 215.0f;
         const float panelHeight = 125.0f;
@@ -1341,7 +1343,7 @@ public partial class PlayerHud : Control
     {
         DrawDamageSilhouette(
             m_playerDamageSilhouette,
-            PlayerDamageRight - PlayerDamageSize,
+            m_playerMech.IsVr ? VrPlayerDamageLeft : PlayerDamageRight - PlayerDamageSize,
             525.25f,
             PlayerDamageSize,
             PlayerDamageSize,
@@ -1445,7 +1447,7 @@ public partial class PlayerHud : Control
         }
 
         DrawCenteredText(
-            PlayerDamageCenterX,
+            m_playerMech.IsVr ? VrPlayerDamageLeft + PlayerDamageSize * 0.5f : PlayerDamageCenterX,
             687.0f,
             $"{m_playerMech.ActualSpeedKph:F0} kph",
             HudGreen,

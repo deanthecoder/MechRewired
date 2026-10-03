@@ -13,6 +13,8 @@ public partial class QuestVrRig : XROrigin3D
     private static readonly Vector3 SeatOffset = new(0.0f, 0.12f, 0.10f);
     // Includes the reticle radius and the frame overlapping the authored glass edges.
     private const float WindshieldAimInset = 0.16f;
+    private const float TorsoPitchSpeed = Mathf.Pi / 3.0f;
+    private const float HeadAimFollowRate = 24.0f;
     private readonly PlayerMech m_player;
     private readonly OpenXRInterface m_interface;
     private readonly HashSet<string> m_held = new();
@@ -115,7 +117,7 @@ public partial class QuestVrRig : XROrigin3D
         var firing = rightTracked && Right.GetFloat("trigger") > 0.65f;
         var jumpJetsHeld = leftTracked && Left.GetFloat("grip") > 0.65f;
         if (!GetTree().Paused && sessionFocused && m_seatCentered && (QuestVrRuntime.Preview || headTracked))
-            UpdateHeadAim();
+            UpdateHeadAim((float)delta);
         else
             m_hasHeadAim = false;
         if (GetTree().Paused || !sessionFocused || m_player.IsDestroyed || !m_seatCentered || (!QuestVrRuntime.Preview && (!headTracked || !leftTracked || !rightTracked)))
@@ -144,12 +146,15 @@ public partial class QuestVrRig : XROrigin3D
         if (centerPressed)
         {
             RecenterSeat();
-            UpdateHeadAim();
+            UpdateHeadAim((float)delta, snap: true);
         }
 
         var movement = leftTracked ? Left.GetVector2("primary") : Vector2.Zero;
         var aimStick = rightTracked ? Right.GetVector2("primary") : Vector2.Zero;
         Steering = -Deadzone(aimStick.X);
+        var pitchInput = Deadzone(aimStick.Y);
+        if (!Mathf.IsZeroApprox(pitchInput))
+            m_player.SetVrPitch(m_player.VrAim.Y + pitchInput * TorsoPitchSpeed * (float)delta);
         var direction = movement.Y > 0.55f ? 1 : movement.Y < -0.55f ? -1 : 0;
         if (direction == 0) m_waitForThrottleCenter = false;
         if (m_waitForThrottleCenter) direction = 0;
@@ -179,8 +184,9 @@ public partial class QuestVrRig : XROrigin3D
         }
     }
 
-    private void UpdateHeadAim()
+    private void UpdateHeadAim(float delta, bool snap = false)
     {
+        var hadHeadAim = m_hasHeadAim;
         m_hasHeadAim = false;
         if (!GodotObject.IsInstanceValid(AimSurface) || AimSurface.Mesh is not QuadMesh quad) return;
         var vertices = m_player.Cockpit.MainWindshieldVertices;
@@ -193,7 +199,10 @@ public partial class QuestVrRig : XROrigin3D
         if (CockpitGazeAim.TryGetAimPoint(ToNumerics(eye), ToNumerics(forward), projectedVertices,
                 new System.Numerics.Vector2(quad.Size.X, quad.Size.Y) * 0.5f, WindshieldAimInset, out var point))
         {
-            m_headAimPoint = new Vector2(point.X, point.Y);
+            var target = new Vector2(point.X, point.Y);
+            // Smooth the shared reticle/weapon ray, so the displayed aim still matches shots.
+            var blend = 1.0f - Mathf.Exp(-HeadAimFollowRate * delta);
+            m_headAimPoint = hadHeadAim && !snap ? m_headAimPoint.Lerp(target, blend) : target;
             m_hasHeadAim = true;
         }
     }

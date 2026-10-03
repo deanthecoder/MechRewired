@@ -147,6 +147,12 @@ The existing HUD, including the original chassis damage silhouette, is drawn
 onto a transparent cockpit surface. Radar, weapons, status, navigation and
 targeting can be toggled separately. Its finite-depth targeting presentation
 still needs binocular alignment/readability testing on Quest.
+The VR lower HUD places the player-damage silhouette and speed label to the
+left of Heat, dH/dT and Jets, with navigation/target information to their
+right so the cockpit frame does not obscure the outer panels. Desktop HUD
+coordinates are unchanged. The head-following reticle and its shared weapon
+aim ray have light smoothing; recentering or reacquiring a valid aim snaps to
+the new point.
 
 Graphics controls cover shadows, combined baked sky/cabin, scene glow, cockpit
 glass, terrain mapping and battlefield smoke/dust. **BAKED SKY + CABIN** enables

@@ -28,6 +28,12 @@ procedural sun contribution draws the disc only where present, preserving cloud
 attenuation and tone mapping. Final sky radiance keeps the frozen original
 procedural sky, including the sun, for ambient and reflection lighting.
 
+On 3 October, the user observed that the replacement's sun disc was correctly
+positioned but its halo was offset. This is distinct from the old panorama's
+wrong-position sun. See [QUEST_NOTES_2026-10-03.md](QUEST_NOTES_2026-10-03.md);
+the offset remains unexplained and the current code has not been changed to
+compensate for it.
+
 In the Quest menu, the combined **BAKED SKY + CABIN** remains default-off. It also
 enables UV cockpit materials and baked interior lighting. Enabling it starts capture
 asynchronously and shows **BAKING** while pending; the user can turn it off

@@ -125,8 +125,14 @@ public sealed partial class QuestCombatBenchmark : Node
             if (session.Restoring)
             {
                 s_session = null;
-                rig.Menu.ShowMissionResult("COMBAT TEST " + session.Result.ToUpperInvariant() + " / LOGGED");
                 GD.Print("QUEST_COMBAT_STATUS: " + JsonSerializer.Serialize(new { runId = session.RunId, status = session.Result }));
+                if (session.Result == "complete")
+                {
+                    rig.Menu.Close();
+                    GD.Print($"QUEST_COMBAT_RESUMED: mission={m_mission} paused={GetTree().Paused}");
+                }
+                else
+                    rig.Menu.ShowMissionResult("COMBAT TEST " + session.Result.ToUpperInvariant() + " / LOGGED");
                 return;
             }
             if (session.Mission != m_mission) throw new InvalidOperationException("Mission changed during the combat suite.");

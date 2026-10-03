@@ -307,8 +307,8 @@ public partial class Main : Node3D
             // Audio runs independently of rendering. Keep deployment and mission time from
             // starting while the renderer uploads resources and prepares the first frame.
             var tree = GetTree();
-            var wasPaused = tree.Paused;
-            tree.Paused = true;
+            var pausedForStartup = !tree.Paused;
+            if (pausedForStartup) tree.Paused = true;
             try
             {
                 if (DisplayServer.GetName() == "headless")
@@ -323,8 +323,10 @@ public partial class Main : Node3D
             }
             finally
             {
-                if (IsInstanceValid(tree))
-                    tree.Paused = wasPaused;
+                // Only release the pause we own. A benchmark or menu may change the
+                // pause state while its restored mission reaches the first frame.
+                if (pausedForStartup && IsInstanceValid(tree))
+                    tree.Paused = false;
             }
             player.BeginDeploymentAudio();
         }
