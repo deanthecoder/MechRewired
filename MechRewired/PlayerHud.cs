@@ -49,8 +49,8 @@ public partial class PlayerHud : Control
     private const float PlayerDamageRight = 1225.0f;
     private const float PlayerDamageSize = 130.5f;
     private const float PlayerDamageCenterX = PlayerDamageRight - PlayerDamageSize * 0.5f;
-    private const float VrPlayerDamageLeft = 200.0f;
-    private const float VrNavigationPanelLeft = 950.0f;
+    private const float VrPlayerDamageLeft = 950.0f;
+    private const float VrNavigationPanelLeft = 200.0f;
     private static readonly float[] RadarRanges = [500.0f, 1000.0f, 2000.0f, 4000.0f];
     private static readonly MechDamageSection[] DamageSections = Enum.GetValues<MechDamageSection>();
     private static readonly Color HudGreen = Color.FromHtml("00f000");

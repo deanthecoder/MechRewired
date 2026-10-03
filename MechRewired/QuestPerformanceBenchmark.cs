@@ -101,7 +101,7 @@ public sealed partial class QuestPerformanceBenchmark : Node
             var frameBudget = 1000.0 / (refreshRate > 0 ? refreshRate : 72);
             var runMetadata = JsonSerializer.Serialize(new
             {
-                schema = 5, graphicsProfiles = "combined-bakes-v1", skyCache = "hdr-2048x1024-separate-sun-v1", cockpitMode = "quest-uv-baked-interior-v1",
+                schema = 5, graphicsProfiles = "combined-bakes-v1", skyCache = "hdr-2048x1024-separate-sun-longitude-v2", cockpitMode = "quest-uv-baked-interior-v1",
                 cockpitLightingStrength = m_player.Cockpit.LightingStrength,
                 cockpitOriginalTextureScale = m_player.Cockpit.FrameTextureScale,
                 runId = Path.GetFileName(m_output), startedUtc = DateTime.UtcNow, mission = m_mission,

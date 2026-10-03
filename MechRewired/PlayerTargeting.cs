@@ -8,6 +8,7 @@
 //
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
+using System.Diagnostics;
 using Godot;
 using MechRewired.Missions;
 using MechRewired.Resources;
@@ -806,53 +807,94 @@ public partial class PlayerTargeting : Node
         var direction = m_playerMech.WeaponAimDirection;
         var start = GetWeaponStart(weapon, 0);
         var end = aimOrigin + direction * (float)weapon.Specification.RangeMeters;
-        if (TryRaycast(
+        var telemetryActive = QuestCombatTelemetry.Active;
+        var raycastStarted = telemetryActive ? Stopwatch.GetTimestamp() : 0L;
+        BattlefieldActor actor = null;
+        EnemyMech enemyMech = null;
+        MechSectionHit enemyHit = null;
+        Vector3 hitPosition = default;
+        var hit = false;
+        try
+        {
+            hit = TryRaycast(
                 (float)weapon.Specification.RangeMeters,
-                out var actor,
-                out var enemyMech,
-                out var enemyHit,
+                out actor,
+                out enemyMech,
+                out enemyHit,
                 out _,
-                out var hitPosition))
+                out hitPosition);
+        }
+        finally
+        {
+            if (telemetryActive)
+            {
+                QuestCombatTelemetry.RecordPlayerDirectRaycast(Stopwatch.GetTimestamp() - raycastStarted);
+            }
+        }
+
+        if (hit)
         {
             end = hitPosition;
             QuestCombatTelemetry.RecordImpact();
-            ApplyDirectDamage(weapon.Specification.Damage, actor, enemyMech, enemyHit, hitPosition);
+            var damageStarted = telemetryActive ? Stopwatch.GetTimestamp() : 0L;
+            try
+            {
+                ApplyDirectDamage(weapon.Specification.Damage, actor, enemyMech, enemyHit, hitPosition);
+            }
+            finally
+            {
+                if (telemetryActive)
+                {
+                    QuestCombatTelemetry.RecordPlayerDirectDamage(Stopwatch.GetTimestamp() - damageStarted);
+                }
+            }
         }
         else
         {
             GD.Print($"MechRewired: {weapon.Specification.Name} fired; no target hit.");
         }
 
-        var color = ColorFromRgb(weapon.Specification.BeamColorRgb);
-        if (weapon.Specification.Kind == MechWeaponKind.Ballistic)
+        var visualStarted = telemetryActive ? Stopwatch.GetTimestamp() : 0L;
+        try
         {
-            const int tracerCount = 4;
-            var basis = m_playerMech.Torso.GlobalBasis.Orthonormalized();
-            for (var tracer = 0; tracer < tracerCount; tracer++)
+            var color = ColorFromRgb(weapon.Specification.BeamColorRgb);
+            if (weapon.Specification.Kind == MechWeaponKind.Ballistic)
             {
-                var spread = basis.X * ((m_missileLaunchRandom.NextSingle() - 0.5f) * 0.08f) +
-                             basis.Y * ((m_missileLaunchRandom.NextSingle() - 0.5f) * 0.08f);
-                GetParent().AddChild(new BallisticTracerEffect(
-                    start + spread,
-                    end + spread,
-                    tracer * 0.045f));
+                const int tracerCount = 4;
+                var basis = m_playerMech.Torso.GlobalBasis.Orthonormalized();
+                for (var tracer = 0; tracer < tracerCount; tracer++)
+                {
+                    var spread = basis.X * ((m_missileLaunchRandom.NextSingle() - 0.5f) * 0.08f) +
+                                 basis.Y * ((m_missileLaunchRandom.NextSingle() - 0.5f) * 0.08f);
+                    GetParent().AddChild(new BallisticTracerEffect(
+                        start + spread,
+                        end + spread,
+                        tracer * 0.045f));
+                }
+
+                return;
             }
 
-            return;
+            var pulseCount = weapon.Specification.Kind == MechWeaponKind.PulseLaser
+                ? weapon.Specification.ProjectilesPerShot
+                : 1;
+            for (var pulse = 0; pulse < pulseCount; pulse++)
+            {
+                var lateral = m_playerMech.Torso.GlobalBasis.X.Normalized() * ((pulse - (pulseCount - 1) * 0.5f) * 0.05f);
+                GetParent().AddChild(new LaserEffect(
+                    start + lateral,
+                    end + lateral,
+                    color,
+                    0.055f,
+                    visualDelay));
+            }
         }
-
-        var pulseCount = weapon.Specification.Kind == MechWeaponKind.PulseLaser
-            ? weapon.Specification.ProjectilesPerShot
-            : 1;
-        for (var pulse = 0; pulse < pulseCount; pulse++)
+        finally
         {
-            var lateral = m_playerMech.Torso.GlobalBasis.X.Normalized() * ((pulse - (pulseCount - 1) * 0.5f) * 0.05f);
-            GetParent().AddChild(new LaserEffect(
-                start + lateral,
-                end + lateral,
-                color,
-                0.055f,
-                visualDelay));
+            if (telemetryActive)
+            {
+                QuestCombatTelemetry.RecordPlayerWeaponVisualConstruction(Stopwatch.GetTimestamp() - visualStarted);
+            }
         }
     }
 

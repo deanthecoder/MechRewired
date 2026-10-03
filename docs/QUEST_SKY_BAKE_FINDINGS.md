@@ -31,10 +31,16 @@ procedural sky, including the sun, for ambient and reflection lighting.
 On 3 October, the user observed that the replacement's sun disc was correctly
 positioned but its halo was offset. This is distinct from the old panorama's
 wrong-position sun. See [QUEST_NOTES_2026-10-03.md](QUEST_NOTES_2026-10-03.md);
-the offset remains unexplained and the current code has not been changed to
-compensate for it.
+the source was a mirrored panorama longitude: the engine's bake uses negative
+sine on X, while `SKY_COORDS` uses `atan(X, -Z)`. The visible cache now reverses U.
+The Mobile renderer regression check in `scripts/check-quest-sky-panorama.gd`
+renders an asymmetric marker, bakes it, and verifies its restored direction:
+reference brightness 1.000, uncorrected 0.000, corrected 0.996. This validates
+the direction mapping on desktop Mobile; final stereo appearance needs Quest
+confirmation. Engine mapping references: [panorama export](https://github.com/godotengine/godot/blob/master/servers/rendering/renderer_rd/shaders/effects/copy.glsl)
+and [sky coordinates](https://github.com/godotengine/godot/blob/master/servers/rendering/renderer_rd/shaders/environment/sky.glsl).
 
-In the Quest menu, the combined **BAKED SKY + CABIN** remains default-off. It also
+In the Quest menu, the combined **BAKED SKY + CABIN** now defaults on. It also
 enables UV cockpit materials and baked interior lighting. Enabling it starts capture
 asynchronously and shows **BAKING** while pending; the user can turn it off
 during capture. Switching OFF restores the procedural sky and cloud drift. The setting remains

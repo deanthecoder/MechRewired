@@ -48,7 +48,8 @@ public sealed class QuestGraphicsSettings
         // from the headset menu and disabled for the Quest baseline.
         LensFlareEnabled = false;
         CockpitGlassEnabled = false;
-        SmokeAndDustEnabled = false;
+        BakedProfileEnabled = true;
+        SmokeAndDustEnabled = true;
     }
 
     public bool SunShadowsEnabled

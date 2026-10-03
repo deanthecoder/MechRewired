@@ -42,6 +42,9 @@ public static class MechSectionHitTester
                 continue;
             }
 
+            // A hit query is synchronous: sample the pose once instead of crossing the
+            // Godot binding three times per triangle. Articulated parts still update each query.
+            var transform = mesh.GlobalTransform;
             for (var surfaceIndex = 0; surfaceIndex < mesh.Mesh.GetSurfaceCount(); surfaceIndex++)
             {
                 var arrays = mesh.Mesh.SurfaceGetArrays(surfaceIndex);
@@ -56,9 +59,9 @@ public static class MechSectionHitTester
                     if (!TryIntersectRay(
                             origin,
                             direction,
-                            mesh.GlobalTransform * vertices[aIndex],
-                            mesh.GlobalTransform * vertices[bIndex],
-                            mesh.GlobalTransform * vertices[cIndex],
+                            transform * vertices[aIndex],
+                            transform * vertices[bIndex],
+                            transform * vertices[cIndex],
                             out var distance) ||
                         distance >= nearestDistance)
                     {

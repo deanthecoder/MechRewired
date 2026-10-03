@@ -107,7 +107,9 @@ public static class QuestCachedSky
                 "if (AT_CUBEMAP_PASS) {\n" +
                 "            col = render_sky(world_pos, clouds_pos, sun_pos, moon_pos, current_time, 1.0);\n" +
                 "        } else {\n" +
-                "            col = texture(quest_panorama, SKY_COORDS).rgb;\n" +
+                // SkyBakePanorama writes -sin(azimuth) on X; SKY_COORDS uses atan(X, -Z).
+                // Reverse longitude so the captured atmosphere/halo shares the live disc's direction.
+                "            col = texture(quest_panorama, vec2(1.0 - SKY_COORDS.x, SKY_COORDS.y)).rgb;\n" +
                 "            vec3 quest_disk_dir = world_pos;\n" +
                 "            quest_disk_dir.y -= horizon_offset;\n" +
                 "            if (calc_disk_mask(quest_disk_dir, sun_pos, sun_disk_size) > 0.0) {\n" +

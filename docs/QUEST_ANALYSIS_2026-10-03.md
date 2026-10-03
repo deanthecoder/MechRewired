@@ -95,3 +95,43 @@ an unmeasured alternative, especially if halo correction proves awkward.
 
 No graphics defaults were changed by this analysis. Earlier runs used different
 code/profiles and cannot isolate the cause of today's improvement.
+
+## Accepted baseline after review
+
+The user chose to retain **weapon lights and smoke/dust ON**, with baked sky/cabin
+ON, cheap lit UV terrain, and glass/shadows/scene glow/HUD glow OFF. The next
+combat capture must use this state; the smoke-off measurements above are historical
+and do not validate that new baseline. Combat schema 4 adds timings for player
+direct-weapon raycasts, damage/impact handling and beam/tracer construction, while
+retaining the lights-off trial as a diagnostic comparison.
+
+HUD placement is corrected to navigation left, then Heat/dH/dT/Jets, then damage
+and speed right. The baked halo longitude correction has passed a rendered
+Mobile mapping check; Quest confirmation is pending.
+
+## Scoped combat profiling validation
+
+The new schema-4 instrumentation completed three desktop Debug/Mobile preview
+trials with smoke and baked lighting ON, baseline weapon lights ON, 96 prewarmed
+missile pools, zero timed pool builds, and successful mission resume. Its
+[summary records](data/quest-combat-desktop-profile-2026-10-03.log) are **desktop
+CPU diagnostics, not Quest performance measurements**; macOS GPU timings were
+unavailable. Across the two baselines, 12 player direct-shot raycasts took
+750.20 ms (62.52 ms/call), damage handling 1.36 ms (0.11 ms/call), and beam
+creation 21.41 ms (1.78 ms/call). This makes raycasting the next investigation
+target. The query scans scene triangles and retrieves each enemy part's surface
+arrays; cache/index design must account for moving actors and detached sections.
+
+Mech section hit tests now sample each part's transform once per synchronous
+query rather than three native property reads per triangle, retaining the same
+current world-space triangles and damage-section selection. No frame-time saving
+has been established for this small change. An earlier desktop capture had
+concurrent preview processes and is excluded from comparisons.
+
+Validation: latest build has zero warnings/errors; 249/249 .NET tests pass;
+rendered VR smoke passes and its cockpit image shows the corrected HUD order;
+the panorama mapping regression passes. The private Release APK includes the
+archive and has a verified matching release signature and no debuggable flag.
+The next Quest combat run should validate the accepted effects and report the
+new raycast/damage/visual timing fields. `analyze-quest-combat.py` prints both
+totals and milliseconds per call for these fields.

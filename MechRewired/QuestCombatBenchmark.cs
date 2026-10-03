@@ -88,9 +88,11 @@ public sealed partial class QuestCombatBenchmark : Node
         s_session = new Session(target.Name, m_mission, CaptureOptions());
         GD.Print("QUEST_COMBAT_RUN: " + JsonSerializer.Serialize(new
         {
-            runId = s_session.RunId, schema = 3, graphicsProfile = "baked-profile", poolPolicy = "quest-prewarmed-per-mech-v1", mission = m_mission, target = s_session.Target,
+            runId = s_session.RunId, schema = 4, graphicsProfile = "baked-profile", poolPolicy = "quest-prewarmed-per-mech-v1", mission = m_mission, target = s_session.Target,
             targetingPolicy = "segment-bounds-quest-250ms-v1",
-            variants = Variants, secondsPerTrial = TrialSeconds, enemyCount = m_enemies.Count, options = s_session.Settings,
+            variants = Variants, secondsPerTrial = TrialSeconds, enemyCount = m_enemies.Count,
+            options = s_session.Settings,
+            baselineSettings = new { bakedProfile = true, smoke = true, weaponLights = true },
             build = OS.HasFeature("debug") ? "debug" : "release", engine = Engine.GetVersionInfo()["string"].ToString(),
             device = OS.GetModelName(), gpu = RenderingServer.GetVideoAdapterName(),
             renderer = RenderingServer.GetCurrentRenderingMethod(), msaa = GetViewport().Msaa3D.ToString(),
@@ -117,6 +119,7 @@ public sealed partial class QuestCombatBenchmark : Node
             if (!session.Restoring)
             {
                 m_settings.BakedProfileEnabled = true;
+                m_settings.SmokeAndDustEnabled = true;
             }
             await m_sky.WaitForSkyBakeAsync();
             if (!GodotObject.IsInstanceValid(this) || !IsInsideTree()) return;
@@ -165,6 +168,7 @@ public sealed partial class QuestCombatBenchmark : Node
                 missilePoolCount = m_enemies.Sum(e => e.MissilePoolCount),
                 missilePoolsReady = m_enemies.Where(e => e.HasMissileWeapons).All(e => e.MissilePoolReady),
                 bakedSky = m_settings.BakedSkyEnabled, smoke = m_settings.SmokeAndDustEnabled,
+                weaponLights = !QuestCombatTelemetry.WeaponLightsDisabled,
                 cockpitUv = m_settings.QuestUvMaterialsEnabled,
                 bakedInteriorLighting = m_settings.QuestUvMaterialsEnabled && m_settings.BakedInteriorLightingEnabled }));
             RenderingServer.ViewportSetMeasureRenderTime(viewport.GetViewportRid(), true);
@@ -260,6 +264,12 @@ public sealed partial class QuestCombatBenchmark : Node
             enemyAiMs=frames.Sum(f=>f.Combat.EnemyAiMilliseconds), losMs=frames.Sum(f=>f.Combat.LineOfSightMilliseconds),
             losCalls=frames.Sum(f=>f.Combat.LineOfSightCalls), poolBuilds=frames.Sum(f=>f.Combat.MissilePoolsCreated),
             poolBuildMs=frames.Sum(f=>f.Combat.MissilePoolCreationMilliseconds), weaponShots=frames.Sum(f=>f.Combat.WeaponLaunches),
+            playerDirectRaycastCalls=frames.Sum(f=>f.Combat.PlayerDirectRaycastCalls),
+            playerDirectRaycastMs=frames.Sum(f=>f.Combat.PlayerDirectRaycastMilliseconds),
+            playerDirectDamageCalls=frames.Sum(f=>f.Combat.PlayerDirectDamageCalls),
+            playerDirectDamageMs=frames.Sum(f=>f.Combat.PlayerDirectDamageMilliseconds),
+            playerWeaponVisualCalls=frames.Sum(f=>f.Combat.PlayerWeaponVisualCalls),
+            playerWeaponVisualMs=frames.Sum(f=>f.Combat.PlayerWeaponVisualMilliseconds),
             enemyShots=frames.Sum(f=>f.Combat.EnemyWeaponLaunches), missileLaunches=frames.Sum(f=>f.Combat.MissileLaunches), impacts=frames.Sum(f=>f.Combat.Impacts),
             maxHeadTranslation=frames.Max(f=>f.HeadTranslation), maxHeadAngle=frames.Max(f=>f.HeadAngle)
         };

@@ -72,7 +72,7 @@ Each fixture runs baseline, three combined profiles, then baseline again
 Every trial warms up for three seconds and measures six seconds. Rock cells
 are populated before timing. Shader swaps, pool construction, cached-sky
 capture, log output and disk writes occur outside the sample window. Schema 5
-identifies the sky mode as `skyCache=hdr-2048x1024-separate-sun-v1` and the
+identifies the corrected sky mode as `skyCache=hdr-2048x1024-separate-sun-longitude-v2` and the
 cockpit mode contract as `cockpitMode=quest-uv-baked-interior-v1`; capture time is
 excluded from the measured trial. There are no screenshots.
 Normal frame-to-frame particle simulation and rendering still occur inside it.

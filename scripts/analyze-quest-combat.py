@@ -137,6 +137,16 @@ def analyze(records, output):
                   f"mean {fmt(number(rec, 'meanMs'), ' ms')}, p95 {fmt(number(rec, 'p95Ms'), ' ms')}, "
                   f"GPU {fmt(number(rec, 'gpuMs'), ' ms')}, enemy shots {fmt(number(rec, 'enemyShots'))}, "
                   f"pool builds {fmt(number(rec, 'poolBuilds'))} / {fmt(number(rec, 'poolBuildMs'), ' ms')}", file=output)
+            for calls_key, time_key, label in (
+                ("playerDirectRaycastCalls", "playerDirectRaycastMs", "player raycast"),
+                ("playerDirectDamageCalls", "playerDirectDamageMs", "player damage/impact"),
+                ("playerWeaponVisualCalls", "playerWeaponVisualMs", "player beam/tracer creation"),
+            ):
+                if time_key in rec:
+                    calls, total = number(rec, calls_key), number(rec, time_key)
+                    mean = total / calls if total is not None and calls else None
+                    print(f"    {label}: {fmt(total, ' ms')} / {fmt(calls)} calls; "
+                          f"{fmt(mean, ' ms/call')}", file=output)
             if status != "complete":
                 print(f"  WARNING {tag}: status {status} (incomplete/death run excluded from deltas)", file=output)
             if (number(rec, "weaponShots") or 0) <= 0:

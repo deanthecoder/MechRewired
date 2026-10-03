@@ -90,15 +90,16 @@ own flight, impact and particle state. This shifts allocation to loading and
 increases upfront pool memory; per-mech capacities and recycling rules stay the
 same. It does not guarantee that every driver pipeline is compiled in advance.
 
-Combat schema 3 records `poolPolicy=quest-prewarmed-per-mech-v1`. Trial metadata
+Combat schema 4 records `poolPolicy=quest-prewarmed-per-mech-v1`. Trial metadata
 reports the total enemy pool count and whether all missile pools are ready.
 Measured pool creation should now be zero; a nonzero count identifies a fallback.
 Shader and driver caches can remain warm across mission reloads.
 
 The inactive smoke-off comparison has been removed. The rendering test compares
-the same combined baked profile and a version with unlit terrain, bracketed by
-baselines: 16 trials, or 144 seconds of warm-up and sampling, plus setup and
-reporting. Combat retains both baselines to detect drift. Each combat trial and
+the same combined baked profile, its glass variant, and a version with unlit
+terrain, bracketed by baselines: 20 trials, or 180 seconds of warm-up and
+sampling, plus setup and reporting. Combat retains its three trials and both
+baselines to detect drift. Each combat trial and
 summary records the effective baked sky and cockpit flags; the final mission
 restores the user's original individual options, including after cancellation.
 
@@ -107,17 +108,28 @@ restores the user's original individual options, including after cancellation.
 The runner emits:
 
 - `QUEST_COMBAT_RUN:` device/build/settings and workload metadata as JSON,
-  including the enemy count in the mission.
-- `QUEST_COMBAT_TRIAL:` variant, target, starting pose, refresh rate, and scene settings.
+  including the enemy count in the mission. Schema 4 adds scoped direct-weapon
+  profiling. `options` records the user's pre-run choices for restoration;
+  `baselineSettings` explicitly records baked lighting, smoke/dust, and weapon
+  lights as ON. A fresh Quest graphics profile also defaults baked lighting and
+  smoke/dust to ON; the runner pins both ON for each measured trial.
+- `QUEST_COMBAT_TRIAL:` variant, target, starting pose, refresh rate, actual
+  smoke and weapon-light state, and scene settings.
 - `QUEST_COMBAT_SUMMARY:` one JSON record per trial with frame-time percentiles,
   app FPS, main-viewport renderer CPU/GPU timing, process/physics timings,
   allocations and process-wide GC counts, AI/line-of-sight totals, pool creation
-  totals, player and enemy shots,
+  totals, player direct-raycast, damage/impact, and beam/tracer construction
+  call counts and elapsed milliseconds, player and enemy shots,
   missiles, impacts, and maximum head movement.
 - `QUEST_COMBAT_SPIKE:`, `QUEST_COMBAT_SECOND:`, `QUEST_COMBAT_EVENTS:` and
   `QUEST_COMBAT_EVENT:` bounded worst-frame, per-second, first-volley, and event
   detail records, emitted after each trial's measurement window.
 - `QUEST_COMBAT_STATUS:` final suite status.
+
+The three scoped timings cover player direct-weapon raycasts, hit damage and
+impact handling, and beam/tracer construction. Their call counts and elapsed
+milliseconds also appear in each spike/event record's `Combat` snapshot. They
+are sampled only while combat telemetry is active.
 
 Enemy AI time includes its line-of-sight work, so those two values are nested and
 must not be added together. `weaponShots` aggregates successful player and enemy

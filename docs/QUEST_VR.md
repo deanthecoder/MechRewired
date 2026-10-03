@@ -147,8 +147,8 @@ The existing HUD, including the original chassis damage silhouette, is drawn
 onto a transparent cockpit surface. Radar, weapons, status, navigation and
 targeting can be toggled separately. Its finite-depth targeting presentation
 still needs binocular alignment/readability testing on Quest.
-The VR lower HUD places the player-damage silhouette and speed label to the
-left of Heat, dH/dT and Jets, with navigation/target information to their
+The VR lower HUD places navigation/target information to the
+left of Heat, dH/dT and Jets, with the player-damage silhouette and speed label to their
 right so the cockpit frame does not obscure the outer panels. Desktop HUD
 coordinates are unchanged. The head-following reticle and its shared weapon
 aim ray have light smoothing; recentering or reacquiring a valid aim snaps to
@@ -161,11 +161,16 @@ lighting. It replaces the three separate experimental controls, avoiding the
 slower UV-only cockpit combination. Capture shows **BAKING** while pending.
 Turning it off restores the procedural sky, cloud drift and original cockpit
 lighting. Sunlight continues to illuminate the scene in both modes. The switch
-starts off and lasts for the current mission only; desktop defaults are unchanged.
+starts on and lasts for the current mission only; desktop defaults are unchanged.
 The replacement sky and cabin were visually accepted on Quest on 1 October,
-though the sky's missing sun halo remains visible. Results are in
+The 3 October longitude correction aligns the cached halo with the separate sun;
+headset confirmation of that correction is pending. Results are in
 [QUEST_TESTS_2026-10-01.md](QUEST_TESTS_2026-10-01.md); the shorter combined-profile
 test is described in [QUEST_BENCHMARK.md](QUEST_BENCHMARK.md).
+
+The Quest baseline keeps weapon lights and smoke/dust on. Sun shadows, scene
+glow, HUD glow and cockpit glass start off. Combat performance is evaluated with
+the baked sky/cabin and these effects retained.
 
 Terrain parallax is always off in VR, including desktop VR preview, and has no menu toggle.
 The **TERRAIN TRIPLANAR** graphics toggle is off by default. Off selects a separate
