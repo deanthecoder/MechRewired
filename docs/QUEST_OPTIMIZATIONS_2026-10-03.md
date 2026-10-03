@@ -77,3 +77,53 @@ microbenchmark, not a predicted Quest saving or a full-combat result.
 The private Android Release export passed package/signature checks, excludes the
 debuggable manifest flag and includes MW2.PRJ (21,893,380 bytes). Live Quest effect
 appearance, collision behavior and performance still require the next run.
+
+## First optimized Quest run
+
+Release `ff445df`, run `20261003-173451-df5b18`: all four stages completed and
+the mission resumed `paused=False`. All four JSON summaries reassembled with
+zero malformed records. Sources: [tagged telemetry](data/quest-combat-2026-10-03-optimized.log),
+[complete summaries](data/quest-combat-2026-10-03-optimized-summary.json),
+[analyzer output](data/quest-combat-2026-10-03-optimized-analysis.txt).
+
+| Trial | State | Mean frame | App FPS | GPU | p95 | p99 |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| 1 | Smoke ON, lights ON | 18.93 ms | 52.84 | 17.47 ms | 26.97 ms | 31.56 ms |
+| 2 | Smoke OFF, lights ON | 17.92 ms | 55.79 | 17.27 ms | 22.01 ms | 26.61 ms |
+| 3 | Smoke ON, lights OFF | 17.77 ms | 56.27 | 16.46 ms | 23.17 ms | 27.14 ms |
+| 4 | Smoke ON, lights ON | 19.82 ms | 50.45 | 18.46 ms | 27.37 ms | 33.67 ms |
+
+These are raw observed stages, not established effect savings. Trial 1 logged
+5.27 degrees of head movement, above the five-degree validation threshold.
+The analyzer therefore correctly withheld variant deltas because only one valid
+baseline remained. Both baselines also drifted (18.93 to 19.82 ms frame time;
+17.47 to 18.46 ms GPU). Repeat with the head still before selecting smoke or light
+reductions. Both remain on in the accepted baseline.
+
+All stages fired 16 player shots and eight enemy shots, launched 56 missiles,
+and recorded 61 impacts. Timed missile pool builds, weapon effect pool builds
+and weapon effect fallback counts were all zero.
+
+Direct-shot queries now take 1.29–2.53 ms per call, versus approximately 81 ms in
+the prior build. World checks total 4.54–6.71 ms and mech checks 3.16–7.47 ms per
+six calls. Beam/tracer launch costs 0.13–0.37 ms per call, versus 11–18 ms before.
+LOS time totals 12.50–13.29 ms per stage, versus approximately 529 ms before.
+These large reductions support the bounds/cache/pooling changes, but do not
+separate every implementation's contribution or remove device-state differences.
+
+With smoke and lights on, the final baseline p99 is 33.67 ms versus approximately
+94–102 ms in the prior capture. Its first-impact frame is 16.86 ms versus the
+previous 145.59–176.28 ms. The first optimized baseline's first-impact frame is
+35.55 ms; distinguish this initial warm behavior from the final baseline.
+The repeated large firing stalls have reduced substantially in this run.
+
+The final valid baseline still has 18.46 ms GPU time against a 13.89 ms budget.
+Even the lights-off stage reports 16.46 ms GPU. Rendering cost is now the main
+remaining pacing constraint in these stages; further CPU work alone will not
+establish 72 Hz. Repeat the effect comparison, then consider reduced smoke/light
+variants and finer GPU workload attribution while retaining the requested visual
+baseline. This is one optimized run, not proven repeatability across missions.
+
+After resume, diagnostics show focused head and both controllers tracked, seat
+centered, menu closed, valid aim and no pause. Headset validation of firing cadence
+and appearance still relies on user feedback rather than these gate logs alone.
