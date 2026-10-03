@@ -146,6 +146,41 @@ public partial class QuestVrSmokeCheck : Node
             right.SetInput("trigger", 0.0f);
             left.SetInput("grip", 0.0f);
 
+            await Frames(3);
+            m_player.AdjustVrThrottle(1);
+            XRServer.RemoveTracker(left);
+            await Frames(3);
+            Check(!rig.Left.GetIsActive() && rig.Right.GetIsActive(), "only right controller remains tracked");
+            Check(m_player.Drive.ThrottlePercent == 0 && !rig.JumpJetsRequested && rig.Steering == 0,
+                "missing left controller stops locomotion");
+            var firesBeforeMissingLeft = fires;
+            var cyclesBeforeMissingLeft = weaponCycles;
+            right.SetInput("trigger", 1.0f);
+            right.SetInput("grip", 1.0f);
+            await Frames(3);
+            Check(fires == firesBeforeMissingLeft + 1 && weaponCycles == cyclesBeforeMissingLeft + 1,
+                "tracked right controller can fire and cycle weapons without left controller");
+            await Frames(30);
+            Check(fires == firesBeforeMissingLeft + 1, "single-squeeze firing remains enforced without left controller");
+            right.SetInput("trigger", 0.0f);
+            right.SetInput("grip", 0.0f);
+            XRServer.AddTracker(left);
+            await Frames(3);
+            XRServer.RemoveTracker(right);
+            await Frames(3);
+            Check(!rig.Right.GetIsActive() && m_player.Drive.ThrottlePercent == 0,
+                "missing right controller stops locomotion and suppresses weapon input");
+            right.SetInput("trigger", 1.0f);
+            XRServer.AddTracker(right);
+            await Frames(3);
+            Check(fires == firesBeforeMissingLeft + 1, "right controller reacquisition requires trigger release");
+            right.SetInput("trigger", 0.4f);
+            await Frames(3);
+            right.SetInput("trigger", 0.8f);
+            await Frames(3);
+            Check(fires == firesBeforeMissingLeft + 2, "released trigger fires after right controller reacquisition");
+            right.SetInput("trigger", 0.0f);
+
             // Let the original instrument power-up complete before capturing the preview.
             await Frames(160);
             await Capture("quest-vr-cockpit.png");

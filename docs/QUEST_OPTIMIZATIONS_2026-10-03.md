@@ -127,3 +127,48 @@ baseline. This is one optimized run, not proven repeatability across missions.
 After resume, diagnostics show focused head and both controllers tracked, seat
 centered, menu closed, valid aim and no pause. Headset validation of firing cadence
 and appearance still relies on user feedback rather than these gate logs alone.
+
+## Repeat optimized Quest run
+
+Run `20261003-174229-fb9d98` completed all four 15-second trials and resumed
+`YELLSCN1` with `paused=False`. Its four summary records reassembled with zero
+malformed summaries. Head movement stayed inside the analyzer limits in every
+stage (maximum 0.0053 m and 1.72 degrees). Sources are the [PID 19671 tagged
+capture](data/quest-combat-2026-10-03-optimized-still.log), [reassembled
+summaries](data/quest-combat-2026-10-03-optimized-still-summary.json), and
+[analyzer output](data/quest-combat-2026-10-03-optimized-still-analysis.txt).
+
+| Trial | State | Mean frame | App FPS | GPU | p99 |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 1 | Smoke ON, lights ON | 18.36 ms | 54.46 | 16.90 ms | 31.59 ms |
+| 2 | Smoke OFF, lights ON | 16.50 ms | 60.59 | 15.82 ms | 28.06 ms |
+| 3 | Smoke ON, lights OFF | 18.55 ms | 53.91 | 17.17 ms | 28.73 ms |
+| 4 | Smoke ON, lights ON | 18.12 ms | 55.19 | 16.81 ms | 30.78 ms |
+
+The two baselines average 18.24 ms, 54.82 app FPS, 16.86 ms GPU, and 31.19 ms
+p99. The smoke-off candidate measured 1.74 ms lower mean frame time and 1.04 ms
+lower GPU time than that average. The lights-off candidate was slower than the
+baseline average at 18.55 ms mean and 17.17 ms GPU, so this capture shows no
+reliable benefit from removing weapon lights. There is only one candidate trial
+for each effect; repeat the suite before changing the accepted baseline.
+
+Each stage recorded 16 player shots, eight enemy shots, 56 missile launches, and
+56 impacts. The preceding run recorded 61 impacts, which reflects live-fight
+variation; it is not a missing-impact indication in this capture. Logged states
+matched the planned variants. Immediately after resume, input diagnostics showed
+`head=True left=False right=True seat=True menu=False aim=True` while focused.
+That asymmetric controller state helps explain why the old all-controller
+availability gate could block right-hand actions; right-hand action handling is
+being corrected separately, with left-stick locomotion still requiring both
+controllers.
+
+## Independent controller follow-up
+
+The Quest log shows the asymmetric state both at benchmark startup and after
+resume: `head=True left=False right=True`, with the right controller and aim
+active after resume. The follow-up rendered VR smoke passed checks for right-hand
+fire and weapon cycling while the left controller is absent, single-squeeze
+firing in that state, locomotion stopping when either controller is absent, and
+trigger release before firing after right-controller reacquisition. The smoke
+ended with `QUEST_VR_SMOKE_PASS`; these checks exercise the synthetic preview
+controller path, while live tracking behavior still needs headset confirmation.

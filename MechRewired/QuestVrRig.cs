@@ -147,7 +147,7 @@ public partial class QuestVrRig : XROrigin3D
             m_lastInputState = inputState;
             m_nextInputStateLog = now + 1000;
         }
-        if (GetTree().Paused || !sessionFocused || m_player.IsDestroyed || !m_seatCentered || (!QuestVrRuntime.Preview && (!headTracked || !leftTracked || !rightTracked)))
+        if (GetTree().Paused || !sessionFocused || m_player.IsDestroyed || !m_seatCentered || (!QuestVrRuntime.Preview && !headTracked))
         {
             Steering = 0;
             JumpJetsRequested = false;
@@ -159,10 +159,21 @@ public partial class QuestVrRig : XROrigin3D
             if (!GetTree().Paused && (!leftTracked || !rightTracked)) m_player.StopVrMovement();
             return;
         }
-        // Hysteresis requires a deliberate partial release between weapon requests.
-        if (fireTrigger < 0.45f) m_requireRelease = false;
-        if (!jumpJetsHeld) m_jumpJetsRequireRelease = false;
-        JumpJetsRequested = jumpJetsHeld && !m_jumpJetsRequireRelease;
+        // Weapon actions depend on their own controller. Losing the other hand must not
+        // disable firing, but locomotion still stops until both controllers return.
+        var locomotionTracked = leftTracked && rightTracked;
+        if (!locomotionTracked)
+        {
+            m_player.StopVrMovement();
+            m_throttleDirection = 0;
+            m_waitForThrottleCenter = true;
+            m_jumpJetsRequireRelease = true;
+        }
+        if (!rightTracked) m_requireRelease = true;
+        // Hysteresis requires a deliberate partial release on a tracked controller.
+        if (rightTracked && fireTrigger < 0.45f) m_requireRelease = false;
+        if (locomotionTracked && !jumpJetsHeld) m_jumpJetsRequireRelease = false;
+        JumpJetsRequested = locomotionTracked && jumpJetsHeld && !m_jumpJetsRequireRelease;
         if (stopPressed)
         {
             m_player.StopVrMovement();
@@ -177,15 +188,15 @@ public partial class QuestVrRig : XROrigin3D
             UpdateHeadAim((float)delta, snap: true);
         }
 
-        var movement = leftTracked ? Left.GetVector2("primary") : Vector2.Zero;
+        var movement = locomotionTracked ? Left.GetVector2("primary") : Vector2.Zero;
         var aimStick = rightTracked ? Right.GetVector2("primary") : Vector2.Zero;
-        Steering = -Deadzone(aimStick.X);
+        Steering = locomotionTracked ? -Deadzone(aimStick.X) : 0.0f;
         var pitchInput = Deadzone(aimStick.Y);
-        if (alignLegsPressed) m_player.AlignVrLegsToGaze(-Camera.GlobalBasis.Z);
+        if (locomotionTracked && alignLegsPressed) m_player.AlignVrLegsToGaze(-Camera.GlobalBasis.Z);
         if (!Mathf.IsZeroApprox(pitchInput))
             m_player.SetVrPitch(m_player.VrAim.Y + pitchInput * TorsoPitchSpeed * (float)delta);
         var direction = movement.Y > 0.55f ? 1 : movement.Y < -0.55f ? -1 : 0;
-        if (direction == 0) m_waitForThrottleCenter = false;
+        if (locomotionTracked && direction == 0) m_waitForThrottleCenter = false;
         if (m_waitForThrottleCenter) direction = 0;
         m_throttleRepeat -= (float)delta;
         if (direction != 0 && (direction != m_throttleDirection || m_throttleRepeat <= 0))

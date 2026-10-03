@@ -142,7 +142,11 @@ Benchmarks keep their scripted torso aim so head movement cannot redirect shots.
 Desktop aiming is unchanged. Headset comfort and edge alignment still need testing.
 The seated view is raised 12 cm and moved back 10 cm. The XR camera attaches
 to the seat above the synthetic camera-bob node.
-Headset focus/tracking loss opens the pause menu; controller loss stops throttle.
+Headset focus/tracking loss opens the pause menu; loss of either controller stops
+throttle, steering, leg alignment and jump jets. A tracked right controller can
+still fire, cycle weapons/targets and pitch the torso if the left controller is
+asleep or unavailable. Head tracking, focus and an unpaused seated view remain
+required. Reacquiring the right controller requires releasing its fire trigger.
 Returning from the menu requires releasing the fire trigger or jump-jet grip
 before either action resumes.
 
