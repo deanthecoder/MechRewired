@@ -49,8 +49,10 @@ public partial class PlayerHud : Control
     private const float PlayerDamageRight = 1225.0f;
     private const float PlayerDamageSize = 130.5f;
     private const float PlayerDamageCenterX = PlayerDamageRight - PlayerDamageSize * 0.5f;
-    private const float VrPlayerDamageLeft = 950.0f;
-    private const float VrNavigationPanelLeft = 200.0f;
+    private const float VrPlayerDamageLeft = 890.0f;
+    private const float VrNavigationPanelLeft = 190.0f;
+    private const float VrTargetDescriptionBaseline = 666.0f;
+    private const float VrTargetDistanceBaseline = 697.0f;
     private static readonly float[] RadarRanges = [500.0f, 1000.0f, 2000.0f, 4000.0f];
     private static readonly MechDamageSection[] DamageSections = Enum.GetValues<MechDamageSection>();
     private static readonly Color HudGreen = Color.FromHtml("00f000");
@@ -757,7 +759,7 @@ public partial class PlayerHud : Control
     {
         var panelLeft = m_playerMech.IsVr ? VrNavigationPanelLeft : 40.0f;
         const float panelTop = 518.0f;
-        const float panelWidth = 215.0f;
+        var panelWidth = m_playerMech.IsVr ? 170.0f : 215.0f;
         const float panelHeight = 125.0f;
         var panel = new Rect2(
             Point(panelLeft, panelTop),
@@ -790,8 +792,55 @@ public partial class PlayerHud : Control
         var distanceText = distanceMeters >= 1000.0f
             ? $"{distanceMeters / 1000.0f:F2}Km"
             : $"{distanceMeters:F0}m";
-        DrawText(new Vector2(panelLeft, 675.0f), navigation.Description, navigationColor, 25);
-        DrawText(new Vector2(panelLeft, 706.0f), distanceText, HudGreen, 25);
+        var descriptionBaseline = m_playerMech.IsVr ? VrTargetDescriptionBaseline : 675.0f;
+        var distanceBaseline = m_playerMech.IsVr ? VrTargetDistanceBaseline : 706.0f;
+        DrawTargetPanelText(panelLeft, descriptionBaseline, navigation.Description, navigationColor, 25, panelWidth);
+        DrawTargetPanelText(panelLeft, distanceBaseline, distanceText, HudGreen, 25, panelWidth);
+    }
+
+    private void DrawTargetPanelText(float left, float baseline, string text, Color color, int fontSize, float width)
+    {
+        var displayText = m_playerMech.IsVr
+            ? FitTargetPanelText(text, width, fontSize)
+            : text;
+        DrawText(new Vector2(left, baseline), displayText, color, fontSize);
+    }
+
+    private string FitTargetPanelText(string text, float width, int fontSize)
+    {
+        const string Ellipsis = "...";
+        var scaledFontSize = Math.Max((int)(fontSize * m_scale), 1);
+        var availableWidth = width * m_scale;
+        float Measure(string candidate) => HudFont.GetStringSize(
+            candidate,
+            HorizontalAlignment.Left,
+            -1.0f,
+            scaledFontSize).X;
+
+        if (Measure(text) <= availableWidth)
+        {
+            return text;
+        }
+
+        var low = 0;
+        var high = text.Length;
+        var best = Ellipsis;
+        while (low <= high)
+        {
+            var length = low + (high - low) / 2;
+            var candidate = text[..length].TrimEnd() + Ellipsis;
+            if (Measure(candidate) <= availableWidth)
+            {
+                best = candidate;
+                low = length + 1;
+            }
+            else
+            {
+                high = length - 1;
+            }
+        }
+
+        return best;
     }
 
     private void DrawEnemyTargetPanel(
@@ -823,14 +872,18 @@ public partial class PlayerHud : Control
         var distanceText = distanceMeters >= 1000.0f
             ? $"{distanceMeters / 1000.0f:F2}Km"
             : $"{distanceMeters:F0}m";
-        DrawText(new Vector2(panelLeft, 675.0f), enemyMech.Description, RadarAmber, 25);
-        DrawText(
-            new Vector2(panelLeft, 706.0f),
+        var descriptionBaseline = m_playerMech.IsVr ? VrTargetDescriptionBaseline : 675.0f;
+        var distanceBaseline = m_playerMech.IsVr ? VrTargetDistanceBaseline : 706.0f;
+        DrawTargetPanelText(panelLeft, descriptionBaseline, enemyMech.Description, RadarAmber, 25, panelWidth);
+        DrawTargetPanelText(
+            panelLeft,
+            distanceBaseline,
             enemyMech.DamageSilhouette == null
                 ? $"{distanceText}  {enemyMech.Health}/{enemyMech.MaximumHealth}"
                 : distanceText,
             HudGreen,
-            25);
+            25,
+            panelWidth);
     }
 
     private void DrawHostileActorTargetPanel(
@@ -848,12 +901,16 @@ public partial class PlayerHud : Control
         var distanceText = distanceMeters >= 1000.0f
             ? $"{distanceMeters / 1000.0f:F2}Km"
             : $"{distanceMeters:F0}m";
-        DrawText(new Vector2(panelLeft, 675.0f), actor.Description, RadarAmber, 25);
-        DrawText(
-            new Vector2(panelLeft, 706.0f),
+        var descriptionBaseline = m_playerMech.IsVr ? VrTargetDescriptionBaseline : 675.0f;
+        var distanceBaseline = m_playerMech.IsVr ? VrTargetDistanceBaseline : 706.0f;
+        DrawTargetPanelText(panelLeft, descriptionBaseline, actor.Description, RadarAmber, 25, panelWidth);
+        DrawTargetPanelText(
+            panelLeft,
+            distanceBaseline,
             $"{distanceText}  {actor.Health}/{actor.MaximumHealth}",
             HudGreen,
-            25);
+            25,
+            panelWidth);
     }
 
     private void DrawDiamond(Vector2 center, float radius, float width, Color? color = null)
@@ -1027,14 +1084,14 @@ public partial class PlayerHud : Control
 
     private void DrawHeat()
     {
-        const float heatGaugeLeft = 360.0f;
+        var heatGaugeLeft = m_playerMech.IsVr ? 380.0f : 360.0f;
         const float gaugeTop = 646.0f;
-        const float gaugeWidth = 190.0f;
+        var gaugeWidth = m_playerMech.IsVr ? 170.0f : 190.0f;
         const float gaugeHeight = 15.0f;
-        const float rateGaugeLeft = 585.0f;
-        const float rateGaugeWidth = 150.0f;
-        const float jetsGaugeLeft = 770.0f;
-        const float jetsGaugeWidth = 150.0f;
+        var rateGaugeLeft = m_playerMech.IsVr ? 570.0f : 585.0f;
+        var rateGaugeWidth = m_playerMech.IsVr ? 140.0f : 150.0f;
+        var jetsGaugeLeft = m_playerMech.IsVr ? 730.0f : 770.0f;
+        var jetsGaugeWidth = m_playerMech.IsVr ? 140.0f : 150.0f;
         DrawHorizontalGaugeFrame(heatGaugeLeft, gaugeTop, gaugeWidth, gaugeHeight, TerrainBlue);
         DrawThermalFillFromEdges(
             heatGaugeLeft + GaugeEndInset,
@@ -1399,7 +1456,7 @@ public partial class PlayerHud : Control
 
     private void DrawSpeed()
     {
-        const float gaugeLeft = 1248.0f;
+        var gaugeLeft = m_playerMech.IsVr ? 1032.0f : 1248.0f;
         const float gaugeWidth = 16.0f;
         const float positiveTop = 510.0f;
         const float zeroY = 640.0f;

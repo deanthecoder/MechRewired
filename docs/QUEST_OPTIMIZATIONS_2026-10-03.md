@@ -179,3 +179,18 @@ from before the bounds/pooling pass; it is not established as a new pooling
 regression. Resource cleanup on the finalizer thread is a separate investigation
 lead. The source log retains its original trailing spaces on those error lines;
 whitespace diagnostics on that evidence file do not indicate code whitespace.
+
+## Quest lower HUD spacing follow-up
+
+User reported navigation overlapping the first horizontal gauge and the vertical
+speed control sitting far from player damage. The Quest lower row now places a
+narrower navigation panel before Heat, dH/dT and Jets with explicit clear gaps,
+then the original chassis damage silhouette and adjacent speed/throttle bar.
+Actual speed remains labeled beneath the damage silhouette. Navigation/enemy/actor
+text is measured and shortened with `...` within its own column to prevent long
+names extending into gauge labels. Desktop positions retain their existing layout.
+
+The rendered VR smoke passed and its cockpit preview confirms the compact row and
+clear spacing. Real headset fit/readability still need confirmation. The Release
+package includes this HUD adjustment and the independently tracked right-hand
+weapon-control fix. Device installation is held at the user's request.
