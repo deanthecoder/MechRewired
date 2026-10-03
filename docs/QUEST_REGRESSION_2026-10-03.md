@@ -73,3 +73,37 @@ VR smoke check reported `QUEST_VR_SMOKE_PASS`. The corrected private Android
 Release export completed with MW2.PRJ bundled (21,893,380 bytes), no manifest
 debuggable flag, and the existing signing certificate. Real headset movement,
 reticle visibility and startup controls still need confirmation after installation.
+
+## Rerun after the correction
+
+User: “No auto-turning torso now, but better.” The corrected Release `18c3c1c`
+completed combat run `20261003-170823-0e1713` and resumed `paused=False`.
+The chunk protocol retained both complete summaries with zero malformed records.
+Sources: [tagged capture](data/quest-combat-2026-10-03-safe-controls.log),
+[reassembled summaries](data/quest-combat-2026-10-03-safe-controls-summary.json),
+[analyzer output](data/quest-combat-2026-10-03-safe-controls-analysis.txt).
+The smoke-on, lights-on baseline and two 15-second trials are unchanged.
+
+| Trial | Mean frame | GPU | p95 | p99 | App FPS | First impact frame |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Baseline 1 | 20.85 ms | 17.26 ms | 29.64 ms | 101.56 ms | 47.97 | 145.59 ms |
+| Baseline 2 | 20.63 ms | 17.44 ms | 29.88 ms | 94.28 ms | 48.48 | 176.28 ms |
+
+Performance is similar to the previous partial run. Direct-shot raycasts cost
+488.79 ms / six calls and 484.58 ms / six calls, or 81.47 and 80.76 ms per call.
+Damage cost is only 0.67 and 0.58 ms total. Beam/tracer creation costs 106.61
+and 64.03 ms total, or 17.77 and 10.67 ms per call. Raycast cost is repeatable
+and remains the first investigation target; visual construction is a secondary
+lead. Some AI spikes also exceed 80 ms and must be investigated separately.
+These timings identify expensive regions, not a proven underlying mechanism.
+
+Both trials have 16 player shots, eight enemy shots, 56 missile launches,
+60 impacts and zero timed pool builds. Average GPU time is 17.35 ms, still above
+the 13.89 ms budget. CPU stall work alone will not establish smooth 72 Hz combat.
+Retain smoke and lights as requested while investigating these costs.
+
+At 18:06:38 and again after benchmark resume at 18:09:40, input diagnostics show
+`paused=False focus=Focused head=True left=True right=True seat=True menu=False
+aim=True`. This confirms the runtime gates opened; it does not independently
+prove movement/fire actions or headset comfort. The user reported improved
+camera behaviour. Automatic torso following remains deliberately disabled.
