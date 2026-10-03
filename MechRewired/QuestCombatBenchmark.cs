@@ -13,7 +13,7 @@ namespace MechRewired;
 public sealed partial class QuestCombatBenchmark : Node
 {
     private const double TrialSeconds = 15;
-    private static readonly string[] Variants = ["baseline", "weapon-lights-off", "baseline"];
+    private static readonly string[] Variants = ["baseline", "baseline"];
     private static Session s_session;
     private readonly PlayerMech m_player;
     private readonly PlayerHud m_hud;
@@ -150,7 +150,7 @@ public sealed partial class QuestCombatBenchmark : Node
             m_player.SetVrPitch(0);
             m_rocks.ConfigureObserver(m_player);
             var variant = Variants[session.Trial];
-            QuestCombatTelemetry.WeaponLightsDisabled = variant == "weapon-lights-off";
+            QuestCombatTelemetry.WeaponLightsDisabled = false;
             QuestCombatTelemetry.SmokeDisabled = false;
             m_label = new Label3D { Text = "COMBAT / " + variant + "\nKeep head still; Menu cancels", FontSize = 22,
                 Position = new Vector3(0, .30f, -1.2f), PixelSize = .00065f, NoDepthTest = true };

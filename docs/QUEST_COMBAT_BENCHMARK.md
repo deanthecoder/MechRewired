@@ -24,10 +24,10 @@ so the result cannot identify one unique bottleneck by itself.
 3. Open the Quest menu, select **BENCHMARKS > COMBAT TEST (RESTARTS)**, and keep
    your head still. Menu cancels the suite; losing headset focus also cancels it.
    This action intentionally restarts the mission, as the menu label says.
-4. The suite runs three fresh missions, each measured for 15 seconds, plus a final
+4. The suite runs two fresh missions, each measured for 15 seconds, plus a final
    fresh mission that restores the captured settings and resumes normal play
    after a complete run. Failed or cancelled runs leave the result menu paused.
-   Expect 45 seconds plus mission loading, sky setup, and reporting overhead.
+   Expect 30 seconds plus mission loading, sky setup, and reporting overhead.
    Stop log capture after `QUEST_COMBAT_STATUS: ... "complete"` appears.
 5. Analyze the log on the Mac:
 
@@ -69,13 +69,12 @@ measurement. Normal enemy actions and the resulting fight are not deterministic.
 
 All measured trials explicitly enable the combined baked sky, UV cockpit and
 baked cabin profile, waiting for sky capture before warm-up. Other captured
-settings are held constant. The three trials are:
+settings are held constant. The two trials are:
 
 | Trial | Variant | Change |
 | --- | --- | --- |
 | 1 | `baseline` | Combined baked profile |
-| 2 | `weapon-lights-off` | Disables weapon, missile, laser, impact, and explosion lights; ambient, cockpit, and sun lighting remain |
-| 3 | `baseline` | Combined baked profile again |
+| 2 | `baseline` | Combined baked profile again; weapon lights and smoke remain ON |
 
 Each starts in a fresh mission, so damage, ammunition, and lazily-created pools
 do not carry between trials. The final fresh mission restores the captured
@@ -95,10 +94,12 @@ reports the total enemy pool count and whether all missile pools are ready.
 Measured pool creation should now be zero; a nonzero count identifies a fallback.
 Shader and driver caches can remain warm across mission reloads.
 
-The inactive smoke-off comparison has been removed. The rendering test compares
+Smoke-off and weapon-lights-off comparisons have been removed from new combat
+suites now that the production baseline retains both effects. Historical logs
+remain supported by the analyzer. The rendering test compares
 the same combined baked profile, its glass variant, and a version with unlit
 terrain, bracketed by baselines: 20 trials, or 180 seconds of warm-up and
-sampling, plus setup and reporting. Combat retains its three trials and both
+sampling, plus setup and reporting. Combat retains two baseline trials and
 baselines to detect drift. Each combat trial and
 summary records the effective baked sky and cockpit flags; the final mission
 restores the user's original individual options, including after cancellation.
@@ -156,7 +157,7 @@ not screenshots or automated visual-quality evidence.
 
 ## Comparison validity and production changes
 
-Weapon lights-off stages remove dynamic illumination. They do **not** bake
+Historical weapon lights-off stages removed dynamic illumination. They did **not** bake
 replacement lighting; emissive weapon appearances remain, and cockpit/ambient/sun
 lights are outside the weapon-light test. The rendering test's offline baked
 cabin lighting is part of the combined profile and excludes sun lighting. The
