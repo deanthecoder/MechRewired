@@ -172,3 +172,10 @@ firing in that state, locomotion stopping when either controller is absent, and
 trigger release before firing after right-controller reacquisition. The smoke
 ended with `QUEST_VR_SMOKE_PASS`; these checks exercise the synthetic preview
 controller path, while live tracking behavior still needs headset confirmation.
+
+The PID-filtered repeat capture also retains renderer `free_rid` errors from
+`GodotObject.Finalize()` during each trial. The same error exists in local captures
+from before the bounds/pooling pass; it is not established as a new pooling
+regression. Resource cleanup on the finalizer thread is a separate investigation
+lead. The source log retains its original trailing spaces on those error lines;
+whitespace diagnostics on that evidence file do not indicate code whitespace.
