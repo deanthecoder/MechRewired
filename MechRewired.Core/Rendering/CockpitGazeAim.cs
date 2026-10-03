@@ -26,8 +26,15 @@ public static class CockpitGazeAim
     /// </summary>
     public static bool TryGetAimPoint(Vector3 eye, Vector3 headForward,
         ReadOnlySpan<Vector3> windshieldVertices, Vector2 hudHalfSize, float inset, out Vector2 aimPoint)
+        => TryGetAimPoint(eye, headForward, windshieldVertices, hudHalfSize, inset, out aimPoint, out _);
+
+    /// <summary>Projects head aim and returns smooth signed edge-turn drive within the visible opening.</summary>
+    public static bool TryGetAimPoint(Vector3 eye, Vector3 headForward,
+        ReadOnlySpan<Vector3> windshieldVertices, Vector2 hudHalfSize, float inset,
+        out Vector2 aimPoint, out Vector2 edgeTurn)
     {
         aimPoint = default;
+        edgeTurn = default;
         if (!IsFinite(eye) || !IsFinite(headForward) || eye.Z <= Epsilon ||
             !float.IsFinite(inset) || inset < 0 ||
             !float.IsFinite(hudHalfSize.X) || !float.IsFinite(hudHalfSize.Y) ||
@@ -136,7 +143,51 @@ public static class CockpitGazeAim
         }
         if (inside)
             aimPoint = target;
+        edgeTurn = new Vector2(
+            GetEdgeDrive(polygon[..count], aimPoint, horizontal: true),
+            GetEdgeDrive(polygon[..count], aimPoint, horizontal: false));
         return true;
+    }
+
+    private static float GetEdgeDrive(ReadOnlySpan<Vector2> polygon, Vector2 point, bool horizontal)
+    {
+        var coordinate = horizontal ? point.Y : point.X;
+        var minimum = float.PositiveInfinity;
+        var maximum = float.NegativeInfinity;
+        for (var i = 0; i < polygon.Length; i++)
+        {
+            var a = polygon[i];
+            var b = polygon[(i + 1) % polygon.Length];
+            var aAxis = horizontal ? a.Y : a.X;
+            var bAxis = horizontal ? b.Y : b.X;
+            var aValue = horizontal ? a.X : a.Y;
+            var bValue = horizontal ? b.X : b.Y;
+            if (Math.Abs(aAxis - bAxis) <= Epsilon)
+            {
+                if (Math.Abs(coordinate - aAxis) <= Epsilon)
+                {
+                    minimum = Math.Min(minimum, Math.Min(aValue, bValue));
+                    maximum = Math.Max(maximum, Math.Max(aValue, bValue));
+                }
+                continue;
+            }
+            if (coordinate < Math.Min(aAxis, bAxis) - Epsilon || coordinate > Math.Max(aAxis, bAxis) + Epsilon)
+                continue;
+            var fraction = Math.Clamp((coordinate - aAxis) / (bAxis - aAxis), 0, 1);
+            var value = aValue + (bValue - aValue) * fraction;
+            minimum = Math.Min(minimum, value);
+            maximum = Math.Max(maximum, value);
+        }
+        var halfRange = (maximum - minimum) * 0.5f;
+        if (!float.IsFinite(halfRange) || halfRange <= Epsilon)
+            return 0;
+        var normalized = Math.Clamp((horizontal ? point.X : point.Y) - (minimum + maximum) * 0.5f, -halfRange, halfRange) / halfRange;
+        var magnitude = Math.Abs(normalized);
+        if (magnitude <= 0.75f)
+            return 0;
+        var ramp = Math.Clamp((magnitude - 0.75f) / 0.25f, 0, 1);
+        var smooth = ramp * ramp * (3 - 2 * ramp);
+        return MathF.CopySign(smooth, normalized);
     }
 
     private static bool ComesBefore(Vector2 a, Vector2 b) => a.X < b.X || (a.X == b.X && a.Y < b.Y);

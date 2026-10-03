@@ -87,15 +87,17 @@ public partial class QuestVrSmokeCheck : Node
             left.SetInput("trigger", 1.0f);
             await Frames(3);
             Check(targets == 1, "left index trigger selects next target once");
-            head.SetPose("default", new Transform3D(new Basis(Vector3.Right, 0.25f), Vector3.Zero), Vector3.Zero, Vector3.Zero, XRPose.TrackingConfidenceEnum.High);
+            head.SetPose("default", new Transform3D(new Basis(Vector3.Right, 0.03f), Vector3.Zero), Vector3.Zero, Vector3.Zero, XRPose.TrackingConfidenceEnum.High);
             await Frames(3);
-            Check(targets == 1 && m_player.VrAim.DistanceTo(before) < 0.001f,
-                "held target trigger does not repeat or change torso aim");
+            Check(targets == 1, "held target trigger does not repeat while looking around");
             left.SetInput("trigger", 0.0f);
             await Frames(3);
             head.SetPose("default", Transform3D.Identity, Vector3.Zero, Vector3.Zero, XRPose.TrackingConfidenceEnum.High);
+            rig.Camera.Basis = Basis.Identity;
             await Frames(3);
             Check(m_player.VrAim.DistanceTo(before) < 0.001f, "free look leaves torso aimed");
+
+            await CheckGazeControls(rig, right);
 
             var weaponCycles = 0;
             m_player.CycleWeaponRequested += () => weaponCycles++;
@@ -152,6 +154,139 @@ public partial class QuestVrSmokeCheck : Node
             XRServer.RemoveTracker(left);
             XRServer.RemoveTracker(right);
             XRServer.RemoveTracker(head);
+        }
+    }
+
+    private async System.Threading.Tasks.Task CheckGazeControls(QuestVrRig rig, XRControllerTracker right)
+    {
+        var savedPlayerTransform = m_player.GlobalTransform;
+        var savedRigTransform = rig.Transform;
+        var savedCameraTransform = rig.Camera.Transform;
+        try
+        {
+            right.SetInput("primary", Vector2.Zero);
+            right.SetInput("primary_click", false);
+            rig.BenchmarkActive = false;
+            if (GetTree().Paused) GetTree().Paused = false;
+            m_player.StopVrMovement();
+            m_player.SetVrTorsoAim(0, 0);
+            rig.Camera.Transform = Transform3D.Identity;
+            await Frames(8);
+            var centerAim = m_player.VrAim;
+            await Frames(12);
+            Check(m_player.VrAim.DistanceTo(centerAim) < 0.001f, "center gaze does not turn torso automatically");
+
+            // A negative camera yaw points the headset toward the right windshield edge.
+            rig.Camera.Basis = new Basis(Vector3.Up, -1.0f);
+            m_player.SetVrTorsoAim(0, 0);
+            await Frames(1);
+            var rightEdgeWorldForward = -rig.Camera.GlobalBasis.Z;
+            await Frames(23);
+            Check(m_player.VrAim.X < -0.005f, "right windshield edge automatically turns torso right");
+            Check((-rig.Camera.GlobalBasis.Z).AngleTo(rightEdgeWorldForward) < 0.01f,
+                "automatic torso yaw preserves the headset world gaze bearing");
+
+            rig.Transform = savedRigTransform;
+            rig.Camera.Basis = new Basis(Vector3.Right, 0.65f);
+            m_player.SetVrTorsoAim(0, 0);
+            await Frames(1);
+            var upperEdgeWorldForward = -rig.Camera.GlobalBasis.Z;
+            await Frames(23);
+            Check(m_player.VrAim.Y > 0.005f, "upper windshield edge automatically raises torso aim");
+            Check((-rig.Camera.GlobalBasis.Z).AngleTo(upperEdgeWorldForward) < 0.01f,
+                "automatic torso pitch preserves the headset world gaze bearing");
+            rig.Transform = savedRigTransform;
+            m_player.SetVrTorsoAim(0, 0);
+            rig.Camera.Basis = new Basis(Vector3.Right, -0.65f);
+            await Frames(24);
+            Check(m_player.VrAim.Y < -0.005f, "lower windshield edge automatically lowers torso aim");
+
+            rig.Transform = savedRigTransform;
+            m_player.SetVrTorsoAim(0, 0.78f);
+            rig.Camera.Basis = new Basis(Vector3.Right, 0.9f);
+            await Frames(24);
+            Check(m_player.VrAim.Y <= 0.7855f && m_player.VrAim.Y > 0.77f, "automatic upward pitch stays within torso limit");
+            rig.Transform = savedRigTransform;
+            m_player.SetVrTorsoAim(0, -0.52f);
+            rig.Camera.Basis = new Basis(Vector3.Right, -0.9f);
+            await Frames(24);
+            Check(m_player.VrAim.Y >= -0.524f && m_player.VrAim.Y < -0.51f, "automatic downward pitch stays within torso limit");
+
+            // Capture a rightward raw headset bearing. Alignment must rotate the legs in place,
+            // without recentering or otherwise moving the tracked camera pose.
+            rig.Transform = savedRigTransform;
+            m_player.SetVrTorsoAim(0, 0);
+            rig.Camera.Basis = new Basis(Vector3.Up, -0.65f);
+            await Frames(3);
+            var cameraPose = rig.Camera.Transform;
+            var gazeHeading = Mathf.Atan2(rig.Camera.GlobalBasis.Z.X, rig.Camera.GlobalBasis.Z.Z);
+            var headingErrorBeforeAlignment = Mathf.Abs(Mathf.AngleDifference(m_player.GlobalRotation.Y, gazeHeading));
+            right.SetInput("primary_click", true);
+            await Frames(2);
+            right.SetInput("primary_click", false);
+            await Frames(4);
+            Check(m_player.IsVrAligningLegsToGaze, "right primary click starts legs alignment to gaze");
+            Check(rig.Camera.Transform.IsEqualApprox(cameraPose), "gaze alignment turns legs without teleporting headset pose");
+            Check(Mathf.Abs(Mathf.AngleDifference(m_player.GlobalRotation.Y, gazeHeading)) < headingErrorBeforeAlignment,
+                "gaze alignment turns legs toward the captured world bearing");
+
+            right.SetInput("primary", new Vector2(1, 0));
+            await Frames(3);
+            Check(!m_player.IsVrAligningLegsToGaze && rig.Steering < -0.5f,
+                "manual right X steering cancels gaze alignment");
+            right.SetInput("primary", Vector2.Zero);
+
+            m_player.StopVrMovement();
+            m_player.GlobalRotation = new Vector3(m_player.GlobalRotation.X, Mathf.Pi - 0.12f, m_player.GlobalRotation.Z);
+            rig.Transform = savedRigTransform;
+            m_player.SetVrTorsoAim(0, 0);
+            rig.Camera.Basis = new Basis(Vector3.Up, 0.25f);
+            await Frames(3);
+            gazeHeading = Mathf.Atan2(rig.Camera.GlobalBasis.Z.X, rig.Camera.GlobalBasis.Z.Z);
+            headingErrorBeforeAlignment = Mathf.Abs(Mathf.AngleDifference(m_player.GlobalRotation.Y, gazeHeading));
+            right.SetInput("primary_click", true);
+            await Frames(2);
+            right.SetInput("primary_click", false);
+            await Frames(4);
+            Check(m_player.IsVrAligningLegsToGaze &&
+                  Mathf.Abs(Mathf.AngleDifference(m_player.GlobalRotation.Y, gazeHeading)) < headingErrorBeforeAlignment,
+                "gaze alignment takes the short turn across the yaw wrap-around");
+
+            m_player.StopVrMovement();
+            m_player.SetVrTorsoAim(0, 0);
+            rig.Camera.Transform = Transform3D.Identity;
+            rig.Menu.Toggle();
+            await Frames(3);
+            var pausedAim = m_player.VrAim;
+            rig.Transform = savedRigTransform;
+            rig.Camera.Basis = new Basis(Vector3.Up, -1.0f);
+            await Frames(12);
+            Check(GetTree().Paused && m_player.VrAim.DistanceTo(pausedAim) < 0.001f,
+                "paused menu suppresses automatic gaze motion");
+            rig.Menu.Close();
+            await Frames(3);
+
+            rig.BenchmarkActive = true;
+            var benchmarkAim = m_player.VrAim;
+            rig.Transform = savedRigTransform;
+            rig.Camera.Basis = new Basis(Vector3.Up, -1.0f);
+            await Frames(12);
+            Check(m_player.VrAim.DistanceTo(benchmarkAim) < 0.001f,
+                "benchmark suppresses automatic gaze motion");
+            rig.BenchmarkActive = false;
+        }
+        finally
+        {
+            right.SetInput("primary", Vector2.Zero);
+            right.SetInput("primary_click", false);
+            rig.BenchmarkActive = false;
+            if (GetTree().Paused) rig.Menu.Close();
+            m_player.StopVrMovement();
+            m_player.SetVrTorsoAim(0, 0);
+            rig.Camera.Transform = savedCameraTransform;
+            m_player.GlobalTransform = savedPlayerTransform;
+            rig.Transform = savedRigTransform;
+            await Frames(5);
         }
     }
 

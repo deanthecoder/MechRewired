@@ -78,6 +78,9 @@ public partial class PlayerMech : Node3D
     private bool m_sceneryBlocked;
     private SceneryObstacle m_lastBlockingObstacle;
     private bool m_aligningLegsToTorso;
+    private bool m_vrAligningLegsToGaze;
+    private float m_vrGazeHeading;
+    private bool m_preserveHeadBearingForTorsoAim;
     private bool m_translationLocked;
     private string m_translationLockReason = string.Empty;
     private bool m_displayZoomMoving;
@@ -319,13 +322,33 @@ public partial class PlayerMech : Node3D
     }
 
     public void SetVrPitch(float pitch)
+        => SetVrTorsoAim(m_targetTorsoYaw, pitch);
+
+    /// <summary>Sets bounded torso aim without changing the native headset pose.</summary>
+    public void SetVrTorsoAim(float yaw, float pitch, bool preserveHeadBearing = false)
     {
         if (IsDestroyed || IsShutdown) return;
-        m_targetTorsoYaw = 0.0f;
+        m_preserveHeadBearingForTorsoAim = preserveHeadBearing;
+        m_targetTorsoYaw = Mathf.Clamp(yaw, -MaximumTorsoYaw, MaximumTorsoYaw);
         m_targetTorsoPitch = Mathf.Clamp(pitch, MinimumTorsoPitch, MaximumTorsoPitch);
     }
 
     public Vector2 VrAim => new(m_targetTorsoYaw, m_targetTorsoPitch);
+
+    public bool IsVrAligningLegsToGaze => m_vrAligningLegsToGaze;
+
+    /// <summary>Turns the legs toward the horizontal gaze bearing captured at the click.</summary>
+    public void AlignVrLegsToGaze(Vector3 gazeDirection)
+    {
+        if (!IsVr || IsDestroyed || IsShutdown || IsImmobilized ||
+            !gazeDirection.IsFinite() || new Vector2(gazeDirection.X, gazeDirection.Z).LengthSquared() < 0.0001f)
+            return;
+        ManualControlRequested?.Invoke("VR legs to gaze");
+        m_aligningLegsToTorso = false;
+        m_targetTorsoYaw = m_torsoYaw;
+        m_vrGazeHeading = Mathf.Atan2(-gazeDirection.X, -gazeDirection.Z);
+        m_vrAligningLegsToGaze = true;
+    }
 
     public void VrFire()
     {
@@ -355,6 +378,7 @@ public partial class PlayerMech : Node3D
     public void StopVrMovement()
     {
         ManualControlRequested?.Invoke("VR stop");
+        m_vrAligningLegsToGaze = false;
         Drive.SelectStop();
     }
 
@@ -659,6 +683,7 @@ public partial class PlayerMech : Node3D
             Drive.SelectStop();
             m_autopilotSteering = null;
             m_aligningLegsToTorso = false;
+            m_vrAligningLegsToGaze = false;
             if (Math.Abs(Drive.CurrentSpeedKph) < 0.001)
             {
                 ActualSpeedKph = 0.0f;
@@ -860,6 +885,7 @@ public partial class PlayerMech : Node3D
         if (manualSteering)
         {
             m_aligningLegsToTorso = false;
+            m_vrAligningLegsToGaze = false;
         }
         else if (m_autopilotSteering.HasValue)
         {
@@ -872,6 +898,7 @@ public partial class PlayerMech : Node3D
         {
             AdvanceJumpJets((float)delta, false);
             m_aligningLegsToTorso = false;
+            m_vrAligningLegsToGaze = false;
             ActualSpeedKph = 0.0f;
             m_mechRig.Advance(0.0f, 0.0f, 0.0f, (float)delta, IsAirborne);
             ApplyLandingDip((float)delta);
@@ -884,10 +911,13 @@ public partial class PlayerMech : Node3D
         {
             steering = Mathf.Sign(m_torsoYaw);
         }
+        if (m_vrAligningLegsToGaze)
+            steering = Mathf.Sign(Mathf.AngleDifference(GlobalRotation.Y, m_vrGazeHeading));
 
         var driveStep = Drive.Advance(delta, steering);
         var headingChangeRadians = Mathf.DegToRad((float)driveStep.HeadingChangeDegrees);
         headingChangeRadians = ApplyLegAlignment(headingChangeRadians);
+        headingChangeRadians = ApplyVrGazeLegAlignment(headingChangeRadians);
         RotateY(headingChangeRadians);
         var appliedDistance = TryMoveAcrossTerrain(
             (float)driveStep.DistanceMeters * GetDebugTravelMultiplier());
@@ -1492,7 +1522,12 @@ public partial class PlayerMech : Node3D
         var blend = 1.0f - Mathf.Exp(-TorsoAimResponse * delta);
         m_torsoYaw = Mathf.LerpAngle(m_torsoYaw, m_targetTorsoYaw, blend);
         m_torsoPitch = Mathf.LerpAngle(m_torsoPitch, m_targetTorsoPitch, blend);
+        var keepHeadBearing = IsVr && m_preserveHeadBearingForTorsoAim;
+        var trackedOriginBasis = keepHeadBearing ? VrRig.GlobalBasis : Basis.Identity;
         Torso.Rotation = new Vector3(m_torsoPitch, m_torsoYaw, 0.0f);
+        // Move the cockpit under the gaze until the reticle has room again. Counter-turn
+        // the tracking origin, leaving the HMD's native local pose and world bearing intact.
+        if (keepHeadBearing) VrRig.GlobalBasis = trackedOriginBasis;
         return (Mathf.Abs(Mathf.AngleDifference(previousYaw, m_torsoYaw)) +
                 Mathf.Abs(Mathf.AngleDifference(previousPitch, m_torsoPitch))) / delta;
     }
@@ -1608,6 +1643,21 @@ public partial class PlayerMech : Node3D
         }
 
         Torso.Rotation = new Vector3(m_torsoPitch, m_torsoYaw, 0.0f);
+        return headingChange;
+    }
+
+    private float ApplyVrGazeLegAlignment(float proposedHeadingChange)
+    {
+        if (!m_vrAligningLegsToGaze) return proposedHeadingChange;
+        var remaining = Mathf.AngleDifference(GlobalRotation.Y, m_vrGazeHeading);
+        var headingChange = Mathf.Sign(remaining) * Mathf.Min(Mathf.Abs(proposedHeadingChange), Mathf.Abs(remaining));
+        // Counter-rotate the torso to preserve its world bearing while the legs turn,
+        // subject to the mech's physical torso limits. Head tracking itself stays untouched.
+        m_torsoYaw = Mathf.Clamp(m_torsoYaw - headingChange, -MaximumTorsoYaw, MaximumTorsoYaw);
+        m_targetTorsoYaw = Mathf.Clamp(m_targetTorsoYaw - headingChange, -MaximumTorsoYaw, MaximumTorsoYaw);
+        Torso.Rotation = new Vector3(m_torsoPitch, m_torsoYaw, 0.0f);
+        if (Mathf.Abs(remaining - headingChange) <= LegAlignmentTolerance)
+            m_vrAligningLegsToGaze = false;
         return headingChange;
     }
 

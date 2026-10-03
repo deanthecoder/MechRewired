@@ -147,7 +147,7 @@ public sealed partial class QuestCombatBenchmark : Node
             rig.BenchmarkCancelRequested = () => m_cancelled = true;
             m_player.StopVrMovement();
             m_player.GlobalTransform = FindEncounterPose(enemy);
-            m_player.SetVrPitch(0);
+            m_player.SetVrTorsoAim(0, 0);
             m_rocks.ConfigureObserver(m_player);
             var variant = Variants[session.Trial];
             QuestCombatTelemetry.WeaponLightsDisabled = false;
