@@ -114,46 +114,6 @@ public sealed class CockpitGazeAimTests
         Assert.That(allocated, Is.Zero);
     }
 
-    [Test]
-    public void EdgeTurnIsZeroInCenterAndSmoothlyPointsTowardAllFourEdges()
-    {
-        Assert.That(TryAim(0, 0, out var center), Is.True);
-        AssertPoint(center, Vector2.Zero);
-        Assert.That(TryAim(0.9f, 0, out var right), Is.True);
-        Assert.That(right.X, Is.EqualTo(1).Within(0.0001f));
-        Assert.That(right.Y, Is.Zero);
-        Assert.That(TryAim(-0.9f, 0, out var left), Is.True);
-        Assert.That(left.X, Is.EqualTo(-1).Within(0.0001f));
-        Assert.That(TryAim(0, 0.9f, out var up), Is.True);
-        Assert.That(up.Y, Is.EqualTo(1).Within(0.0001f));
-        Assert.That(TryAim(0, -0.9f, out var down), Is.True);
-        Assert.That(down.Y, Is.EqualTo(-1).Within(0.0001f));
-        Assert.That(TryAim(0.4f, 0, out var ramp), Is.True);
-        Assert.That(ramp.X, Is.GreaterThan(0).And.LessThan(1));
-    }
-
-    [Test]
-    public void EdgeTurnUsesNarrowTrapezoidCrossSectionAtAimHeight()
-    {
-        Vector3[] trapezoid = [new(-1, -1, -1), new(1, -1, -1), new(0.2f, 1, -1), new(-0.2f, 1, -1)];
-        Assert.That(CockpitGazeAim.TryGetAimPoint(Vector3.UnitZ, new Vector3(0.4f, 0.4f, -1),
-            trapezoid, Vector2.One, 0, out _, out var edgeTurn), Is.True);
-        Assert.That(edgeTurn.X, Is.EqualTo(1).Within(0.0001f));
-        Assert.That(edgeTurn.Y, Is.InRange(-1, 1));
-    }
-
-    [Test]
-    public void InvalidGazeReturnsZeroEdgeTurn()
-    {
-        Assert.That(CockpitGazeAim.TryGetAimPoint(Vector3.Zero, -Vector3.UnitZ,
-            Glass, Vector2.One, 0, out _, out var edgeTurn), Is.False);
-        Assert.That(edgeTurn, Is.EqualTo(Vector2.Zero));
-    }
-
-    private static bool TryAim(float x, float y, out Vector2 edgeTurn) =>
-        CockpitGazeAim.TryGetAimPoint(Vector3.UnitZ, new Vector3(x, y, -1),
-            Glass, Vector2.One, 0.04f, out _, out edgeTurn);
-
     private static void AssertPoint(Vector2 actual, Vector2 expected) =>
         Assert.That(Vector2.Distance(actual, expected), Is.LessThan(0.0001f));
 }

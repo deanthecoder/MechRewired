@@ -325,7 +325,7 @@ public partial class Main : Node3D
             {
                 // Only release the pause we own. A benchmark or menu may change the
                 // pause state while its restored mission reaches the first frame.
-                if (pausedForStartup && IsInstanceValid(tree))
+                if (pausedForStartup && IsInstanceValid(tree) && player.VrRig?.Menu?.IsOpen != true)
                     tree.Paused = false;
             }
             player.BeginDeploymentAudio();

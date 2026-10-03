@@ -9,6 +9,7 @@ from collections import defaultdict
 from pathlib import Path
 
 PREFIX = "QUEST_COMBAT_SUMMARY:"
+CHUNK_PREFIX = "QUEST_COMBAT_CHUNK:"
 VARIANTS = ("baseline", "weapon-lights-off", "smoke-off")
 METRICS = (
     ("hudInstrumentDraws", "HUD instrument redraws", ""),
@@ -46,20 +47,56 @@ METRICS = (
 def read_records(path):
     records = []
     malformed = 0
+    chunks = {}
     with path.open("r", encoding="utf-8-sig", errors="replace") as source:
         for line in source:
-            if PREFIX not in line:
+            if CHUNK_PREFIX in line:
+                try:
+                    chunk = json.loads(line.split(CHUNK_PREFIX, 1)[1].strip())
+                    kind, run_id, record_id = chunk["kind"], chunk["runId"], chunk["recordId"]
+                    index, count, data = chunk["index"], chunk["count"], chunk["data"]
+                    if (not isinstance(kind, str) or not isinstance(run_id, str)
+                            or isinstance(record_id, bool) or not isinstance(record_id, int)
+                            or isinstance(index, bool) or not isinstance(index, int)
+                            or isinstance(count, bool) or not isinstance(count, int)
+                            or count < 1 or index < 0 or index >= count or not isinstance(data, str)):
+                        raise ValueError("invalid chunk fields")
+                    key = (kind, run_id, record_id)
+                    entry = chunks.setdefault(key, {"count": count, "parts": {}, "invalid": False})
+                    if entry["count"] != count or index in entry["parts"]:
+                        entry["invalid"] = True
+                    entry["parts"][index] = data
+                except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+                    malformed += 1
                 continue
-            payload = line.split(PREFIX, 1)[1].strip()
-            try:
-                record = json.loads(payload)
-            except (json.JSONDecodeError, TypeError):
-                malformed += 1
-                continue
-            if isinstance(record, dict):
-                records.append(record)
-            else:
-                malformed += 1
+            if PREFIX in line:
+                payload = line.split(PREFIX, 1)[1].strip()
+                try:
+                    record = json.loads(payload)
+                except (json.JSONDecodeError, TypeError):
+                    malformed += 1
+                    continue
+                if isinstance(record, dict):
+                    records.append(record)
+                else:
+                    malformed += 1
+
+    for (kind, _run_id, _record_id), entry in chunks.items():
+        if kind != "SUMMARY":
+            continue
+        if entry["invalid"] or len(entry["parts"]) != entry["count"]:
+            malformed += 1
+            continue
+        payload = "".join(entry["parts"][index] for index in range(entry["count"]))
+        try:
+            record = json.loads(payload)
+        except (json.JSONDecodeError, TypeError):
+            malformed += 1
+            continue
+        if isinstance(record, dict):
+            records.append(record)
+        else:
+            malformed += 1
     return records, malformed
 
 

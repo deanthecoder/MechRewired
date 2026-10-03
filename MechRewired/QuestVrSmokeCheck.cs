@@ -34,6 +34,7 @@ public partial class QuestVrSmokeCheck : Node
             head.SetPose("default", Transform3D.Identity, Vector3.Zero, Vector3.Zero, XRPose.TrackingConfidenceEnum.High);
             await Frames(5);
             var rig = m_player.VrRig;
+            Check(!GetTree().Paused && !rig.Menu.IsOpen, "VR startup leaves mission unpaused with menu closed");
             Check(rig.Camera.Current && !m_player.CockpitCamera.Current, "tracked camera owns view");
             Check(rig.Position.DistanceTo(new Vector3(0, 0.12f, 0.10f)) < 0.001f,
                 "seat is raised 12 cm and moved back 10 cm");
@@ -42,6 +43,7 @@ public partial class QuestVrSmokeCheck : Node
                 .OfType<Label3D>().Any(label => label.Text == "HUD GLOW"),
                 "Quest HUD glow defaults off and has a menu switch");
             Check(rig.Left.GetIsActive() && rig.Right.GetIsActive(), "synthetic controllers tracked");
+            await CheckNativeCameraRecenter(rig);
 
             left.SetInput("primary", new Vector2(1, 0));
             await Frames(3);
@@ -157,6 +159,35 @@ public partial class QuestVrSmokeCheck : Node
         }
     }
 
+    private async System.Threading.Tasks.Task CheckNativeCameraRecenter(QuestVrRig rig)
+    {
+        var savedCameraTransform = rig.Camera.Transform;
+        var savedRigTransform = rig.Transform;
+        var nativePosition = new Vector3(0.35f, 1.6f, -0.4f);
+        try
+        {
+            rig.Camera.Transform = new Transform3D(Basis.Identity, nativePosition);
+            rig.RecenterSeat();
+            var seatOffset = new Vector3(0.0f, 0.12f, 0.10f);
+            Check((rig.Transform * rig.Camera.Position).DistanceTo(seatOffset) < 0.001f,
+                "native head offset recenters the eye at the cockpit seat");
+
+            var edgeRotation = new Basis(Vector3.Up, -0.32f) * new Basis(Vector3.Right, 0.16f);
+            rig.Camera.Basis = edgeRotation;
+            var injectedCameraPose = new Transform3D(edgeRotation, nativePosition);
+            await Frames(12);
+            Check(rig.Camera.Transform.IsEqualApprox(injectedCameraPose),
+                "edge gaze leaves the native camera pose unchanged");
+            Check(rig.HasHeadAim, "native offset edge gaze retains a visible windshield aim point");
+        }
+        finally
+        {
+            rig.Camera.Transform = savedCameraTransform;
+            rig.Transform = savedRigTransform;
+            await Frames(3);
+        }
+    }
+
     private async System.Threading.Tasks.Task CheckGazeControls(QuestVrRig rig, XRControllerTracker right)
     {
         var savedPlayerTransform = m_player.GlobalTransform;
@@ -171,46 +202,24 @@ public partial class QuestVrSmokeCheck : Node
             m_player.StopVrMovement();
             m_player.SetVrTorsoAim(0, 0);
             rig.Camera.Transform = Transform3D.Identity;
-            await Frames(8);
-            var centerAim = m_player.VrAim;
-            await Frames(12);
-            Check(m_player.VrAim.DistanceTo(centerAim) < 0.001f, "center gaze does not turn torso automatically");
-
-            // A negative camera yaw points the headset toward the right windshield edge.
-            rig.Camera.Basis = new Basis(Vector3.Up, -1.0f);
-            m_player.SetVrTorsoAim(0, 0);
-            await Frames(1);
-            var rightEdgeWorldForward = -rig.Camera.GlobalBasis.Z;
-            await Frames(23);
-            Check(m_player.VrAim.X < -0.005f, "right windshield edge automatically turns torso right");
-            Check((-rig.Camera.GlobalBasis.Z).AngleTo(rightEdgeWorldForward) < 0.01f,
-                "automatic torso yaw preserves the headset world gaze bearing");
-
             rig.Transform = savedRigTransform;
-            rig.Camera.Basis = new Basis(Vector3.Right, 0.65f);
-            m_player.SetVrTorsoAim(0, 0);
-            await Frames(1);
-            var upperEdgeWorldForward = -rig.Camera.GlobalBasis.Z;
-            await Frames(23);
-            Check(m_player.VrAim.Y > 0.005f, "upper windshield edge automatically raises torso aim");
-            Check((-rig.Camera.GlobalBasis.Z).AngleTo(upperEdgeWorldForward) < 0.01f,
-                "automatic torso pitch preserves the headset world gaze bearing");
-            rig.Transform = savedRigTransform;
-            m_player.SetVrTorsoAim(0, 0);
-            rig.Camera.Basis = new Basis(Vector3.Right, -0.65f);
-            await Frames(24);
-            Check(m_player.VrAim.Y < -0.005f, "lower windshield edge automatically lowers torso aim");
-
-            rig.Transform = savedRigTransform;
-            m_player.SetVrTorsoAim(0, 0.78f);
-            rig.Camera.Basis = new Basis(Vector3.Right, 0.9f);
-            await Frames(24);
-            Check(m_player.VrAim.Y <= 0.7855f && m_player.VrAim.Y > 0.77f, "automatic upward pitch stays within torso limit");
-            rig.Transform = savedRigTransform;
-            m_player.SetVrTorsoAim(0, -0.52f);
-            rig.Camera.Basis = new Basis(Vector3.Right, -0.9f);
-            await Frames(24);
-            Check(m_player.VrAim.Y >= -0.524f && m_player.VrAim.Y < -0.51f, "automatic downward pitch stays within torso limit");
+            var edgeCases = new (string Name, Basis Rotation)[]
+            {
+                ("center", Basis.Identity),
+                ("right", new Basis(Vector3.Up, -0.65f)),
+                ("left", new Basis(Vector3.Up, 0.65f)),
+                ("upper", new Basis(Vector3.Right, 0.65f)),
+                ("lower", new Basis(Vector3.Right, -0.65f))
+            };
+            foreach (var edge in edgeCases)
+            {
+                m_player.SetVrTorsoAim(0, 0);
+                rig.Transform = savedRigTransform;
+                rig.Camera.Basis = edge.Rotation;
+                await Frames(12);
+                Check(m_player.VrAim.DistanceTo(Vector2.Zero) < 0.001f,
+                    $"{edge.Name} gaze does not automatically change torso aim");
+            }
 
             // Capture a rightward raw headset bearing. Alignment must rotate the legs in place,
             // without recentering or otherwise moving the tracked camera pose.
@@ -262,7 +271,7 @@ public partial class QuestVrSmokeCheck : Node
             rig.Camera.Basis = new Basis(Vector3.Up, -1.0f);
             await Frames(12);
             Check(GetTree().Paused && m_player.VrAim.DistanceTo(pausedAim) < 0.001f,
-                "paused menu suppresses automatic gaze motion");
+                "paused menu keeps torso aim unchanged at a gaze edge");
             rig.Menu.Close();
             await Frames(3);
 
@@ -272,7 +281,7 @@ public partial class QuestVrSmokeCheck : Node
             rig.Camera.Basis = new Basis(Vector3.Up, -1.0f);
             await Frames(12);
             Check(m_player.VrAim.DistanceTo(benchmarkAim) < 0.001f,
-                "benchmark suppresses automatic gaze motion");
+                "benchmark keeps torso aim unchanged at a gaze edge");
             rig.BenchmarkActive = false;
         }
         finally

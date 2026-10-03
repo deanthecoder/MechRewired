@@ -80,7 +80,6 @@ public partial class PlayerMech : Node3D
     private bool m_aligningLegsToTorso;
     private bool m_vrAligningLegsToGaze;
     private float m_vrGazeHeading;
-    private bool m_preserveHeadBearingForTorsoAim;
     private bool m_translationLocked;
     private string m_translationLockReason = string.Empty;
     private bool m_displayZoomMoving;
@@ -325,10 +324,9 @@ public partial class PlayerMech : Node3D
         => SetVrTorsoAim(m_targetTorsoYaw, pitch);
 
     /// <summary>Sets bounded torso aim without changing the native headset pose.</summary>
-    public void SetVrTorsoAim(float yaw, float pitch, bool preserveHeadBearing = false)
+    public void SetVrTorsoAim(float yaw, float pitch)
     {
         if (IsDestroyed || IsShutdown) return;
-        m_preserveHeadBearingForTorsoAim = preserveHeadBearing;
         m_targetTorsoYaw = Mathf.Clamp(yaw, -MaximumTorsoYaw, MaximumTorsoYaw);
         m_targetTorsoPitch = Mathf.Clamp(pitch, MinimumTorsoPitch, MaximumTorsoPitch);
     }
@@ -1522,12 +1520,7 @@ public partial class PlayerMech : Node3D
         var blend = 1.0f - Mathf.Exp(-TorsoAimResponse * delta);
         m_torsoYaw = Mathf.LerpAngle(m_torsoYaw, m_targetTorsoYaw, blend);
         m_torsoPitch = Mathf.LerpAngle(m_torsoPitch, m_targetTorsoPitch, blend);
-        var keepHeadBearing = IsVr && m_preserveHeadBearingForTorsoAim;
-        var trackedOriginBasis = keepHeadBearing ? VrRig.GlobalBasis : Basis.Identity;
         Torso.Rotation = new Vector3(m_torsoPitch, m_torsoYaw, 0.0f);
-        // Move the cockpit under the gaze until the reticle has room again. Counter-turn
-        // the tracking origin, leaving the HMD's native local pose and world bearing intact.
-        if (keepHeadBearing) VrRig.GlobalBasis = trackedOriginBasis;
         return (Mathf.Abs(Mathf.AngleDifference(previousYaw, m_torsoYaw)) +
                 Mathf.Abs(Mathf.AngleDifference(previousPitch, m_torsoPitch))) / delta;
     }

@@ -15,8 +15,6 @@ public partial class QuestVrRig : XROrigin3D
     private const float WindshieldAimInset = 0.16f;
     private const float TorsoPitchSpeed = Mathf.Pi / 3.0f;
     private const float HeadAimFollowRate = 24.0f;
-    private const float EdgeTorsoYawSpeed = Mathf.Pi / 6.0f;
-    private const float EdgeTorsoPitchSpeed = Mathf.Pi / 9.0f;
     private readonly PlayerMech m_player;
     private readonly OpenXRInterface m_interface;
     private readonly HashSet<string> m_held = new();
@@ -29,7 +27,10 @@ public partial class QuestVrRig : XROrigin3D
     private float m_fireRepeat;
     private Vector2 m_headAimPoint;
     private bool m_hasHeadAim;
-    private Vector2 m_edgeTurn;
+    private int m_initialTrackingFrames;
+    private bool m_hasFocusedSession;
+    private int m_lastInputState = -1;
+    private ulong m_nextInputStateLog;
 
     public XRCamera3D Camera { get; }
     public XRController3D Left { get; }
@@ -91,8 +92,16 @@ public partial class QuestVrRig : XROrigin3D
     public override void _Process(double delta)
     {
         var headTracked = (XRServer.GetTracker("head") as XRPositionalTracker)?.GetPose("default")?.HasTrackingData == true;
-        if (!m_seatCentered && (QuestVrRuntime.Preview || headTracked)) RecenterSeat();
-        var sessionFocused = QuestVrRuntime.Preview || m_interface?.GetSessionState() == OpenXRInterface.SessionState.Focused;
+        var sessionState = m_interface?.GetSessionState();
+        var sessionFocused = QuestVrRuntime.Preview || sessionState == OpenXRInterface.SessionState.Focused;
+        if (!m_seatCentered)
+        {
+            // The tracker can become valid before XRCamera3D has applied that frame's pose.
+            // Wait for a focused session and two pose updates before anchoring the seat.
+            m_initialTrackingFrames = sessionFocused && (QuestVrRuntime.Preview || headTracked)
+                ? m_initialTrackingFrames + 1 : 0;
+            if (m_initialTrackingFrames >= 2) RecenterSeat();
+        }
         if (BenchmarkActive)
         {
             // Keep native head tracking live, but never let controller input unpause or alter a trial.
@@ -101,13 +110,14 @@ public partial class QuestVrRig : XROrigin3D
                 BenchmarkCancelRequested?.Invoke();
             return;
         }
-        if (!QuestVrRuntime.Preview && m_seatCentered && (!headTracked || !sessionFocused) && Menu is { IsOpen: false })
+        if (!QuestVrRuntime.Preview && m_hasFocusedSession && (!headTracked || !sessionFocused) && Menu is { IsOpen: false })
         {
             m_player.StopVrMovement();
             Menu.Toggle();
         }
         var leftTracked = Left.GetIsActive();
         var rightTracked = Right.GetIsActive();
+        if (sessionFocused && headTracked && m_seatCentered) m_hasFocusedSession = true;
         var menuPressed = Pressed("menu", leftTracked && Left.IsButtonPressed("menu_button"));
         var stopPressed = Pressed("stop", leftTracked && Left.IsButtonPressed("primary_click"));
         var weaponButtonPressed = Pressed("weapon_button", rightTracked && Right.IsButtonPressed("ax_button"));
@@ -125,7 +135,17 @@ public partial class QuestVrRig : XROrigin3D
         else
         {
             m_hasHeadAim = false;
-            m_edgeTurn = Vector2.Zero;
+        }
+        var inputState = (GetTree().Paused ? 1 : 0) | (sessionFocused ? 2 : 0) |
+                         (headTracked ? 4 : 0) | (leftTracked ? 8 : 0) | (rightTracked ? 16 : 0) |
+                         (m_seatCentered ? 32 : 0) | (Menu is { IsOpen: true } ? 64 : 0) | (m_hasHeadAim ? 128 : 0);
+        var now = Time.GetTicksMsec();
+        if (inputState != m_lastInputState && now >= m_nextInputStateLog)
+        {
+            GD.Print($"QUEST_VR_INPUT: paused={GetTree().Paused} focus={sessionState} head={headTracked} " +
+                     $"left={leftTracked} right={rightTracked} seat={m_seatCentered} menu={Menu?.IsOpen} aim={m_hasHeadAim}");
+            m_lastInputState = inputState;
+            m_nextInputStateLog = now + 1000;
         }
         if (GetTree().Paused || !sessionFocused || m_player.IsDestroyed || !m_seatCentered || (!QuestVrRuntime.Preview && (!headTracked || !leftTracked || !rightTracked)))
         {
@@ -161,12 +181,8 @@ public partial class QuestVrRig : XROrigin3D
         Steering = -Deadzone(aimStick.X);
         var pitchInput = Deadzone(aimStick.Y);
         if (alignLegsPressed) m_player.AlignVrLegsToGaze(-Camera.GlobalBasis.Z);
-        var torsoStep = Math.Min((float)delta, 0.05f);
-        var edgeTurn = m_player.IsVrAligningLegsToGaze || !Mathf.IsZeroApprox(pitchInput) ? Vector2.Zero : m_edgeTurn;
-        var pitchRate = !Mathf.IsZeroApprox(pitchInput) ? pitchInput * TorsoPitchSpeed : edgeTurn.Y * EdgeTorsoPitchSpeed;
-        if (edgeTurn != Vector2.Zero || !Mathf.IsZeroApprox(pitchInput))
-            m_player.SetVrTorsoAim(m_player.VrAim.X - edgeTurn.X * EdgeTorsoYawSpeed * torsoStep,
-                m_player.VrAim.Y + pitchRate * torsoStep, preserveHeadBearing: Mathf.IsZeroApprox(pitchInput));
+        if (!Mathf.IsZeroApprox(pitchInput))
+            m_player.SetVrPitch(m_player.VrAim.Y + pitchInput * TorsoPitchSpeed * (float)delta);
         var direction = movement.Y > 0.55f ? 1 : movement.Y < -0.55f ? -1 : 0;
         if (direction == 0) m_waitForThrottleCenter = false;
         if (m_waitForThrottleCenter) direction = 0;
@@ -200,7 +216,6 @@ public partial class QuestVrRig : XROrigin3D
     {
         var hadHeadAim = m_hasHeadAim;
         m_hasHeadAim = false;
-        m_edgeTurn = Vector2.Zero;
         if (!GodotObject.IsInstanceValid(AimSurface) || AimSurface.Mesh is not QuadMesh quad) return;
         var vertices = m_player.Cockpit.MainWindshieldVertices;
         if (vertices.Length is < 3 or > 32) return;
@@ -210,14 +225,13 @@ public partial class QuestVrRig : XROrigin3D
         var eye = AimSurface.ToLocal(Camera.GlobalPosition);
         var forward = AimSurface.GlobalBasis.Inverse() * -Camera.GlobalBasis.Z;
         if (CockpitGazeAim.TryGetAimPoint(ToNumerics(eye), ToNumerics(forward), projectedVertices,
-                new System.Numerics.Vector2(quad.Size.X, quad.Size.Y) * 0.5f, WindshieldAimInset, out var point, out var edgeTurn))
+                new System.Numerics.Vector2(quad.Size.X, quad.Size.Y) * 0.5f, WindshieldAimInset, out var point))
         {
             var target = new Vector2(point.X, point.Y);
             // Smooth the shared reticle/weapon ray, so the displayed aim still matches shots.
             var blend = 1.0f - Mathf.Exp(-HeadAimFollowRate * delta);
             m_headAimPoint = hadHeadAim && !snap ? m_headAimPoint.Lerp(target, blend) : target;
             m_hasHeadAim = true;
-            m_edgeTurn = new Vector2(edgeTurn.X, edgeTurn.Y);
         }
     }
 

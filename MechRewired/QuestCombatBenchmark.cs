@@ -72,6 +72,7 @@ public sealed partial class QuestCombatBenchmark : Node
         }
     }
     private static bool s_commandLineStarted;
+    private static long s_logRecordId;
 
     /// <summary>Menu action explicitly labelled as a mission reset. Never resumes the old damaged mission.</summary>
     public void Start()
@@ -86,7 +87,7 @@ public sealed partial class QuestCombatBenchmark : Node
             return;
         }
         s_session = new Session(target.Name, m_mission, CaptureOptions());
-        GD.Print("QUEST_COMBAT_RUN: " + JsonSerializer.Serialize(new
+        PrintJson("RUN", JsonSerializer.Serialize(new
         {
             runId = s_session.RunId, schema = 4, graphicsProfile = "baked-profile", poolPolicy = "quest-prewarmed-per-mech-v1", mission = m_mission, target = s_session.Target,
             targetingPolicy = "segment-bounds-quest-250ms-v1",
@@ -128,7 +129,7 @@ public sealed partial class QuestCombatBenchmark : Node
             if (session.Restoring)
             {
                 s_session = null;
-                GD.Print("QUEST_COMBAT_STATUS: " + JsonSerializer.Serialize(new { runId = session.RunId, status = session.Result }));
+                PrintJson("STATUS", JsonSerializer.Serialize(new { runId = session.RunId, status = session.Result }));
                 if (session.Result == "complete")
                 {
                     rig.Menu.Close();
@@ -163,7 +164,7 @@ public sealed partial class QuestCombatBenchmark : Node
             if (m_cancelled) throw new OperationCanceledException();
             var xr = XRServer.FindInterface("OpenXR") as OpenXRInterface;
             var hz = xr?.IsInitialized() == true ? xr.DisplayRefreshRate : 72;
-            GD.Print("QUEST_COMBAT_TRIAL: " + JsonSerializer.Serialize(new { runId = session.RunId, trial = session.Trial+1,
+            PrintJson("TRIAL", JsonSerializer.Serialize(new { runId = session.RunId, trial = session.Trial+1,
                 variant, graphicsProfile = "baked-profile", target = session.Target, pose = m_player.GlobalTransform.ToString(), hz,
                 missilePoolCount = m_enemies.Sum(e => e.MissilePoolCount),
                 missilePoolsReady = m_enemies.Where(e => e.HasMissileWeapons).All(e => e.MissilePoolReady),
@@ -273,19 +274,19 @@ public sealed partial class QuestCombatBenchmark : Node
             enemyShots=frames.Sum(f=>f.Combat.EnemyWeaponLaunches), missileLaunches=frames.Sum(f=>f.Combat.MissileLaunches), impacts=frames.Sum(f=>f.Combat.Impacts),
             maxHeadTranslation=frames.Max(f=>f.HeadTranslation), maxHeadAngle=frames.Max(f=>f.HeadAngle)
         };
-        GD.Print("QUEST_COMBAT_SUMMARY: " + JsonSerializer.Serialize(summary));
+        PrintJson("SUMMARY", JsonSerializer.Serialize(summary));
         // Report after timing, bounding log volume while retaining events and the worst stalls.
         foreach (var frame in frames.OrderByDescending(f=>f.Ms).Take(20).OrderBy(f=>f.Seconds))
-            GD.Print("QUEST_COMBAT_SPIKE: " + JsonSerializer.Serialize(new {runId=session.RunId, trial=session.Trial+1, frame}));
+            PrintJson("SPIKE", JsonSerializer.Serialize(new {runId=session.RunId, trial=session.Trial+1, frame}));
         foreach (var bucket in frames.GroupBy(f=>(int)f.Seconds))
-            GD.Print("QUEST_COMBAT_SECOND: " + JsonSerializer.Serialize(new {runId=session.RunId, trial=session.Trial+1, second=bucket.Key,
+            PrintJson("SECOND", JsonSerializer.Serialize(new {runId=session.RunId, trial=session.Trial+1, second=bucket.Key,
                 meanMs=bucket.Average(f=>f.Ms), maxMs=bucket.Max(f=>f.Ms), gpuMs=Gpu(bucket),
                 weaponShots=bucket.Sum(f=>f.Combat.WeaponLaunches), missileLaunches=bucket.Sum(f=>f.Combat.MissileLaunches),
                 impacts=bucket.Sum(f=>f.Combat.Impacts), activeMissiles=bucket.Max(f=>f.Combat.ActiveMissiles), activeLasers=bucket.Max(f=>f.Combat.ActiveLasers)}));
-        GD.Print("QUEST_COMBAT_EVENTS: " + JsonSerializer.Serialize(new {runId=session.RunId, trial=session.Trial+1,
+        PrintJson("EVENTS", JsonSerializer.Serialize(new {runId=session.RunId, trial=session.Trial+1,
             firstVolleySeconds=first >= 0 ? (double?)frames[first].Seconds : null}));
         foreach (var frame in frames.Where(f=>f.Combat.WeaponLaunches>0 || f.Combat.MissileLaunches>0 || f.Combat.Impacts>0 || f.Combat.MissilePoolsCreated>0))
-            GD.Print("QUEST_COMBAT_EVENT: " + JsonSerializer.Serialize(new {runId=session.RunId, trial=session.Trial+1, frame.Seconds, frame.Ms, frame.Combat}));
+            PrintJson("EVENT", JsonSerializer.Serialize(new {runId=session.RunId, trial=session.Trial+1, frame.Seconds, frame.Ms, frame.Combat}));
 
     }
 
@@ -307,6 +308,12 @@ public sealed partial class QuestCombatBenchmark : Node
             }
         }
         throw new InvalidOperationException("No terrain-supported position with clear enemy line of sight; combat trial not measured.");
+    }
+
+    private static void PrintJson(string kind, string json)
+    {
+        foreach (var line in QuestCombatLogChunker.Format(kind, json, Interlocked.Increment(ref s_logRecordId)))
+            GD.Print(line);
     }
 
     private Options CaptureOptions() => new(m_settings.SunShadowsEnabled, m_settings.GlowEnabled,
@@ -342,7 +349,7 @@ public sealed partial class QuestCombatBenchmark : Node
     {
         if (!m_reloadRequested && s_session != null)
         {
-            GD.Print("QUEST_COMBAT_STATUS: " + JsonSerializer.Serialize(new {runId=s_session.RunId,status="scene-exited"}));
+            PrintJson("STATUS", JsonSerializer.Serialize(new {runId=s_session.RunId,status="scene-exited"}));
             s_session=null;
         }
         QuestCombatTelemetry.Active=false;

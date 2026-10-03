@@ -118,7 +118,8 @@ The seated mapping currently uses the left thumbstick for signed, persistent
 throttle: 20–100% forward, through neutral, then reverse. Click it to stop;
 return it to neutral before choosing another throttle. The right thumbstick
 steers the mech left/right and pitches the torso up/down. Head direction aims
-the weapons and moves the reticle, with automatic torso following near its limits.
+the weapons and moves the reticle. Automatic torso following is disabled after
+a headset camera displacement regression.
 Click the right stick to align the legs with your horizontal gaze bearing.
 Hold the right index trigger to fire the selected weapon; squeeze the right grip
 to cycle weapons. Squeeze the left index trigger to select the next target;
@@ -155,21 +156,18 @@ coordinates are unchanged. The head-following reticle and its shared weapon
 aim ray have light smoothing; recentering or reacquiring a valid aim snaps to
 the new point.
 
-As the head-driven reticle enters the outer quarter of its safe windshield
-travel, the torso turns smoothly in that direction (up/down/left/right). The
-centre remains a free head-aim region. Automatic rates reach 30 degrees/second
-in yaw and 20 degrees/second in pitch at the edge; existing torso smoothing and
-physical limits still apply. The tracking origin counter-turns during automatic
-following, keeping your world gaze bearing stable while the cockpit pivots under
-it; motion eases off when the reticle has room again. Right-stick up/down retains
-manual pitch control and overrides automatic following while held.
-Automatic torso motion stops while paused, untracked, or benchmarking.
+Automatic torso following is disabled. The earlier tracking-origin counter-rotation
+moved a real, non-zero headset position away from the seat and could invalidate
+the reticle projection. Right-stick up/down retains manual torso pitch; head
+movement alone does not turn the torso. Startup waits for two focused, tracked
+frames before seating the camera. Focus-loss pausing begins only after the first
+focused seated session. `QUEST_VR_INPUT` logs input gate changes outside benchmarks
+for diagnosing blocked startup controls.
 
 Clicking the right stick captures the current horizontal head-gaze bearing and
 turns the legs toward it at the mech's normal steering rate. Torso counter-turn
 keeps its world bearing within the physical twist limits, and the headset pose
-is never rewritten. Automatic torso following waits until leg alignment ends;
-manual right-stick steering cancels alignment. Stop, shutdown and loss of
+is never rewritten. Manual right-stick steering cancels alignment. Stop, shutdown and loss of
 tracking cancel it too. This is separate from left-Y seat recentering.
 
 Graphics controls cover shadows, combined baked sky/cabin, scene glow, cockpit
