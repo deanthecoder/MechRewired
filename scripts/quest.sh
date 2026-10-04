@@ -183,6 +183,11 @@ build_quest() {
   fi
   "$godot_bin" --headless --path "$project_dir" --xr-mode off \
     --export-release 'Quest Alpha' "$output_path"
+  if [[ "${QUEST_INCLUDE_TEST_DATA:-0}" == 1 ]]; then
+    python3 "$repo_dir/scripts/validate-quest-apk.py" "$output_path" --require-test-data
+  else
+    python3 "$repo_dir/scripts/validate-quest-apk.py" "$output_path"
+  fi
   restore_project_config
   trap - EXIT
   printf 'Built release APK: %s\n' "$output_path"
