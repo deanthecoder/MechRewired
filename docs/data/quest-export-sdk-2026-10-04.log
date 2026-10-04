@@ -1,0 +1,14 @@
+User failed publish:
+Process = "/usr/local/share/dotnet/dotnet"
+MSBuild executable path = "/Users/dean/.dotnet/sdk/9.0.200/MSBuild.dll"
+
+Combined private PATH/root reproduction:
+ERROR: Export .NET Project: Failed to build project. Check MSBuild panel for details.
+Quest Release export failed. See /Users/dean/Documents/Source/Repos/MechRewired/MechRewired/builds/MechRewired-Quest3.apk.export.log and the Godot MSBuild panel for details.
+
+Fixed export with the same environment:
+Process = "/usr/local/share/dotnet/dotnet"
+MSBuild executable path = "/usr/local/share/dotnet/sdk/9.0.203/MSBuild.dll"
+Quest .NET SDK: 9.0.203 (/usr/local/share/dotnet)
+Quest APK structure valid: /Users/dean/Documents/Source/Repos/MechRewired/MechRewired/builds/MechRewired-Quest3.apk
+Built release APK: /Users/dean/Documents/Source/Repos/MechRewired/MechRewired/builds/MechRewired-Quest3.apk

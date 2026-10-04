@@ -2,6 +2,7 @@
 
 import json
 import os
+import platform
 import shutil
 import subprocess
 import tempfile
@@ -19,6 +20,24 @@ MSBUILD_OVERRIDES = (
     "DOTNET_MSBUILD_SDK_RESOLVER_SDKS_DIR",
     "DOTNET_MSBUILD_SDK_RESOLVER_SDKS_VER",
 )
+DOTNET_PATH_SETTINGS = (
+    "DOTNET_ROOT",
+    "DOTNET_ROOT_ARM64",
+    "DOTNET_ROOT_X64",
+    "DOTNET_HOST_PATH",
+)
+
+
+def macos_system_dotnet_dir():
+    """Return the selected system runtime dir when this host can exercise it."""
+    if platform.system() != "Darwin":
+        return None
+    root = Path("/usr/local/share/dotnet")
+    if platform.machine() == "x86_64" and os.access(root / "x64" / "dotnet", os.X_OK):
+        return root / "x64"
+    if os.access(root / "dotnet", os.X_OK):
+        return root
+    return None
 
 
 class QuestExportScriptTests(unittest.TestCase):
@@ -67,7 +86,13 @@ class QuestExportScriptTests(unittest.TestCase):
                 f"        {name!r}: os.environ.get({name!r}, '<unset>')"
                 for name in MSBUILD_OVERRIDES
             )
-            + "\n    }}) + '\\n')\n"
+            + "\n    }, 'dotnetPathSettings': {\n"
+            + ",\n".join(
+                f"        {name!r}: os.environ.get({name!r}, '<unset>')"
+                for name in DOTNET_PATH_SETTINGS
+            )
+            + ",\n        'PATH': os.environ.get('PATH', '')\n"
+            "    }}) + '\\n')\n"
             "mode = os.environ.get('FAKE_GODOT_MODE', 'success')\n"
             "if mode == 'managed-failure':\n"
             "    print('Export .NET Project: Failed to build project. Check MSBuild output.')\n"
@@ -89,7 +114,7 @@ class QuestExportScriptTests(unittest.TestCase):
             encoding="utf-8",
         )
 
-    def run_build(self, mode="success", poison_msbuild=True):
+    def run_build(self, mode="success", poison_msbuild=True, poison_dotnet=False):
         env = os.environ.copy()
         env.update({
             "GODOT_BIN": str(self.godot),
@@ -106,6 +131,13 @@ class QuestExportScriptTests(unittest.TestCase):
         else:
             for name in MSBUILD_OVERRIDES:
                 env.pop(name, None)
+        if poison_dotnet:
+            private_root = str(self.root / "poison-dotnet")
+            env["PATH"] = private_root + os.pathsep + env.get("PATH", "")
+            env["DOTNET_ROOT"] = private_root
+            env["DOTNET_ROOT_ARM64"] = private_root
+            env["DOTNET_ROOT_X64"] = private_root
+            env["DOTNET_HOST_PATH"] = str(Path(private_root) / "dotnet")
         return subprocess.run(
             ["bash", str(self.scripts_dir / "quest.sh"), "build"],
             cwd=self.root,
@@ -167,6 +199,27 @@ class QuestExportScriptTests(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertTrue(any("validator" in row for row in self.trace_rows()))
         self.assert_persistent_export_log_contains("fake Android export succeeded")
+        self.assert_configs_restored()
+
+    @unittest.skipUnless(
+        macos_system_dotnet_dir() is not None,
+        "requires macOS with the Godot-preferred system .NET runtime installed",
+    )
+    def test_macos_system_dotnet_path_and_roots_override_private_dotnet_environment(self):
+        result = self.run_build(poison_dotnet=True)
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertIn("Quest .NET SDK:", result.stdout)
+        godot_rows = [row for row in self.trace_rows() if "args" in row]
+        self.assertEqual(1, len(godot_rows))
+        captured = godot_rows[0]["dotnetPathSettings"]
+        system_dir = str(macos_system_dotnet_dir())
+        self.assertEqual(system_dir, captured["DOTNET_ROOT"])
+        self.assertEqual(system_dir, captured["DOTNET_ROOT_ARM64"])
+        self.assertEqual(system_dir, captured["DOTNET_ROOT_X64"])
+        self.assertEqual(str(Path(system_dir) / "dotnet"), captured["DOTNET_HOST_PATH"])
+        self.assertEqual(system_dir, captured["PATH"].split(os.pathsep, 1)[0])
+        self.assertNotIn(str(self.root / "poison-dotnet"), captured["PATH"].split(os.pathsep, 1)[0])
         self.assert_configs_restored()
 
 if __name__ == "__main__":

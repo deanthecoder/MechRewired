@@ -123,11 +123,25 @@ install_game_data() {
 }
 
 build_quest() {
-  local output_path="$1" signing_dir signing_key signing_password export_status export_log
+  local output_path="$1" signing_dir signing_key signing_password export_status export_log quest_dotnet_dir
   # IDE shells can force MSBuild from a different SDK than the dotnet executable.
   # Let the selected dotnet SDK resolve its own tools for this build process.
   unset MSBUILD_EXE_PATH MSBuildSDKsPath MSBuildExtensionsPath
   unset DOTNET_MSBUILD_SDK_RESOLVER_CLI_DIR DOTNET_MSBUILD_SDK_RESOLVER_SDKS_DIR DOTNET_MSBUILD_SDK_RESOLVER_SDKS_VER
+  # Godot prefers this installation on macOS even when PATH selects a private SDK.
+  # Align its in-process SDK discovery and child publish process with that choice.
+  if [[ "$(uname -s)" == Darwin && -x /usr/local/share/dotnet/dotnet ]]; then
+    quest_dotnet_dir=/usr/local/share/dotnet
+    if [[ "$(uname -m)" == x86_64 && -x /usr/local/share/dotnet/x64/dotnet ]]; then
+      quest_dotnet_dir=/usr/local/share/dotnet/x64
+    fi
+    export PATH="$quest_dotnet_dir:$PATH"
+    export DOTNET_ROOT="$quest_dotnet_dir"
+    export DOTNET_ROOT_ARM64="$quest_dotnet_dir"
+    export DOTNET_ROOT_X64="$quest_dotnet_dir"
+    export DOTNET_HOST_PATH="$quest_dotnet_dir/dotnet"
+    printf 'Quest .NET SDK: %s (%s)\n' "$("$quest_dotnet_dir/dotnet" --version)" "$quest_dotnet_dir"
+  fi
   signing_dir="${QUEST_SIGNING_DIR:-$HOME/Library/Application Support/MechRewired/signing}"
   signing_key="$signing_dir/mechrewired-release.keystore"
   signing_password="$signing_dir/keystore-password"

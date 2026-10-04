@@ -74,3 +74,30 @@ The script also saves Godot output to `<APK>.export.log` and explicitly rejects
 a managed-export error even if Godot returns zero. The structural APK validator
 still runs after a successful export. Project configuration and manifest
 restoration continue to run on failure.
+
+## Follow-up: align PATH and DOTNET_ROOT together
+
+Clearing explicit MSBuild overrides was insufficient in the user’s shell. The
+next failed publish again showed system dotnet 9.0.203 loading private MSBuild
+9.0.200. The exact failure is reproducible with:
+
+```sh
+PATH=/Users/dean/.dotnet:$PATH DOTNET_ROOT=/Users/dean/.dotnet scripts/quest.sh build
+```
+
+Setting either variable alone passed here; setting both reproduced the managed
+publish failure. Godot’s macOS publish CLI discovery prefers the system dotnet
+installation, while its SDK discovery can still be influenced by private-root
+environment settings. The previous override-only validation covered a narrower
+case and did not establish a fix for this combination.
+
+The Quest build now aligns PATH, DOTNET_ROOT, architecture-specific roots, and
+DOTNET_HOST_PATH to the system installation Godot uses on macOS. This affects
+only the script process, without changing the user’s shell configuration or
+installed SDKs. It prints the selected SDK version and location before export.
+
+The same combined private PATH/root command now completes a Release export and
+passes the required managed-payload APK validation. Both dotnet and MSBuild are
+confirmed from the system 9.0.203 installation. The existing signature is retained.
+No installation was performed. See
+[export SDK evidence](data/quest-export-sdk-2026-10-04.log).
