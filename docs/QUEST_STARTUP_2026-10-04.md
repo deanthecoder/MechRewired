@@ -50,3 +50,27 @@ All six validator unit tests passed. The broken APK is rejected and the repaired
 APK passes, including the private-data requirement. Shell syntax validation
 passed. The user's pre-existing ADB reconnection changes in `scripts/quest.sh`
 were preserved and are not included in the packaging-fix commit.
+
+## Repeated install export failure: SDK mismatch
+
+The user’s ordinary `./scripts/quest.sh install` subsequently failed during
+Godot’s managed publish before generating an incomplete APK. The Godot MSBuild
+log showed `/usr/local/share/dotnet/dotnet` (SDK 9.0.203) executing
+`/Users/dean/.dotnet/sdk/9.0.200/MSBuild.dll`; referenced projects also imported
+targets from the older SDK. The publish failed before game code could be packaged.
+
+Setting `MSBUILD_EXE_PATH` to that older DLL reproduced a publish exit code of 1
+with no console error, only restore success. Clearing inherited MSBuild/tool
+resolver overrides in the Quest build process allows the selected dotnet SDK to
+resolve its own matching tools. This reproduces and addresses the observed mixed
+toolchain; the originating Terminal environment was not read directly.
+
+A Release build with deliberately stale `MSBUILD_EXE_PATH` and `MSBuildSDKsPath`
+now completes and passes APK managed-payload validation. Its MSBuild log confirms
+that both the dotnet executable and MSBuild come from the system 9.0.203 SDK.
+No installation was performed; the user can rerun the same install command.
+
+The script also saves Godot output to `<APK>.export.log` and explicitly rejects
+a managed-export error even if Godot returns zero. The structural APK validator
+still runs after a successful export. Project configuration and manifest
+restoration continue to run on failure.

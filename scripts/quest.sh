@@ -123,7 +123,11 @@ install_game_data() {
 }
 
 build_quest() {
-  local output_path="$1" signing_dir signing_key signing_password
+  local output_path="$1" signing_dir signing_key signing_password export_status export_log
+  # IDE shells can force MSBuild from a different SDK than the dotnet executable.
+  # Let the selected dotnet SDK resolve its own tools for this build process.
+  unset MSBUILD_EXE_PATH MSBuildSDKsPath MSBuildExtensionsPath
+  unset DOTNET_MSBUILD_SDK_RESOLVER_CLI_DIR DOTNET_MSBUILD_SDK_RESOLVER_SDKS_DIR DOTNET_MSBUILD_SDK_RESOLVER_SDKS_VER
   signing_dir="${QUEST_SIGNING_DIR:-$HOME/Library/Application Support/MechRewired/signing}"
   signing_key="$signing_dir/mechrewired-release.keystore"
   signing_password="$signing_dir/keystore-password"
@@ -181,8 +185,15 @@ build_quest() {
   if ! rg -q 'android.hardware.vr.headtracking' "$main_manifest"; then
     perl -0pi -e 's#(<supports-screens)#<uses-feature android:name="android.hardware.vr.headtracking" android:required="true" android:version="1" />\n\n    $1#' "$main_manifest"
   fi
+  export_log="$output_path.export.log"
+  export_status=0
   "$godot_bin" --headless --path "$project_dir" --xr-mode off \
-    --export-release 'Quest Alpha' "$output_path"
+    --export-release 'Quest Alpha' "$output_path" 2>&1 | tee "$export_log" || export_status=$?
+  # Godot can return success after a failed managed publish and write an incomplete APK.
+  if [[ "$export_status" != 0 ]] || rg -q 'Export \.NET Project:|Failed to build project\. Check MSBuild' "$export_log"; then
+    printf 'Quest Release export failed. See %s and the Godot MSBuild panel for details.\n' "$export_log" >&2
+    exit 1
+  fi
   if [[ "${QUEST_INCLUDE_TEST_DATA:-0}" == 1 ]]; then
     python3 "$repo_dir/scripts/validate-quest-apk.py" "$output_path" --require-test-data
   else
