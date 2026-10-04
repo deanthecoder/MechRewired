@@ -91,6 +91,8 @@ public sealed partial class QuestCombatBenchmark : Node
         {
             runId = s_session.RunId, schema = 6, graphicsProfile = "baked-profile", poolPolicy = "quest-prewarmed-per-mech-v1", mission = m_mission, target = s_session.Target,
             weaponEffectPoolPolicy = "mission64-per-family-limit128-v1",
+            missileQueryPolicy = "pooled-parameters-disposed-results-v1",
+            missileGuidancePolicy = "salvo-target-velocity-per-frame-v1",
             targetingPolicy = "segment-bounds-quest-250ms-v1",
             variants = Variants, secondsPerTrial = TrialSeconds, enemyCount = m_enemies.Count,
             options = s_session.Settings,

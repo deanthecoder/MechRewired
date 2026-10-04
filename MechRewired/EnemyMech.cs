@@ -693,10 +693,13 @@ public partial class EnemyMech : Node3D
     private void QueueMissileSalvo(EnemyWeapon weapon, Vector3 start)
     {
         var specification = weapon.Definition.Specification;
+        var guidance = new MissileSalvoGuidance(
+            () => m_playerMech.TargetPosition, () => !m_playerMech.IsDestroyed);
+        Action<Vector3> impact = position => ApplyWeaponDamage(weapon.Definition, position, null);
+        var basis = Torso.GlobalBasis.Orthonormalized();
         for (var index = 0; index < specification.ProjectilesPerShot; index++)
         {
             var angle = Mathf.Tau * index / specification.ProjectilesPerShot;
-            var basis = Torso.GlobalBasis.Orthonormalized();
             var offset = basis.X * Mathf.Cos(angle) * 0.4f + basis.Y * Mathf.Sin(angle) * 0.4f;
             var missileStart = start + offset;
             var direction = ApplyGunneryError(
@@ -709,8 +712,8 @@ public partial class EnemyMech : Node3D
                 missileStart,
                 direction,
                 (float)specification.RangeMeters,
-                weapon.Definition,
-                willTrackPlayer));
+                willTrackPlayer ? guidance : null,
+                impact));
         }
     }
 
@@ -730,11 +733,10 @@ public partial class EnemyMech : Node3D
                 pending.Start,
                 pending.Direction,
                 pending.Range,
-                () => pending.WillTrackPlayer && !m_playerMech.IsDestroyed
-                    ? m_playerMech.TargetPosition
-                    : null,
-                impact => ApplyWeaponDamage(pending.Weapon, impact, null),
-                terrainImpact: m_battlefieldEffects.SpawnWeaponImpact);
+                null,
+                pending.Impact,
+                terrainImpact: m_battlefieldEffects.SpawnWeaponImpact,
+                guidance: pending.Guidance);
             m_pendingMissiles.RemoveAt(index);
         }
     }
@@ -1092,8 +1094,8 @@ public partial class EnemyMech : Node3D
         Vector3 start,
         Vector3 direction,
         float range,
-        MechMountedWeapon weapon,
-        bool willTrackPlayer)
+        MissileSalvoGuidance guidance,
+        Action<Vector3> impact)
     {
         public float Delay { get; set; } = delay;
 
@@ -1103,8 +1105,8 @@ public partial class EnemyMech : Node3D
 
         public float Range { get; } = range;
 
-        public MechMountedWeapon Weapon { get; } = weapon;
+        public MissileSalvoGuidance Guidance { get; } = guidance;
 
-        public bool WillTrackPlayer { get; } = willTrackPlayer;
+        public Action<Vector3> Impact { get; } = impact;
     }
 }

@@ -197,8 +197,9 @@ requires the HUD viewport to render, so this is chiefly a CPU-side optimization.
 CPU time of missile terrain queries. The analyzer also reports milliseconds per
 query. Summaries, per-second records, and spike/event `Combat` snapshots include
 these counters. Sampling is active only during the benchmark and adds no managed
-objects; measured time includes the existing query-parameter creation, native
-physics call, and returned-hit decoding. It is part of existing process time,
+objects; measured time includes query endpoint updates, the native physics call,
+returned-hit decoding, and result disposal. Query parameters are now preallocated
+per pooled missile. It is part of existing process time,
 so do not add it to process time when calculating a frame total.
 
 Missiles query Godot's static concave terrain collision shape on the terrain
@@ -223,3 +224,10 @@ in the normal Quest baseline.
 Checking only objects that moved is not safe: a traveling projectile can reach a
 stationary mech between checks. A spatial candidate cache must account for the
 projectile’s swept path as well as object motion.
+
+The 4 October follow-up implements pooled query parameters and immediate result
+disposal, together with shared target sampling/velocity per salvo per frame.
+Individual steering and collisions remain independent. The run header exposes
+`missileQueryPolicy` and `missileGuidancePolicy`; compare these before attributing
+changes across builds. No additional user-run trials are required by the new
+instrumentation.

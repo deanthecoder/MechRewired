@@ -52,9 +52,17 @@ public partial class MissileEffect : Node3D
     private Vector3? m_previousTargetPosition;
     private Vector3 m_targetVelocity;
     private Func<Vector3?> m_targetPosition;
+    private MissileSalvoGuidance m_guidance;
     private Action<Vector3> m_impact;
     private Action<Vector3> m_terrainImpact;
     private float m_guidanceArmingDistance;
+    // Each missile is pooled; keep its query parameters for the same lifetime as the pool slot.
+    private readonly PhysicsRayQueryParameters3D m_terrainQuery = new()
+    {
+        CollisionMask = BattlefieldPhysics.TerrainLayer,
+        HitBackFaces = true
+    };
+    private PhysicsDirectSpaceState3D m_terrainSpaceState;
 
     public MissileEffect(bool carriesLight)
     {
@@ -127,7 +135,8 @@ public partial class MissileEffect : Node3D
         Func<Vector3?> targetPosition,
         Action<Vector3> impact,
         float guidanceArmingDistance = 0.0f,
-        Action<Vector3> terrainImpact = null)
+        Action<Vector3> terrainImpact = null,
+        MissileSalvoGuidance guidance = null)
     {
         GlobalPosition = position;
         m_direction = direction.Normalized();
@@ -137,6 +146,7 @@ public partial class MissileEffect : Node3D
         m_previousTargetPosition = null;
         m_targetVelocity = Vector3.Zero;
         m_targetPosition = targetPosition;
+        m_guidance = guidance;
         m_impact = impact;
         m_guidanceArmingDistance = Math.Max(guidanceArmingDistance, 0.0f);
         m_terrainImpact = terrainImpact;
@@ -182,11 +192,15 @@ public partial class MissileEffect : Node3D
         var elapsed = (float)delta;
         Age += elapsed;
         var target = m_distanceTravelled >= m_guidanceArmingDistance
-            ? m_targetPosition?.Invoke()
+            ? m_guidance != null
+                ? m_guidance.Sample(Engine.GetProcessFrames(), elapsed)
+                : m_targetPosition?.Invoke()
             : null;
         if (m_isPowered && target.HasValue)
         {
-            if (m_previousTargetPosition.HasValue && elapsed > 0.0001f)
+            if (m_guidance != null)
+                m_targetVelocity = m_guidance.TargetVelocity;
+            else if (m_previousTargetPosition.HasValue && elapsed > 0.0001f)
             {
                 var measuredVelocity = (target.Value - m_previousTargetPosition.Value) / elapsed;
                 m_targetVelocity = m_targetVelocity.Lerp(
@@ -280,6 +294,7 @@ public partial class MissileEffect : Node3D
         m_exhaust.Visible = false;
         UpdateVisualAblation();
         m_targetPosition = null;
+        m_guidance = null;
         m_impact = null;
         m_terrainImpact = null;
         m_guidanceArmingDistance = 0.0f;
@@ -298,9 +313,20 @@ public partial class MissileEffect : Node3D
         SetProcess(false);
     }
 
+    public override void _Notification(int what)
+    {
+        if (what == NotificationEnterWorld || what == NotificationExitWorld)
+        {
+            // A pool can be reparented to another viewport/world. Borrow that world's state
+            // lazily on the next query, and never retain the previous world's native object.
+            m_terrainSpaceState = null;
+        }
+    }
+
     public override void _ExitTree()
     {
         StopTelemetryTracking();
+        m_terrainSpaceState = null;
     }
 
     private void RefreshVisualAblation()
@@ -465,9 +491,10 @@ public partial class MissileEffect : Node3D
         var queryStarted = measure ? Stopwatch.GetTimestamp() : 0;
         try
         {
-            var query = PhysicsRayQueryParameters3D.Create(start, end, BattlefieldPhysics.TerrainLayer);
-            query.HitBackFaces = true;
-            var result = GetWorld3D().DirectSpaceState.IntersectRay(query);
+            m_terrainQuery.From = start;
+            m_terrainQuery.To = end;
+            m_terrainSpaceState ??= GetWorld3D().DirectSpaceState;
+            using var result = m_terrainSpaceState.IntersectRay(m_terrainQuery);
             if (result.Count == 0)
             {
                 return false;

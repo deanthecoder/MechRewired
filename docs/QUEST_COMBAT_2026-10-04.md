@@ -54,3 +54,44 @@ per salvo/target, then steer each missile from its own position. Followers shoul
 retain individual swept collision checks and independent impacts: launcher
 offsets and obstacle edges make a leader's terrain result unsafe to reuse.
 This is a proposed optimization to profile, not implemented behavior.
+
+## Implemented missile optimizations after this capture
+
+The next Release reuses one terrain query-parameter resource per pooled missile,
+caches the borrowed physics space state until a world transition, and disposes
+returned hit dictionaries immediately. Per-segment collisions are retained; no
+launch-time endpoint cache is used. This removes query-resource creation from
+every flight frame.
+
+Player and enemy salvos now share one target callback and filtered target-velocity
+estimate per process frame, plus one damage callback per salvo. Each missile
+still computes its own distance-dependent lead and steering, observes its own
+arming/range limits, and checks its own swept segment and target impact. A first
+missile ending or being reused cannot stop the remaining followers. The velocity
+filter history is now shared across staggered launches, so later missiles inherit
+the salvo's existing estimate instead of restarting it at zero.
+
+The local Godot native test passes terrain impacts, independent launcher offsets,
+pooled endpoint reset, physics world transitions, shared sampling, slot reuse,
+and ballistic fall. Its final 1,000-query allocation comparison measured 891,152
+managed bytes with fresh query resources versus 96,000 bytes with reused queries.
+Other local passes measured 640,000 fresh bytes; native wrapper/registry overhead
+varies, but reuse consistently allocated less (about 85–89%). Both paths used the
+same endpoints and disposed result dictionaries. This is a local managed-allocation
+comparison, not a measured Quest frame-time gain. See the
+[local validation log](data/quest-missile-optimization-2026-10-04-local.log).
+
+Run metadata records `missileQueryPolicy=pooled-parameters-disposed-results-v1`
+and `missileGuidancePolicy=salvo-target-velocity-per-frame-v1` so the next Quest
+run can be distinguished from the capture above. Smoke and weapon lights remain
+on. No additional benchmark stages were added.
+
+A cheap target-alive check invalidates same-frame target destruction even after
+the position was sampled; gaps between armed followers reset velocity history
+rather than dividing multi-frame displacement by a single-frame delta. Both
+edge cases pass the native check. Debug build completed with zero warnings and
+errors; 263 .NET tests and 13 Python analyzer/APK-validation tests passed.
+
+The Release package is built locally for `./scripts/quest.sh install`; this
+optimization build was not installed by Codex. Quest frame-time impact remains
+to be measured in the next normal four-stage combat run.

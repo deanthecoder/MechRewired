@@ -954,28 +954,27 @@ public partial class PlayerTargeting : Node
             fixedAimPosition = aimPosition;
         }
 
+        Func<Vector3?> targetPosition = null;
+        Action<Vector3> impact = null;
+        if (lockedTarget != null)
+        {
+            targetPosition = () => lockedTarget.IsDestroyed ? null : lockedTarget.TargetPosition;
+            impact = position => ApplyMissileDamage(lockedTarget, weapon.Specification.Damage, position);
+        }
+        else if (fixedAimPosition.HasValue)
+        {
+            var aim = fixedAimPosition.Value;
+            targetPosition = () => aim;
+            impact = position => ApplyFixedAimMissileDamage(
+                aimedActor, aimedEnemy, aimedEnemyHit, weapon.Specification.Damage, position);
+        }
+        var guidance = targetPosition != null
+            ? new MissileSalvoGuidance(targetPosition, lockedTarget != null ? () => !lockedTarget.IsDestroyed : null)
+            : null;
+
         for (var missile = 0; missile < weapon.Specification.ProjectilesPerShot; missile++)
         {
             var start = GetWeaponStart(weapon, missile, weapon.Specification.ProjectilesPerShot);
-            Func<Vector3?> targetPosition = null;
-            Action<Vector3> impact = null;
-            if (lockedTarget != null)
-            {
-                targetPosition = () => lockedTarget.IsDestroyed ? null : lockedTarget.TargetPosition;
-                impact = position => ApplyMissileDamage(lockedTarget, weapon.Specification.Damage, position);
-            }
-            else if (fixedAimPosition.HasValue)
-            {
-                var aim = fixedAimPosition.Value;
-                targetPosition = () => aim;
-                impact = position => ApplyFixedAimMissileDamage(
-                    aimedActor,
-                    aimedEnemy,
-                    aimedEnemyHit,
-                    weapon.Specification.Damage,
-                    position);
-            }
-
             m_pendingMissiles.Add(new PendingMissile(
                 missile * 0.035f + m_missileLaunchRandom.NextSingle() * 0.015f,
                 start,
@@ -985,7 +984,7 @@ public partial class PlayerTargeting : Node
                         ? start.DirectionTo(fixedAimPosition.Value)
                         : forward,
                 (float)weapon.Specification.RangeMeters,
-                targetPosition,
+                guidance,
                 impact,
                 lockedTarget != null ? MissileGuidanceArmingDistance : 0.0f));
         }
@@ -1261,10 +1260,11 @@ public partial class PlayerTargeting : Node
                 pending.Start,
                 pending.Direction,
                 pending.Range,
-                pending.TargetPosition,
+                null,
                 pending.Impact,
                 pending.GuidanceArmingDistance,
-                m_battlefieldEffects.SpawnWeaponImpact);
+                m_battlefieldEffects.SpawnWeaponImpact,
+                pending.Guidance);
             TryBeginWeaponView(missile);
             m_pendingMissiles.RemoveAt(index);
         }
@@ -1714,7 +1714,7 @@ public partial class PlayerTargeting : Node
         Vector3 start,
         Vector3 direction,
         float range,
-        Func<Vector3?> targetPosition,
+        MissileSalvoGuidance guidance,
         Action<Vector3> impact,
         float guidanceArmingDistance)
     {
@@ -1726,7 +1726,7 @@ public partial class PlayerTargeting : Node
 
         public float Range { get; } = range;
 
-        public Func<Vector3?> TargetPosition { get; } = targetPosition;
+        public MissileSalvoGuidance Guidance { get; } = guidance;
 
         public Action<Vector3> Impact { get; } = impact;
 
