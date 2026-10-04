@@ -190,3 +190,36 @@ projected navigation remain full-rate. Weapon-column layout and damage-section
 lists are cached. `hudInstrumentDraws` in combat summaries and rendering-trial
 JSON records measures actual instrument canvas rebuilds. The dynamic layer still
 requires the HUD viewport to render, so this is chiefly a CPU-side optimization.
+
+## Missile terrain collision timing (schema 6)
+
+`missileTerrainQueryCalls` and `missileTerrainQueryMs` record the number and total
+CPU time of missile terrain queries. The analyzer also reports milliseconds per
+query. Summaries, per-second records, and spike/event `Combat` snapshots include
+these counters. Sampling is active only during the benchmark and adds no managed
+objects; measured time includes the existing query-parameter creation, native
+physics call, and returned-hit decoding. It is part of existing process time,
+so do not add it to process time when calculating a frame total.
+
+Missiles query Godot's static concave terrain collision shape on the terrain
+physics layer using their current swept movement segment. They do not scan the
+CPU scene-triangle list. Target impacts separately compare the live target point
+with the swept segment using the missile's impact radius. This does not test all
+other mechs or moving scenery against their polygon geometry.
+
+A single predicted terrain hit could be reused while a powered, unguided missile
+continues in one straight direction. Guided missiles change direction as their
+target moves, and missiles fall under gravity after exhausting powered range;
+either change invalidates a straight-ray prediction. The static terrain shape
+already stays in the physics world between queries. These timings establish
+whether its repeated queries merit a trajectory cache or reusable query objects
+before changing collision behavior.
+
+A future **enemy-missile smoke only off** trial could distinguish enemy trails
+from the player's visible trails. This is a proposed follow-up, not a new test
+stage or a production setting change. Smoke and weapon lights remain enabled
+in the normal Quest baseline.
+
+Checking only objects that moved is not safe: a traveling projectile can reach a
+stationary mech between checks. A spatial candidate cache must account for the
+projectile’s swept path as well as object motion.

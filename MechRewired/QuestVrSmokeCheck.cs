@@ -268,14 +268,16 @@ public partial class QuestVrSmokeCheck : Node
                     $"{edge.Name} gaze does not automatically change torso aim");
             }
 
-            // Capture a rightward raw headset bearing. Alignment must rotate the legs in place,
+            // Capture a rightward reticle bearing. Alignment must rotate legs and torso in place,
             // without recentering or otherwise moving the tracked camera pose.
             rig.Transform = savedRigTransform;
             m_player.SetVrTorsoAim(0, 0);
             rig.Camera.Basis = new Basis(Vector3.Up, -0.65f);
             await Frames(3);
             var cameraPose = rig.Camera.Transform;
-            var gazeHeading = Mathf.Atan2(rig.Camera.GlobalBasis.Z.X, rig.Camera.GlobalBasis.Z.Z);
+            var aimDirection = m_player.WeaponAimDirection;
+            var gazeHeading = Mathf.Atan2(-aimDirection.X, -aimDirection.Z);
+            var torsoErrorBeforeAlignment = Mathf.Abs(Mathf.AngleDifference(m_player.Torso.GlobalRotation.Y, gazeHeading));
             var headingErrorBeforeAlignment = Mathf.Abs(Mathf.AngleDifference(m_player.GlobalRotation.Y, gazeHeading));
             right.SetInput("primary_click", true);
             await Frames(2);
@@ -285,6 +287,8 @@ public partial class QuestVrSmokeCheck : Node
             Check(rig.Camera.Transform.IsEqualApprox(cameraPose), "gaze alignment turns legs without teleporting headset pose");
             Check(Mathf.Abs(Mathf.AngleDifference(m_player.GlobalRotation.Y, gazeHeading)) < headingErrorBeforeAlignment,
                 "gaze alignment turns legs toward the captured world bearing");
+            Check(Mathf.Abs(Mathf.AngleDifference(m_player.Torso.GlobalRotation.Y, gazeHeading)) < torsoErrorBeforeAlignment,
+                "right click also pivots torso toward the captured reticle bearing");
 
             right.SetInput("primary", new Vector2(1, 0));
             await Frames(3);
@@ -298,15 +302,22 @@ public partial class QuestVrSmokeCheck : Node
             m_player.SetVrTorsoAim(0, 0);
             rig.Camera.Basis = new Basis(Vector3.Up, 0.25f);
             await Frames(3);
-            gazeHeading = Mathf.Atan2(rig.Camera.GlobalBasis.Z.X, rig.Camera.GlobalBasis.Z.Z);
+            aimDirection = m_player.WeaponAimDirection;
+            gazeHeading = Mathf.Atan2(-aimDirection.X, -aimDirection.Z);
             headingErrorBeforeAlignment = Mathf.Abs(Mathf.AngleDifference(m_player.GlobalRotation.Y, gazeHeading));
-            right.SetInput("primary_click", true);
+            m_player.AlignVrLegsToGaze(aimDirection);
             await Frames(2);
-            right.SetInput("primary_click", false);
             await Frames(4);
             Check(m_player.IsVrAligningLegsToGaze &&
                   Mathf.Abs(Mathf.AngleDifference(m_player.GlobalRotation.Y, gazeHeading)) < headingErrorBeforeAlignment,
                 "gaze alignment takes the short turn across the yaw wrap-around");
+
+            await Frames(240);
+            Check(!m_player.IsVrAligningLegsToGaze && Mathf.Abs(m_player.VrAim.X) < 0.001f &&
+                  Mathf.Abs(Mathf.AngleDifference(m_player.Torso.GlobalRotation.Y, gazeHeading)) < 0.025f,
+                $"alignment finishes with torso and legs facing the same captured bearing (active={m_player.IsVrAligningLegsToGaze}, yaw={m_player.VrAim.X:F4}, error={Mathf.AngleDifference(m_player.Torso.GlobalRotation.Y, gazeHeading):F4})");
+            Check(rig.Camera.Transform.IsEqualApprox(cameraPose) || rig.Camera.Position.IsEqualApprox(cameraPose.Origin),
+                "completed alignment preserves the seated native camera position");
 
             m_player.StopVrMovement();
             m_player.SetVrTorsoAim(0, 0);

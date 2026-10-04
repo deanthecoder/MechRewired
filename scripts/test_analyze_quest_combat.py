@@ -67,6 +67,15 @@ class AnalyzeVariantTests(unittest.TestCase):
             "weaponEffectPoolBuilds": 0, "weaponEffectPoolFallbacks": 0,
         }
 
+    def test_missile_terrain_timing_reports_total_and_cost_per_query(self):
+        record = self.record(1, "baseline", True, True)
+        record.update(missileTerrainQueryCalls=20, missileTerrainQueryMs=10)
+        output = io.StringIO()
+
+        ANALYZER.analyze([record], output)
+
+        self.assertIn("missile terrain query: 10.00 ms / 20.00 calls; 0.50 ms/call", output.getvalue())
+
     def test_isolated_variants_compare_against_bracketing_baselines(self):
         records = [
             self.record(1, "baseline", True, True),

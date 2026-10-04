@@ -192,7 +192,7 @@ public partial class QuestVrRig : XROrigin3D
         var aimStick = rightTracked ? Right.GetVector2("primary") : Vector2.Zero;
         Steering = locomotionTracked ? -Deadzone(aimStick.X) : 0.0f;
         var pitchInput = Deadzone(aimStick.Y);
-        if (locomotionTracked && alignLegsPressed) m_player.AlignVrLegsToGaze(-Camera.GlobalBasis.Z);
+        if (locomotionTracked && alignLegsPressed) m_player.AlignVrLegsToGaze(m_player.WeaponAimDirection);
         if (!Mathf.IsZeroApprox(pitchInput))
             m_player.SetVrPitch(m_player.VrAim.Y + pitchInput * TorsoPitchSpeed * (float)delta);
         var direction = movement.Y > 0.55f ? 1 : movement.Y < -0.55f ? -1 : 0;

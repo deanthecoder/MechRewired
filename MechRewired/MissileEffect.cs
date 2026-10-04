@@ -8,6 +8,7 @@
 //
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
+using System.Diagnostics;
 using Godot;
 
 namespace MechRewired;
@@ -460,16 +461,26 @@ public partial class MissileEffect : Node3D
             return false;
         }
 
-        var query = PhysicsRayQueryParameters3D.Create(start, end, BattlefieldPhysics.TerrainLayer);
-        query.HitBackFaces = true;
-        var result = GetWorld3D().DirectSpaceState.IntersectRay(query);
-        if (result.Count == 0)
+        var measure = QuestCombatTelemetry.Active;
+        var queryStarted = measure ? Stopwatch.GetTimestamp() : 0;
+        try
         {
-            return false;
-        }
+            var query = PhysicsRayQueryParameters3D.Create(start, end, BattlefieldPhysics.TerrainLayer);
+            query.HitBackFaces = true;
+            var result = GetWorld3D().DirectSpaceState.IntersectRay(query);
+            if (result.Count == 0)
+            {
+                return false;
+            }
 
-        impactPosition = result["position"].AsVector3();
-        return true;
+            impactPosition = result["position"].AsVector3();
+            return true;
+        }
+        finally
+        {
+            if (measure)
+                QuestCombatTelemetry.RecordMissileTerrainQuery(Stopwatch.GetTimestamp() - queryStarted);
+        }
     }
 
     private static float DistanceToSegment(Vector3 point, Vector3 start, Vector3 end)

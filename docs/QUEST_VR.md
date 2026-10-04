@@ -169,10 +169,10 @@ frames before seating the camera. Focus-loss pausing begins only after the first
 focused seated session. `QUEST_VR_INPUT` logs input gate changes outside benchmarks
 for diagnosing blocked startup controls.
 
-Clicking the right stick captures the current horizontal head-gaze bearing and
-turns the legs toward it at the mech's normal steering rate. Torso counter-turn
-keeps its world bearing within the physical twist limits, and the headset pose
-is never rewritten. Manual right-stick steering cancels alignment. Stop, shutdown and loss of
+Clicking the right stick captures the current horizontal reticle bearing and
+turns the legs toward it at the mech's normal steering rate. The torso motor also
+approaches that bearing within its physical twist limits, finishing centered over
+the aligned legs. Torso pitch is retained, and the headset pose is never rewritten. Manual right-stick steering cancels alignment. Stop, shutdown and loss of
 tracking cancel it too. This is separate from left-Y seat recentering.
 
 Graphics controls cover shadows, combined baked sky/cabin, scene glow, cockpit

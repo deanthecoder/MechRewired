@@ -42,6 +42,8 @@ public static class QuestCombatTelemetry
     private static long s_enemyWeaponLaunches;
     private static long s_missileLaunches;
     private static long s_impacts;
+    private static long s_missileTerrainQueryCalls;
+    private static long s_missileTerrainQueryElapsedTicks;
     private static int s_activeMissiles;
     private static int s_activeLasers;
 
@@ -74,7 +76,9 @@ public static class QuestCombatTelemetry
         Interlocked.Exchange(ref s_playerWorldRaycastElapsedTicks, 0),
         Interlocked.Exchange(ref s_playerMechRaycastElapsedTicks, 0),
         Interlocked.Exchange(ref s_weaponEffectPoolBuilds, 0),
-        Interlocked.Exchange(ref s_weaponEffectPoolFallbacks, 0));
+        Interlocked.Exchange(ref s_weaponEffectPoolFallbacks, 0),
+        Interlocked.Exchange(ref s_missileTerrainQueryCalls, 0),
+        Interlocked.Exchange(ref s_missileTerrainQueryElapsedTicks, 0));
 
     /// <summary>Alias used by frame-based benchmark runners.</summary>
     public static QuestCombatTelemetrySnapshot TakeFrameSnapshot() => SnapshotAndReset();
@@ -160,6 +164,13 @@ public static class QuestCombatTelemetry
         if (Active) Interlocked.Increment(ref s_missileLaunches);
     }
 
+    internal static void RecordMissileTerrainQuery(long elapsedTicks)
+    {
+        if (!Active) return;
+        Interlocked.Increment(ref s_missileTerrainQueryCalls);
+        Interlocked.Add(ref s_missileTerrainQueryElapsedTicks, elapsedTicks);
+    }
+
     internal static void RecordImpact()
     {
         if (Active) Interlocked.Increment(ref s_impacts);
@@ -213,8 +224,12 @@ public readonly record struct QuestCombatTelemetrySnapshot(
     long PlayerWorldRaycastElapsedTicks,
     long PlayerMechRaycastElapsedTicks,
     long WeaponEffectPoolBuilds,
-    long WeaponEffectPoolFallbacks)
+    long WeaponEffectPoolFallbacks,
+    long MissileTerrainQueryCalls,
+    long MissileTerrainQueryElapsedTicks)
 {
+    public double MissileTerrainQueryMilliseconds => MissileTerrainQueryElapsedTicks * 1000.0 / Stopwatch.Frequency;
+
     public double EnemyAiMilliseconds => EnemyAiElapsedTicks * 1000.0 / Stopwatch.Frequency;
 
     public double EnemyAiElapsedMs => EnemyAiMilliseconds;

@@ -89,7 +89,7 @@ public sealed partial class QuestCombatBenchmark : Node
         s_session = new Session(target.Name, m_mission, CaptureOptions());
         PrintJson("RUN", JsonSerializer.Serialize(new
         {
-            runId = s_session.RunId, schema = 5, graphicsProfile = "baked-profile", poolPolicy = "quest-prewarmed-per-mech-v1", mission = m_mission, target = s_session.Target,
+            runId = s_session.RunId, schema = 6, graphicsProfile = "baked-profile", poolPolicy = "quest-prewarmed-per-mech-v1", mission = m_mission, target = s_session.Target,
             weaponEffectPoolPolicy = "mission64-per-family-limit128-v1",
             targetingPolicy = "segment-bounds-quest-250ms-v1",
             variants = Variants, secondsPerTrial = TrialSeconds, enemyCount = m_enemies.Count,
@@ -276,6 +276,8 @@ public sealed partial class QuestCombatBenchmark : Node
             playerDirectDamageMs=frames.Sum(f=>f.Combat.PlayerDirectDamageMilliseconds),
             playerWeaponVisualCalls=frames.Sum(f=>f.Combat.PlayerWeaponVisualCalls),
             playerWeaponVisualMs=frames.Sum(f=>f.Combat.PlayerWeaponVisualMilliseconds),
+            missileTerrainQueryCalls=frames.Sum(f=>f.Combat.MissileTerrainQueryCalls),
+            missileTerrainQueryMs=frames.Sum(f=>f.Combat.MissileTerrainQueryMilliseconds),
             playerWorldRaycastMs=frames.Sum(f=>f.Combat.PlayerWorldRaycastMilliseconds),
             playerMechRaycastMs=frames.Sum(f=>f.Combat.PlayerMechRaycastMilliseconds),
             weaponEffectPoolBuilds=frames.Sum(f=>f.Combat.WeaponEffectPoolBuilds),
@@ -291,6 +293,8 @@ public sealed partial class QuestCombatBenchmark : Node
             PrintJson("SECOND", JsonSerializer.Serialize(new {runId=session.RunId, trial=session.Trial+1, second=bucket.Key,
                 meanMs=bucket.Average(f=>f.Ms), maxMs=bucket.Max(f=>f.Ms), gpuMs=Gpu(bucket),
                 weaponShots=bucket.Sum(f=>f.Combat.WeaponLaunches), missileLaunches=bucket.Sum(f=>f.Combat.MissileLaunches),
+                missileTerrainQueryCalls=bucket.Sum(f=>f.Combat.MissileTerrainQueryCalls),
+                missileTerrainQueryMs=bucket.Sum(f=>f.Combat.MissileTerrainQueryMilliseconds),
                 impacts=bucket.Sum(f=>f.Combat.Impacts), activeMissiles=bucket.Max(f=>f.Combat.ActiveMissiles), activeLasers=bucket.Max(f=>f.Combat.ActiveLasers)}));
         PrintJson("EVENTS", JsonSerializer.Serialize(new {runId=session.RunId, trial=session.Trial+1,
             firstVolleySeconds=first >= 0 ? (double?)frames[first].Seconds : null}));

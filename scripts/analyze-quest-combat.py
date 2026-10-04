@@ -31,6 +31,8 @@ METRICS = (
     ("losCalls", "LOS calls", ""),
     ("poolBuilds", "pool builds", ""),
     ("poolBuildMs", "pool build total", " ms"),
+    ("missileTerrainQueryCalls", "missile terrain queries", ""),
+    ("missileTerrainQueryMs", "missile terrain query total", " ms"),
     ("playerWorldRaycastMs", "player world raycast", " ms"),
     ("playerMechRaycastMs", "player mech raycast", " ms"),
     ("weaponEffectPoolBuilds", "weapon effect pool builds", ""),
@@ -181,6 +183,7 @@ def analyze(records, output):
                   f"weapon effect pools {fmt(number(rec, 'weaponEffectPoolBuilds'))} builds / "
                   f"{fmt(number(rec, 'weaponEffectPoolFallbacks'))} fallbacks", file=output)
             for calls_key, time_key, label in (
+                ("missileTerrainQueryCalls", "missileTerrainQueryMs", "missile terrain query"),
                 ("playerDirectRaycastCalls", "playerDirectRaycastMs", "player raycast"),
                 (None, "playerWorldRaycastMs", "player world raycast"),
                 (None, "playerMechRaycastMs", "player mech raycast"),

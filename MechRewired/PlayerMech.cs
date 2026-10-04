@@ -335,7 +335,7 @@ public partial class PlayerMech : Node3D
 
     public bool IsVrAligningLegsToGaze => m_vrAligningLegsToGaze;
 
-    /// <summary>Turns the legs toward the horizontal gaze bearing captured at the click.</summary>
+    /// <summary>Turns legs and torso toward the horizontal aim bearing captured at the click.</summary>
     public void AlignVrLegsToGaze(Vector3 gazeDirection)
     {
         if (!IsVr || IsDestroyed || IsShutdown || IsImmobilized ||
@@ -343,8 +343,9 @@ public partial class PlayerMech : Node3D
             return;
         ManualControlRequested?.Invoke("VR legs to gaze");
         m_aligningLegsToTorso = false;
-        m_targetTorsoYaw = m_torsoYaw;
         m_vrGazeHeading = Mathf.Atan2(-gazeDirection.X, -gazeDirection.Z);
+        m_targetTorsoYaw = Mathf.Clamp(
+            Mathf.AngleDifference(GlobalRotation.Y, m_vrGazeHeading), -MaximumTorsoYaw, MaximumTorsoYaw);
         m_vrAligningLegsToGaze = true;
     }
 
@@ -1645,13 +1646,16 @@ public partial class PlayerMech : Node3D
         if (!m_vrAligningLegsToGaze) return proposedHeadingChange;
         var remaining = Mathf.AngleDifference(GlobalRotation.Y, m_vrGazeHeading);
         var headingChange = Mathf.Sign(remaining) * Mathf.Min(Mathf.Abs(proposedHeadingChange), Mathf.Abs(remaining));
-        // Counter-rotate the torso to preserve its world bearing while the legs turn,
-        // subject to the mech's physical torso limits. Head tracking itself stays untouched.
+        // Keep the current torso bearing continuous as the chassis turns, then let the
+        // normal torso motor approach the captured aim bearing. Native head pose stays untouched.
         m_torsoYaw = Mathf.Clamp(m_torsoYaw - headingChange, -MaximumTorsoYaw, MaximumTorsoYaw);
-        m_targetTorsoYaw = Mathf.Clamp(m_targetTorsoYaw - headingChange, -MaximumTorsoYaw, MaximumTorsoYaw);
+        m_targetTorsoYaw = Mathf.Clamp(remaining - headingChange, -MaximumTorsoYaw, MaximumTorsoYaw);
         Torso.Rotation = new Vector3(m_torsoPitch, m_torsoYaw, 0.0f);
         if (Mathf.Abs(remaining - headingChange) <= LegAlignmentTolerance)
+        {
+            m_targetTorsoYaw = 0.0f;
             m_vrAligningLegsToGaze = false;
+        }
         return headingChange;
     }
 
