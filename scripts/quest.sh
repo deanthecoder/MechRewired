@@ -48,7 +48,13 @@ connect_quest() {
   if ! select_quest; then
     if [[ -n "$address" ]]; then
       [[ "$address" == *:* ]] || address="$address:5555"
-      "$adb_bin" connect "$address"
+      "$adb_bin" connect "$address" || true
+      if ! select_quest; then
+        # ADB's background server can retain a broken route after Wi-Fi wakes.
+        "$adb_bin" kill-server
+        "$adb_bin" start-server
+        "$adb_bin" connect "$address" || true
+      fi
     fi
     if ! select_quest; then
       printf 'No Quest connected. Connect USB and accept debugging, then run scripts/quest.sh connect to enable Wi-Fi. For a changed IP, use QUEST_HOST=<headset-ip> scripts/quest.sh install.\n' >&2
