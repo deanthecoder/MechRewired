@@ -231,3 +231,27 @@ Individual steering and collisions remain independent. The run header exposes
 `missileQueryPolicy` and `missileGuidancePolicy`; compare these before attributing
 changes across builds. No additional user-run trials are required by the new
 instrumentation.
+
+## Sparse Quest missile effects
+
+Quest player and enemy missiles now select smoke once every three launches and
+a dynamic light once every eight launches. Each mech retains its own cadence
+across salvos, based on actual launch order rather than pool slot index. The
+first launch carries both, followed by the continuous 24-launch repeating cycle.
+Smoke carriers retain their existing 144-particle trails; other missiles emit no
+trail. Non-smoke missiles release their pool slots immediately after impact
+instead of processing an invisible smoke fade. Desktop gameplay defaults remain
+full smoke with the existing pool-slot light selection.
+
+Combat run metadata records `missileVisualPolicy=quest-per-mech-launch-smoke3-light8-v1`,
+and each summary records `missileSmokeStride=3` and `missileLightStride=8`. Thus
+`missileSmoke=true` and `weaponLights=true` now mean the sparse production effects
+are enabled, not that every missile emits smoke/light. Global smoke-off and
+lights-off variants still disable the respective effects, including other
+battlefield smoke and direct-weapon lights as before. There are no new trials.
+Rendering benchmark missile fixtures use the same cadence and record the policy.
+
+Native validation confirms 24 pooled launches create eight emitting trails and
+three visible lights, including slot reuse, global ablations/restoration and
+smoke-tail expiry. Quest appearance and frame-time gain await the next headset
+run. No automatic installation was performed.

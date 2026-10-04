@@ -54,6 +54,7 @@ public partial class EnemyMech : Node3D
     private readonly Random m_random;
     private readonly List<EnemyWeapon> m_weapons = new();
     private readonly List<MissileEffect> m_missilePool = new();
+    private readonly MissileVisualCadence m_missileVisualCadence = new();
     private readonly List<PendingMissile> m_pendingMissiles = new();
     private readonly List<(MeshInstance3D Mesh, string PartName)> m_destructibleParts = new();
     private Aabb m_localBounds;
@@ -729,6 +730,7 @@ public partial class EnemyMech : Node3D
             }
 
             var missile = AcquireMissile();
+            var visuals = QuestVrRuntime.Active ? m_missileVisualCadence.Next() : (Smoke: true, Light: false);
             missile.Launch(
                 pending.Start,
                 pending.Direction,
@@ -736,7 +738,9 @@ public partial class EnemyMech : Node3D
                 null,
                 pending.Impact,
                 terrainImpact: m_battlefieldEffects.SpawnWeaponImpact,
-                guidance: pending.Guidance);
+                guidance: pending.Guidance,
+                carriesSmoke: visuals.Smoke,
+                carriesLight: QuestVrRuntime.Active ? visuals.Light : null);
             m_pendingMissiles.RemoveAt(index);
         }
     }

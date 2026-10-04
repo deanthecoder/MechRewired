@@ -101,6 +101,7 @@ public sealed partial class QuestPerformanceBenchmark : Node
             var frameBudget = 1000.0 / (refreshRate > 0 ? refreshRate : 72);
             var runMetadata = JsonSerializer.Serialize(new
             {
+                missileVisualPolicy = "quest-per-mech-launch-smoke3-light8-v1",
                 schema = 5, graphicsProfiles = "combined-bakes-v1", skyCache = "hdr-2048x1024-separate-sun-longitude-v2", cockpitMode = "quest-uv-baked-interior-v1",
                 cockpitLightingStrength = m_player.Cockpit.LightingStrength,
                 cockpitOriginalTextureScale = m_player.Cockpit.FrameTextureScale,
@@ -330,7 +331,9 @@ public sealed partial class QuestPerformanceBenchmark : Node
         var origin = m_player.TargetPosition + direction * 3;
         for (var i = 0; i < 6; i++)
             m_missiles[index * 6 + i].Launch(origin + m_player.GlobalBasis.X * ((i % 3 - 1) * 1.5f) + Vector3.Up * (i / 3),
-                direction, 900, null, _ => { });
+                direction, 900, null, _ => { },
+                carriesSmoke: (index * 6 + i) % MechRewired.Simulation.MissileVisualCadence.SmokeStride == 0,
+                carriesLight: (index * 6 + i) % MechRewired.Simulation.MissileVisualCadence.LightStride == 0);
     }
 
     private void ResetMissiles()

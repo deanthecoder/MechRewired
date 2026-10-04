@@ -1,0 +1,5 @@
+Godot Engine v4.7.1.stable.mono.official.a13da4feb - https://godotengine.org
+
+MISSILE_VISUAL_CADENCE_PASS: launches=24 smoke=8 lights=3
+MISSILE_QUERY_ALLOCATIONS: queries=1000 freshBytes=640000 reusedBytes=96000 savedBytes=544000
+MISSILE_OPTIMIZATION_CHECK_PASS

@@ -34,7 +34,9 @@ public partial class MissileEffect : Node3D
     private static readonly ParticleProcessMaterial s_smokeProcessMaterial = CreateSmokeProcessMaterial();
     private static readonly QuadMesh s_smokeMesh = CreateSmokeMesh();
     private static readonly ShaderMaterial s_smokeVisualMaterial = CreateSmokeVisualMaterial();
-    private readonly bool m_carriesLight;
+    private readonly bool m_defaultCarriesLight;
+    private bool m_carriesLight;
+    private bool m_carriesSmoke;
     private readonly MeshInstance3D m_body;
     private readonly MeshInstance3D m_exhaust;
     private readonly OmniLight3D m_light;
@@ -67,6 +69,7 @@ public partial class MissileEffect : Node3D
     public MissileEffect(bool carriesLight)
     {
         Name = "PooledMissile";
+        m_defaultCarriesLight = carriesLight;
         m_carriesLight = carriesLight;
         m_body = new MeshInstance3D
         {
@@ -136,8 +139,12 @@ public partial class MissileEffect : Node3D
         Action<Vector3> impact,
         float guidanceArmingDistance = 0.0f,
         Action<Vector3> terrainImpact = null,
-        MissileSalvoGuidance guidance = null)
+        MissileSalvoGuidance guidance = null,
+        bool carriesSmoke = true,
+        bool? carriesLight = null)
     {
+        m_carriesSmoke = carriesSmoke;
+        m_carriesLight = carriesLight ?? m_defaultCarriesLight;
         GlobalPosition = position;
         m_direction = direction.Normalized();
         m_velocity = m_direction * SpeedMetersPerSecond;
@@ -165,7 +172,7 @@ public partial class MissileEffect : Node3D
         UpdateVisualAblation();
         SetProcess(true);
         OrientToDirection();
-        if (!QuestCombatTelemetry.SmokeDisabled) m_smokeTrail.Restart();
+        if (m_carriesSmoke && !QuestCombatTelemetry.SmokeDisabled) m_smokeTrail.Restart();
     }
 
     public override void _Process(double delta)
@@ -289,7 +296,7 @@ public partial class MissileEffect : Node3D
     {
         m_isFlying = false;
         m_isPowered = false;
-        m_smokeFadeRemaining = SmokeLifetimeSeconds;
+        m_smokeFadeRemaining = m_carriesSmoke && !QuestCombatTelemetry.SmokeDisabled ? SmokeLifetimeSeconds : 0.0f;
         m_body.Visible = false;
         m_exhaust.Visible = false;
         UpdateVisualAblation();
@@ -298,6 +305,13 @@ public partial class MissileEffect : Node3D
         m_impact = null;
         m_terrainImpact = null;
         m_guidanceArmingDistance = 0.0f;
+        if (m_smokeFadeRemaining <= 0.0f)
+        {
+            IsActive = false;
+            m_smokeTrail.Visible = false;
+            StopTelemetryTracking();
+            SetProcess(false);
+        }
     }
 
     private void ResetImmediately()
@@ -341,8 +355,8 @@ public partial class MissileEffect : Node3D
         m_appliedLightsDisabled = QuestCombatTelemetry.WeaponLightsDisabled;
         m_appliedSmokeDisabled = QuestCombatTelemetry.SmokeDisabled;
         m_light.Visible = m_isFlying && m_carriesLight && m_isPowered && !QuestCombatTelemetry.WeaponLightsDisabled;
-        m_smokeTrail.Visible = IsActive && !QuestCombatTelemetry.SmokeDisabled;
-        m_smokeTrail.Emitting = m_isFlying && m_isPowered && !QuestCombatTelemetry.SmokeDisabled;
+        m_smokeTrail.Visible = IsActive && m_carriesSmoke && !QuestCombatTelemetry.SmokeDisabled;
+        m_smokeTrail.Emitting = m_isFlying && m_isPowered && m_carriesSmoke && !QuestCombatTelemetry.SmokeDisabled;
     }
 
     private void StopTelemetryTracking()

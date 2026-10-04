@@ -60,6 +60,7 @@ public partial class PlayerTargeting : Node
     private readonly double[] m_weaponCooldowns;
     private readonly Dictionary<ushort, int> m_ammunitionByWeapon;
     private readonly List<MissileEffect> m_missilePool = [];
+    private readonly MissileVisualCadence m_missileVisualCadence = new();
     private readonly List<PendingMissile> m_pendingMissiles = [];
     private readonly List<PendingWeaponFire> m_pendingWeaponFires = [];
     private readonly List<PendingWeaponRepeat> m_pendingWeaponRepeats = [];
@@ -1256,6 +1257,7 @@ public partial class PlayerTargeting : Node
 
             var missile = m_missilePool.FirstOrDefault(candidate => !candidate.IsActive) ??
                           m_missilePool.MaxBy(candidate => candidate.Age);
+            var visuals = QuestVrRuntime.Active ? m_missileVisualCadence.Next() : (Smoke: true, Light: false);
             missile.Launch(
                 pending.Start,
                 pending.Direction,
@@ -1264,7 +1266,9 @@ public partial class PlayerTargeting : Node
                 pending.Impact,
                 pending.GuidanceArmingDistance,
                 m_battlefieldEffects.SpawnWeaponImpact,
-                pending.Guidance);
+                pending.Guidance,
+                carriesSmoke: visuals.Smoke,
+                carriesLight: QuestVrRuntime.Active ? visuals.Light : null);
             TryBeginWeaponView(missile);
             m_pendingMissiles.RemoveAt(index);
         }

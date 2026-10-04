@@ -83,6 +83,46 @@ public partial class MissileOptimizationCheck : Node3D
             second._Process(0.01);
             Check(targetSamples == 2 && second.IsFlying,
                 "follower guidance survives the first pool slot being reused");
+            QuestCombatTelemetry.SmokeDisabled = false;
+            QuestCombatTelemetry.WeaponLightsDisabled = false;
+            var cadence = new MechRewired.Simulation.MissileVisualCadence();
+            var smoke = first.GetChildren().OfType<GpuParticles3D>().Single();
+            var light = first.GetChildren().OfType<OmniLight3D>().Single();
+            var smokeLaunches = 0;
+            var lightLaunches = 0;
+            for (var launch = 0; launch < 24; launch++)
+            {
+                var visuals = cadence.Next();
+                first.Launch(Vector3.Zero, Vector3.Forward, 100, () => Vector3.Forward * 10, null,
+                    carriesSmoke: visuals.Smoke, carriesLight: visuals.Light);
+                first.SetProcess(false);
+                Check(smoke.Visible == visuals.Smoke && smoke.Emitting == visuals.Smoke && light.Visible == visuals.Light,
+                    "pooled relaunch applies smoke/light eligibility independently of pool slot");
+                if (smoke.Emitting) smokeLaunches++;
+                if (light.Visible) lightLaunches++;
+                first._Process(0.1);
+                Check(!first.IsFlying && first.IsActive == visuals.Smoke,
+                    "only smoke carriers retain a fade tail after impact");
+                first._Process(2);
+                Check(!first.IsActive && !first.IsProcessing() && !light.Visible,
+                    "expiry disables sparse visual slots and balances telemetry");
+            }
+            Check(smokeLaunches == 8 && lightLaunches == 3, "24 launches produce eight smoke trails and three lights");
+            first.Launch(Vector3.Zero, Vector3.Forward, 100, null, null, carriesSmoke: true, carriesLight: true);
+            first.SetProcess(false);
+            QuestCombatTelemetry.SmokeDisabled = true;
+            QuestCombatTelemetry.WeaponLightsDisabled = true;
+            first._Process(0.01);
+            Check(!smoke.Visible && !smoke.Emitting && !light.Visible, "benchmark switches override sparse eligibility");
+            QuestCombatTelemetry.SmokeDisabled = false;
+            QuestCombatTelemetry.WeaponLightsDisabled = false;
+            first._Process(0.01);
+            Check(smoke.Visible && smoke.Emitting && light.Visible, "benchmark restore retains launch eligibility");
+            first.Launch(Vector3.Zero, Vector3.Forward, 100, null, null);
+            first.SetProcess(false);
+            Check(smoke.Visible && smoke.Emitting && !light.Visible,
+                "legacy launches retain full smoke and constructor light defaults");
+            GD.Print("MISSILE_VISUAL_CADENCE_PASS: launches=24 smoke=8 lights=3");
             CompareQueryAllocations();
             GD.Print("MISSILE_OPTIMIZATION_CHECK_PASS");
             GetTree().Quit();
@@ -96,6 +136,7 @@ public partial class MissileOptimizationCheck : Node3D
         {
             QuestCombatTelemetry.Active = false;
             QuestCombatTelemetry.SmokeDisabled = false;
+            QuestCombatTelemetry.WeaponLightsDisabled = false;
             QuestCombatTelemetry.Reset();
         }
     }
