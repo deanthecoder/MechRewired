@@ -23,6 +23,23 @@ public sealed class SceneryCollisionTests
         new Vector2(14.0f, 14.0f));
 
     [Test]
+    public void EqualDistanceOverlapKeepsFirstFaceAndResolvesSubsequentObstacle()
+    {
+        SceneryObstacle[] obstacles =
+        [
+            ChemicalTank,
+            new("Neighbor", new Vector2(9, 11), new Vector2(11, 13))
+        ];
+        Assert.That(SceneryCollision.TryResolveOverlap(new Vector2(12, 12), 0,
+            obstacles, out var position, out var obstacle), Is.True);
+        Assert.Multiple(() =>
+        {
+            Assert.That(position, Is.EqualTo(new Vector2(8.95f, 12)));
+            Assert.That(obstacle, Is.SameAs(ChemicalTank));
+        });
+    }
+
+    [Test]
     public void EnteringASceneryFootprintIsBlocked()
     {
         var blocked = SceneryCollision.TryFindBlockingObstacle(

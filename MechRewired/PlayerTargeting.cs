@@ -1451,8 +1451,10 @@ public partial class PlayerTargeting : Node
         var mechStarted = telemetryActive ? Stopwatch.GetTimestamp() : 0L;
         try
         {
-            foreach (var candidate in m_enemyMechs.Where(candidate => !candidate.IsDestroyed))
+            foreach (var candidate in m_enemyMechs)
             {
+                if (candidate.IsDestroyed)
+                    continue;
                 if (candidate.TryRaycastSections(origin, direction, out var candidateHit) &&
                     candidateHit.Distance <= maximumRange &&
                     candidateHit.Distance < enemyDistance)
