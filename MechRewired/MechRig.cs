@@ -27,6 +27,7 @@ public partial class MechRig : Node
     private const float ToeCompensationDegrees = 14.0f;
 
     private readonly List<RigPart> m_parts = [];
+    private readonly List<RigPart>[] m_partsByKind = CreatePartLists();
     private readonly List<FootSupport> m_footSupports = [];
     private readonly MechGait m_gait = new();
     private readonly MechAirbornePose m_airbornePose = new();
@@ -47,7 +48,9 @@ public partial class MechRig : Node
             return false;
         }
 
-        m_parts.Add(new RigPart(node, node.Rotation, kind));
+        var part = new RigPart(node, node.Rotation, kind);
+        m_parts.Add(part);
+        m_partsByKind[(int)kind].Add(part);
         return true;
     }
 
@@ -210,10 +213,10 @@ public partial class MechRig : Node
         float lift,
         float poseWeight)
     {
-        var uppers = m_parts.Where(part => part.Kind == upperKind).ToArray();
-        var lowers = m_parts.Where(part => part.Kind == lowerKind).ToArray();
-        var toes = m_parts.Where(part => part.Kind == toeKind).ToArray();
-        if (uppers.Length == 0)
+        var uppers = m_partsByKind[(int)upperKind];
+        var lowers = m_partsByKind[(int)lowerKind];
+        var toes = m_partsByKind[(int)toeKind];
+        if (uppers.Count == 0)
         {
             return;
         }
@@ -312,6 +315,17 @@ public partial class MechRig : Node
 
         kind = default;
         return false;
+    }
+
+    private static List<RigPart>[] CreatePartLists()
+    {
+        var partsByKind = new List<RigPart>[Enum.GetValues<PartKind>().Length];
+        for (var index = 0; index < partsByKind.Length; index++)
+        {
+            partsByKind[index] = [];
+        }
+
+        return partsByKind;
     }
 
     private sealed record RigPart(Node3D Node, Vector3 RestRotation, PartKind Kind)

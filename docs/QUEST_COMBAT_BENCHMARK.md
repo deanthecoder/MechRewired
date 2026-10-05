@@ -255,3 +255,28 @@ Native validation confirms 24 pooled launches create eight emitting trails and
 three visible lights, including slot reuse, global ablations/restoration and
 smoke-tail expiry. Quest appearance and frame-time gain await the next headset
 run. No automatic installation was performed.
+
+## Managed allocation cleanup — 5 October 2026
+
+Gait updates reuse registered part lists. Objective highlighting reuses the mission's
+distinct actor roots and selects the nearest eligible actor in one pass, preserving
+distance/object-ID ties and the existing-current-target rule. Eligibility, transforms
+and destruction state remain live. Actor resource names are cached, and bounds use
+indexed child traversal instead of allocating child collections. Missile selection
+scans the current fire group directly; lock probe points use stack storage.
+
+After a Debug build and asset import, run the focused native check with a graphical
+Mobile renderer and the original game data available:
+
+```sh
+godot --path MechRewired --rendering-method mobile --xr-mode off res://HotPathAllocationCheck.tscn -- --vr-preview
+```
+
+It compares missile selection and objective highlighting against the former queries,
+checks animated, detached, freed and newly registered rig parts, then measures 1,000
+warmed calls per path. Local results were zero managed bytes for gait, missile
+selection and objective searching with no nearby target. The check completed despite
+the existing lens-flare compositor startup shader errors in this local import.
+This is focused desktop allocation evidence, not a new Quest combat allocation total
+or an FPS improvement. HUD, physics-result wrappers and benchmark overhead remain
+outside this cleanup. No additional headset benchmark stages were added.

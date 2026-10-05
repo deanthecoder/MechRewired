@@ -45,6 +45,7 @@ public partial class PlayerTargeting : Node
     private readonly IReadOnlyList<EnemyMech> m_enemyMechs;
     private readonly IReadOnlyDictionary<(string SourcePath, int ObjectId), BattlefieldActor> m_actorsByObject;
     private readonly IReadOnlyDictionary<BattlefieldActor, BattlefieldActor> m_objectiveRootsByActor;
+    private readonly BattlefieldActor[] m_objectiveRoots;
     private readonly AudioStreamPlayer m_weaponSound;
     private readonly AudioStreamPlayer m_missileLockSound;
     private readonly AudioStreamPlayer m_fireModeSound;
@@ -110,6 +111,8 @@ public partial class PlayerTargeting : Node
         m_hostileActors = hostileActors;
         m_enemyMechs = enemyMechs;
         m_objectiveRootsByActor = objectiveRootsByActor;
+        // Mission actor ownership is fixed; eligibility and positions remain live below.
+        m_objectiveRoots = actors.Select(GetObjectiveRoot).Distinct().ToArray();
         var actorsByObject = new Dictionary<(string SourcePath, int ObjectId), BattlefieldActor>();
         foreach (var actor in actors)
         {
@@ -1175,11 +1178,25 @@ public partial class PlayerTargeting : Node
         }
     }
 
-    private MechMountedWeapon GetSelectedMissile() => WeaponSelection
-        .GetFireIndices()
-        .Select(index => WeaponSelection.Weapons[index])
-        .FirstOrDefault(weapon =>
-            weapon.Specification.Kind == MechWeaponKind.Missile && IsWeaponOperational(weapon));
+    private MechMountedWeapon GetSelectedMissile()
+    {
+        if (!WeaponSelection.GroupFireEnabled)
+        {
+            var weapon = WeaponSelection.SelectedWeapon;
+            return weapon.Specification.Kind == MechWeaponKind.Missile && IsWeaponOperational(weapon)
+                ? weapon : null;
+        }
+
+        // Match GetFireIndices ordering without materializing the selected group.
+        for (var index = 0; index < WeaponSelection.Weapons.Count; index++)
+        {
+            if (WeaponSelection.GetGroup(index) != WeaponSelection.SelectedGroup) continue;
+            var weapon = WeaponSelection.Weapons[index];
+            if (weapon.Specification.Kind == MechWeaponKind.Missile && IsWeaponOperational(weapon))
+                return weapon;
+        }
+        return null;
+    }
 
     private bool SelectedFireSetContainsMissile() => GetSelectedMissile() != null;
 
@@ -1202,19 +1219,20 @@ public partial class PlayerTargeting : Node
         var bounds = enemy.WorldBounds;
         var center = bounds.GetCenter();
         var top = bounds.Position.Y + bounds.Size.Y;
-        Vector3[] aimPoints =
-        [
+        ReadOnlySpan<Vector3> aimPoints = stackalloc Vector3[]
+        {
             center,
             new Vector3(center.X, Mathf.Lerp(center.Y, top, 0.65f), center.Z),
             new Vector3(center.X, Mathf.Lerp(center.Y, top, 0.9f), center.Z)
-        ];
+        };
         var forward = m_playerMech.WeaponAimDirection;
-        return aimPoints.Any(point =>
+        foreach (var point in aimPoints)
         {
             var direction = origin.DirectionTo(point);
             var angle = Mathf.RadToDeg(forward.AngleTo(direction));
-            return angle <= MissileLockConeDegrees && HasLineOfSight(origin, point);
-        });
+            if (angle <= MissileLockConeDegrees && HasLineOfSight(origin, point)) return true;
+        }
+        return false;
     }
 
     private bool HasLineOfSight(Vector3 origin, Vector3 target)
@@ -1641,20 +1659,23 @@ public partial class PlayerTargeting : Node
             return;
         }
 
-        ObjectiveActor = m_actors
-            .Select(GetObjectiveRoot)
-            .Distinct()
-            .Where(m_playerMission.IsActiveObjectiveTarget)
-            .Select(actor => new
+        BattlefieldActor nearest = null;
+        var nearestDistance = float.PositiveInfinity;
+        var playerPosition = m_playerMech.GlobalPosition;
+        foreach (var actor in m_objectiveRoots)
+        {
+            if (!m_playerMission.IsActiveObjectiveTarget(actor)) continue;
+            var distance = actor.TargetPosition.DistanceTo(playerPosition);
+            if (!(distance <= ObjectiveHighlightRange)) continue;
+            // Preserve distance, object-ID and stable source-order ties from the old sort.
+            if (nearest == null || distance < nearestDistance ||
+                (distance == nearestDistance && actor.Definition.ObjectId < nearest.Definition.ObjectId))
             {
-                Actor = actor,
-                Distance = actor.TargetPosition.DistanceTo(m_playerMech.GlobalPosition)
-            })
-            .Where(candidate => candidate.Distance <= ObjectiveHighlightRange)
-            .OrderBy(candidate => candidate.Distance)
-            .ThenBy(candidate => candidate.Actor.Definition.ObjectId)
-            .Select(candidate => candidate.Actor)
-            .FirstOrDefault();
+                nearest = actor;
+                nearestDistance = distance;
+            }
+        }
+        ObjectiveActor = nearest;
         if (ObjectiveActor != null)
         {
             ObjectiveAimPosition = GetPolygonCentroidAnchor(ObjectiveActor);
