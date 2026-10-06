@@ -85,7 +85,7 @@ public static class MechSectionHitTester
 
     public static bool TryFindNearest(
         Node3D mechRoot,
-        IEnumerable<(MeshInstance3D Mesh, string PartName)> parts,
+        IReadOnlyList<(MeshInstance3D Mesh, string PartName)> parts,
         Vector3 origin,
         Vector3 direction,
         out MechSectionHit hit)
@@ -94,9 +94,10 @@ public static class MechSectionHitTester
         var nearestDistance = float.PositiveInfinity;
         MeshInstance3D nearestMesh = null;
         string nearestPartName = null;
-        foreach (var (mesh, partName) in parts)
+        for (var partIndex = 0; partIndex < parts.Count; partIndex++)
         {
-            if (!GodotObject.IsInstanceValid(mesh))
+            var (mesh, partName) = parts[partIndex];
+            if (!GodotObject.IsInstanceValid(mesh) || !mechRoot.IsAncestorOf(mesh))
                 continue;
             var resource = mesh.Mesh;
             if (resource == null)

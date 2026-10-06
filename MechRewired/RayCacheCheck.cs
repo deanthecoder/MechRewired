@@ -36,6 +36,7 @@ public partial class RayCacheCheck : Node
             part.Position += new Vector3(0,100,0);
             if (MechSectionHitTester.TryFindNearest(root, parts, new Vector3(20,-3,10), direction, out _)) throw new System.Exception("moved pose bounds");
             CheckSceneIndex();
+            CheckLegRig();
             GD.Print("RAY_CACHE_CHECK_PASS");
             GetTree().Quit();
         }
@@ -45,6 +46,44 @@ public partial class RayCacheCheck : Node
             GetTree().Quit(1);
         }
     }
+    private void CheckLegRig()
+    {
+        var root = new Node3D();
+        AddChild(root);
+        var rig = new MechRig();
+        root.AddChild(rig);
+        var upper = new Node3D();
+        var duplicateUpper = new Node3D();
+        var lower = new Node3D();
+        var toe = new Node3D();
+        root.AddChild(upper);
+        root.AddChild(duplicateUpper);
+        root.AddChild(lower);
+        root.AddChild(toe);
+        rig.RegisterPart(upper, "LEFTUPPERLEG");
+        rig.RegisterPart(duplicateUpper, "LEFTUPPERLEG");
+        rig.RegisterPart(lower, "LEFTLOWERLEG");
+        rig.RegisterPart(toe, "LEFTFRONTTOE");
+        for (var frame = 0; frame < 100; frame++)
+        {
+            rig.Advance(0.1f, 0, 0.5f, 1.0f / 60);
+            var weight = Mathf.Clamp(rig.Weight / (float)MechRewired.Simulation.MechGait.MaximumPoseSpeedFraction, 0, 1);
+            var expectedUpper = Mathf.DegToRad(Mathf.Sin(rig.Phase) * 28) * weight;
+            var expectedLower = Mathf.DegToRad(-Mathf.Max(0, Mathf.Cos(rig.Phase)) * 34) * weight;
+            if (Mathf.Abs(upper.Rotation.X - expectedUpper) > 0.00001f ||
+                Mathf.Abs(duplicateUpper.Rotation.X - expectedUpper) > 0.00001f ||
+                Mathf.Abs(lower.Rotation.X - expectedLower) > 0.00001f)
+                throw new System.Exception("cached leg groups changed gait");
+        }
+        root.RemoveChild(lower);
+        var detachedPose = lower.Rotation;
+        rig.Advance(0.1f, 0, 0.5f, 1.0f / 60);
+        if (lower.Rotation != detachedPose)
+            throw new System.Exception("detached leg animated");
+        lower.Free();
+        GD.Print("LEG_RIG_CACHE_CHECK_PASS: duplicate parts and detached legs");
+    }
+
     private static void SetTriangle(ArrayMesh mesh, float z)
     {
         mesh.ClearSurfaces();

@@ -53,6 +53,7 @@ public static class SceneryCollision
 
         resolvedPosition = position;
         obstacle = null;
+        Span<Vector2> possiblePositions = stackalloc Vector2[4];
         foreach (var candidate in obstacles)
         {
             if (candidate.Walls.Count > 0)
@@ -67,16 +68,23 @@ public static class SceneryCollision
                 continue;
             }
 
-            var possiblePositions = new[]
-            {
-                new Vector2(minimum.X - SeparationEpsilon, resolvedPosition.Y),
-                new Vector2(maximum.X + SeparationEpsilon, resolvedPosition.Y),
-                new Vector2(resolvedPosition.X, minimum.Y - SeparationEpsilon),
-                new Vector2(resolvedPosition.X, maximum.Y + SeparationEpsilon)
-            };
+            possiblePositions[0] = new Vector2(minimum.X - SeparationEpsilon, resolvedPosition.Y);
+            possiblePositions[1] = new Vector2(maximum.X + SeparationEpsilon, resolvedPosition.Y);
+            possiblePositions[2] = new Vector2(resolvedPosition.X, minimum.Y - SeparationEpsilon);
+            possiblePositions[3] = new Vector2(resolvedPosition.X, maximum.Y + SeparationEpsilon);
             var currentPosition = resolvedPosition;
-            resolvedPosition = possiblePositions.MinBy(possible =>
-                Vector2.DistanceSquared(currentPosition, possible));
+            var nearest = possiblePositions[0];
+            var nearestDistance = Vector2.DistanceSquared(currentPosition, nearest);
+            for (var index = 1; index < possiblePositions.Length; index++)
+            {
+                var distance = Vector2.DistanceSquared(currentPosition, possiblePositions[index]);
+                if (distance < nearestDistance)
+                {
+                    nearest = possiblePositions[index];
+                    nearestDistance = distance;
+                }
+            }
+            resolvedPosition = nearest;
             obstacle ??= candidate;
         }
 

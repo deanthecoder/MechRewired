@@ -735,7 +735,7 @@ public partial class PlayerMech : Node3D
         out MechSectionHit hit) =>
         MechSectionHitTester.TryFindNearest(
             this,
-            m_destructibleParts.Where(part => IsAncestorOf(part.Mesh)),
+            m_destructibleParts,
             origin,
             direction,
             out hit);
