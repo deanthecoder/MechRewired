@@ -22,6 +22,10 @@ METRICS = (
     ("onePercentLowFps", "1% low FPS", ""),
     ("gpuMs", "GPU", " ms"),
     ("cpuMs", "renderer CPU", " ms"),
+    ("drawCalls", "mean draw calls/frame (all viewports)", ""),
+    ("maxDrawCalls", "peak draw calls/frame (all viewports)", ""),
+    ("primitives", "mean primitives/frame (all viewports)", ""),
+    ("maxPrimitives", "peak primitives/frame (all viewports)", ""),
     ("physicsMs", "physics", " ms"),
     ("processMs", "process", " ms"),
     ("allocatedBytes", "allocated", " B"),
@@ -221,6 +225,10 @@ def analyze(records, output):
                   f"missile pool builds {fmt(number(rec, 'poolBuilds'))} / {fmt(number(rec, 'poolBuildMs'), ' ms')}; "
                   f"weapon effect pools {fmt(number(rec, 'weaponEffectPoolBuilds'))} builds / "
                   f"{fmt(number(rec, 'weaponEffectPoolFallbacks'))} fallbacks", file=output)
+            print(f"    Render counts (all viewports): draw calls/frame "
+                  f"{fmt(number(rec, 'drawCalls'))} mean / {fmt(number(rec, 'maxDrawCalls'))} peak; "
+                  f"primitives/frame {fmt(number(rec, 'primitives'))} mean / "
+                  f"{fmt(number(rec, 'maxPrimitives'))} peak", file=output)
             for calls_key, time_key, label in (
                 ("missileTerrainQueryCalls", "missileTerrainQueryMs", "missile terrain query"),
                 ("playerDirectRaycastCalls", "playerDirectRaycastMs", "player raycast"),

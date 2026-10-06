@@ -142,6 +142,16 @@ impact handling, and beam/tracer construction. Their call counts and elapsed
 milliseconds also appear in each spike/event record's `Combat` snapshot. They
 are sampled only while combat telemetry is active.
 
+Combat logs also sample Godot's total draw-call and primitive counters each frame.
+Summaries and per-second records contain `drawCalls` / `primitives` averages and
+`maxDrawCalls` / `maxPrimitives` peaks; spike and event records retain sampled counts.
+These counters cover **all viewports**, including HUD rendering, and describe the
+last rendered frame available at sampling time. They are not per-eye counts or
+an exact same-frame attribution to a weapon event. Main-viewport GPU timings have
+a different scope. The analyzer reports these counts and variant deltas; older
+logs without them show `n/a`. This is an additive schema-7 extension and does not
+add stages or extend the benchmark duration.
+
 Enemy AI time includes its line-of-sight work, so those two values are nested and
 must not be added together. `weaponShots` aggregates successful player and enemy
 weapon launches; `enemyShots` isolates the enemy launches. The analyzer warns

@@ -43,7 +43,7 @@ public sealed partial class QuestCombatBenchmark : Node
         bool HudGlow, bool Radar, bool Weapons, bool Status, bool Navigation, bool Targeting);
 
     private readonly record struct Frame(double Seconds, double Ms, double GpuMs, double CpuMs,
-        double ProcessMs, double PhysicsMs, long AllocatedBytes, int Gc0, int Gc1, int Gc2,
+        double ProcessMs, double PhysicsMs, double DrawCalls, double Primitives, long AllocatedBytes, int Gc0, int Gc1, int Gc2,
         QuestCombatTelemetrySnapshot Combat, float HeadTranslation, float HeadAngle);
 
     public static bool IsSuiteActive => s_session != null;
@@ -211,6 +211,8 @@ public sealed partial class QuestCombatBenchmark : Node
                     RenderingServer.ViewportGetMeasuredRenderTimeCpu(viewport.GetViewportRid()),
                     Performance.GetMonitor(Performance.Monitor.TimeProcess)*1000,
                     Performance.GetMonitor(Performance.Monitor.TimePhysicsProcess)*1000,
+                    Performance.GetMonitor(Performance.Monitor.RenderTotalDrawCallsInFrame),
+                    Performance.GetMonitor(Performance.Monitor.RenderTotalPrimitivesInFrame),
                     Math.Max(0,totalAllocated-allocated), c0-gc0,c1-gc1,c2-gc2, QuestCombatTelemetry.SnapshotAndReset(),
                     rig.Camera.Position.DistanceTo(head.Origin),
                     Mathf.RadToDeg(rig.Camera.Basis.GetRotationQuaternion().AngleTo(head.Basis.GetRotationQuaternion()))));
@@ -285,6 +287,9 @@ public sealed partial class QuestCombatBenchmark : Node
             repeatedVolleyMeanMs = repeats.Length > 0 ? (double?)repeats.Average(f => f.Ms) : null,
             firstImpactFrameMs = firstImpact >= 0 ? (double?)frames[firstImpact].Ms : null,
             cpuMs = frames.Average(f => f.CpuMs), gpuMs = Gpu(frames), physicsMs = frames.Average(f=>f.PhysicsMs), processMs = frames.Average(f=>f.ProcessMs),
+            renderCounterScope = "all-viewports-last-rendered-frame",
+            drawCalls = frames.Average(f => f.DrawCalls), maxDrawCalls = frames.Max(f => f.DrawCalls),
+            primitives = frames.Average(f => f.Primitives), maxPrimitives = frames.Max(f => f.Primitives),
             allocatedBytes = frames.Sum(f=>f.AllocatedBytes), gc0=frames.Sum(f=>f.Gc0), gc1=frames.Sum(f=>f.Gc1), gc2=frames.Sum(f=>f.Gc2),
             enemyAiMs=frames.Sum(f=>f.Combat.EnemyAiMilliseconds), losMs=frames.Sum(f=>f.Combat.LineOfSightMilliseconds),
             losCalls=frames.Sum(f=>f.Combat.LineOfSightCalls), poolBuilds=frames.Sum(f=>f.Combat.MissilePoolsCreated),
@@ -311,6 +316,8 @@ public sealed partial class QuestCombatBenchmark : Node
         foreach (var bucket in frames.GroupBy(f=>(int)f.Seconds))
             PrintJson("SECOND", JsonSerializer.Serialize(new {runId=session.RunId, trial=session.Trial+1, second=bucket.Key,
                 meanMs=bucket.Average(f=>f.Ms), maxMs=bucket.Max(f=>f.Ms), gpuMs=Gpu(bucket),
+                drawCalls=bucket.Average(f=>f.DrawCalls), maxDrawCalls=bucket.Max(f=>f.DrawCalls),
+                primitives=bucket.Average(f=>f.Primitives), maxPrimitives=bucket.Max(f=>f.Primitives),
                 weaponShots=bucket.Sum(f=>f.Combat.WeaponLaunches), missileLaunches=bucket.Sum(f=>f.Combat.MissileLaunches),
                 missileTerrainQueryCalls=bucket.Sum(f=>f.Combat.MissileTerrainQueryCalls),
                 missileTerrainQueryMs=bucket.Sum(f=>f.Combat.MissileTerrainQueryMilliseconds),
@@ -318,7 +325,7 @@ public sealed partial class QuestCombatBenchmark : Node
         PrintJson("EVENTS", JsonSerializer.Serialize(new {runId=session.RunId, trial=session.Trial+1,
             firstVolleySeconds=first >= 0 ? (double?)frames[first].Seconds : null}));
         foreach (var frame in frames.Where(f=>f.Combat.WeaponLaunches>0 || f.Combat.MissileLaunches>0 || f.Combat.Impacts>0 || f.Combat.MissilePoolsCreated>0))
-            PrintJson("EVENT", JsonSerializer.Serialize(new {runId=session.RunId, trial=session.Trial+1, frame.Seconds, frame.Ms, frame.Combat}));
+            PrintJson("EVENT", JsonSerializer.Serialize(new {runId=session.RunId, trial=session.Trial+1, frame.Seconds, frame.Ms, frame.DrawCalls, frame.Primitives, frame.Combat}));
 
     }
 

@@ -76,6 +76,28 @@ class AnalyzeVariantTests(unittest.TestCase):
 
         self.assertIn("missile terrain query: 10.00 ms / 20.00 calls; 0.50 ms/call", output.getvalue())
 
+    def test_render_counts_report_means_peaks_and_variant_delta(self):
+        records = [self.focused_record(1, "baseline"),
+                   self.focused_record(2, "missile-smoke-reduced"),
+                   self.focused_record(4, "baseline")]
+        for record, calls in zip(records, (200, 150, 200)):
+            record.update(drawCalls=calls, maxDrawCalls=240,
+                          primitives=260000, maxPrimitives=280000)
+        output = io.StringIO()
+
+        ANALYZER.analyze(records, output)
+
+        self.assertIn("draw calls/frame 150.00 mean / 240.00 peak", output.getvalue())
+        self.assertIn("primitives/frame 260000.00 mean / 280000.00 peak", output.getvalue())
+        self.assertIn("mean draw calls/frame (all viewports): 150.00 (-25.0% vs baseline)", output.getvalue())
+
+    def test_legacy_render_counts_are_unavailable_not_zero(self):
+        output = io.StringIO()
+
+        ANALYZER.analyze([self.record(1, "baseline", True, True)], output)
+
+        self.assertIn("draw calls/frame n/a mean / n/a peak; primitives/frame n/a mean / n/a peak", output.getvalue())
+
     def test_isolated_variants_compare_against_bracketing_baselines(self):
         records = [
             self.record(1, "baseline", True, True),
