@@ -35,6 +35,7 @@ public static class QuestVrHud
             }
         };
         player.CockpitMount.AddChild(surface);
+        hud.VrCoverage = new QuestHudCoverage(surface, viewport.GetTexture());
         hud.VrSurface = surface;
         player.VrRig.AimSurface = surface;
         hud.EnableVrRenderCaching();

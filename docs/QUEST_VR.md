@@ -230,6 +230,35 @@ are disabled. Mobile does not create the localized volumetric ground fog.
 Other graphics options currently last for the mission session. The menu displays the most
 recent running FPS/frame interval, **not GPU time or a paused benchmark**.
 
+## Quest HUD coverage
+
+Quest/VR preview always displays the existing HUD texture through non-overlapping
+40-pixel regions in one `MultiMesh`, instead of shading its entire transparent
+rectangle. Coverage is recorded from the existing drawing commands, including
+original damage artwork, text, strokes and optional glow. Instrument coverage
+persists between redraws; targeting coverage follows the full-rate targeting layer.
+Empty regions collapse to zero-area triangles. The original, non-rendered plane
+remains the reference for head aiming and world-to-HUD projection.
+
+This reduces stereo transparent fill while retaining the 1280x720 offscreen
+texture and its existing update cadence. It does not eliminate offscreen rendering.
+There is no additional graphics toggle. Desktop HUD rendering is unchanged.
+Quest destination-panel text uses a 21px reference font (previously 25px), with
+16px additional right-side fitting margin.
+
+Run the native Debug check with original game data and a graphics renderer:
+
+```text
+godot --path MechRewired --rendering-method mobile --xr-mode off res://QuestHudCoverageCheck.tscn -- --vr-preview
+```
+
+The check verifies every nontransparent HUD pixel is covered in normal, glow,
+full-screen radar and hidden-radar modes; compares rendered sparse and original
+surfaces; and checks that removed content clears its coverage. On 6 October's
+desktop Mobile-renderer run, normal coverage used 188/576 regions (32.6% of the
+original area) and the surface comparison had zero channel differences above
+2/255 tolerance. This is correctness/coverage evidence, not a Quest FPS measurement.
+
 ## Historical debug validation
 
 The development rendering benchmark is documented in [QUEST_BENCHMARK.md](QUEST_BENCHMARK.md).

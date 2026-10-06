@@ -99,6 +99,7 @@ public partial class PlayerHud : Control
 
     /// <summary>The cockpit glass carrying the existing instruments when drawn into a VR viewport.</summary>
     public MeshInstance3D VrSurface { get; set; }
+    public QuestHudCoverage VrCoverage { get; set; }
     /// <summary>
     /// Controls the soft halo drawn behind bright HUD elements, including the
     /// colored phosphor gauge spines. This is exposed to the debug console as <c>hud.glow</c>.
@@ -311,6 +312,7 @@ public partial class PlayerHud : Control
 
     public override void _Draw()
     {
+        VrCoverage?.Begin(targeting: false);
         if (m_vrTargetLayer != null) VrInstrumentDrawCount++;
         UpdateLayout();
 
@@ -343,6 +345,7 @@ public partial class PlayerHud : Control
             m_vrInstrumentFingerprint = GetVrInstrumentFingerprint();
             m_hasVrInstrumentFingerprint = true;
         }
+        VrCoverage?.End();
     }
 
     private void DrawTargeting()
@@ -354,6 +357,7 @@ public partial class PlayerHud : Control
 
     private void DrawVrTargeting(Control targetLayer)
     {
+        VrCoverage?.Begin(targeting: true);
         UpdateLayout();
         m_drawCanvas = targetLayer;
         try
@@ -373,6 +377,7 @@ public partial class PlayerHud : Control
         finally
         {
             m_drawCanvas = null;
+            VrCoverage?.End();
         }
     }
 
@@ -794,8 +799,10 @@ public partial class PlayerHud : Control
             : $"{distanceMeters:F0}m";
         var descriptionBaseline = m_playerMech.IsVr ? VrTargetDescriptionBaseline : 675.0f;
         var distanceBaseline = m_playerMech.IsVr ? VrTargetDistanceBaseline : 706.0f;
-        DrawTargetPanelText(panelLeft, descriptionBaseline, navigation.Description, navigationColor, 25, panelWidth);
-        DrawTargetPanelText(panelLeft, distanceBaseline, distanceText, HudGreen, 25, panelWidth);
+        var textFontSize = m_playerMech.IsVr ? 21 : 25;
+        var textWidth = m_playerMech.IsVr ? panelWidth - 16.0f : panelWidth;
+        DrawTargetPanelText(panelLeft, descriptionBaseline, navigation.Description, navigationColor, textFontSize, textWidth);
+        DrawTargetPanelText(panelLeft, distanceBaseline, distanceText, HudGreen, textFontSize, textWidth);
     }
 
     private void DrawTargetPanelText(float left, float baseline, string text, Color color, int fontSize, float width)
@@ -1060,11 +1067,23 @@ public partial class PlayerHud : Control
                     19);
                 if (weapon.Specification.Kind == MechWeaponKind.Missile)
                 {
+                    var ammoText = $"{m_targeting.GetWeaponAmmo(index)}";
+                    var ammoFontSize = m_playerMech.IsVr ? 14 : 16;
+                    var ammoX = x + 105.0f;
+                    if (m_playerMech.IsVr)
+                    {
+                        float AmmoWidth() => HudFont.GetStringSize(ammoText, HorizontalAlignment.Left,
+                            -1, Math.Max((int)(ammoFontSize * m_scale), 1)).X / m_scale;
+                        while (ammoFontSize > 1 && AmmoWidth() > 34.0f) ammoFontSize--;
+                        // The selection box ends at x + 137. Leave an 8px right inset,
+                        // and keep even longer ammo counts within their own column.
+                        ammoX = x + 129.0f - AmmoWidth();
+                    }
                     DrawText(
-                        new Vector2(x + 105.0f, y),
-                        $"{m_targeting.GetWeaponAmmo(index)}",
+                        new Vector2(ammoX, y),
+                        ammoText,
                         weaponColor,
-                        16);
+                        ammoFontSize);
                 }
 
                 if (index == selection.SelectedWeaponIndex)
@@ -1522,6 +1541,7 @@ public partial class PlayerHud : Control
         }
 
         var coreWidth = LineWidth(width);
+        CoverLine(from, to, coreWidth);
         if (HudGlow > 0.0f && HudGlowRadius > 0.0f)
         {
             for (var layer = 5; layer >= 1; layer--)
@@ -1549,6 +1569,34 @@ public partial class PlayerHud : Control
 
     private Control DrawCanvas => m_drawCanvas ?? this;
 
+    private void Cover(Rect2 bounds, float width = 0)
+    {
+        // Include antialiasing, font overhang and the optional phosphor halo.
+        VrCoverage?.Include(bounds.Abs().Grow(3 + Math.Max(width, 1) + (HudGlow > 0 ? HudGlowRadius * m_scale : 0)));
+    }
+
+    private void CoverLine(Vector2 from, Vector2 to, float width) => Cover(new Rect2(from, to - from), width);
+
+    private void CoverPoints(Vector2[] points, float width = 0)
+    {
+        if (VrCoverage == null || points.Length == 0) return;
+        var bounds = new Rect2(points[0], Vector2.Zero);
+        foreach (var point in points) bounds = bounds.Expand(point);
+        Cover(bounds, width);
+    }
+
+    private new void DrawCircle(Vector2 center, float radius, Color color)
+    {
+        Cover(new Rect2(center - Vector2.One * radius, Vector2.One * radius * 2));
+        DrawCanvas.DrawCircle(center, radius, color);
+    }
+
+    private void DrawColoredPolygon(Vector2[] points, Color color)
+    {
+        CoverPoints(points);
+        DrawCanvas.DrawColoredPolygon(points, color);
+    }
+
     private bool IsHudGreen(Color color) =>
         Mathf.IsEqualApprox(color.R, HudGreen.R) &&
         Mathf.IsEqualApprox(color.G, HudGreen.G) &&
@@ -1575,6 +1623,7 @@ public partial class PlayerHud : Control
         float width = -1.0f,
         bool antialiased = false)
     {
+        CoverLine(from, to, width);
         if (IsHudGreen(color) && HudGlow > 0.0f)
         {
             for (var layer = 5; layer >= 1; layer--)
@@ -1602,6 +1651,7 @@ public partial class PlayerHud : Control
         float width = -1.0f,
         bool antialiased = false)
     {
+        Cover(new Rect2(center - Vector2.One * radius, Vector2.One * radius * 2), width);
         if (IsHudGreen(color) && HudGlow > 0.0f)
         {
             for (var layer = 5; layer >= 1; layer--)
@@ -1628,6 +1678,7 @@ public partial class PlayerHud : Control
         float width = -1.0f,
         bool antialiased = false)
     {
+        CoverPoints(points, width);
         if (IsHudGreen(color) && HudGlow > 0.0f)
         {
             for (var layer = 5; layer >= 1; layer--)
@@ -1651,6 +1702,7 @@ public partial class PlayerHud : Control
         float width = -1.0f,
         bool antialiased = false)
     {
+        Cover(rect, width);
         if (IsHudGreen(color) && HudGlow > 0.0f)
         {
             for (var layer = 5; layer >= 1; layer--)
@@ -1677,6 +1729,12 @@ public partial class PlayerHud : Control
         int fontSize,
         Color modulate)
     {
+        if (VrCoverage != null)
+        {
+            var extent = font.GetStringSize(text, alignment, width, fontSize);
+            Cover(new Rect2(pos - new Vector2(0, font.GetAscent(fontSize)),
+                new Vector2(extent.X, font.GetHeight(fontSize))));
+        }
         if (IsHudGreen(modulate) && HudGlow > 0.0f)
         {
             // Draw a series of faint, circularly offset copies. This gives the
@@ -1713,6 +1771,7 @@ public partial class PlayerHud : Control
         Color modulate = default,
         bool transpose = false)
     {
+        Cover(rect);
         if (IsHudGreen(modulate) && HudGlow > 0.0f)
         {
             for (var layer = 5; layer >= 1; layer--)
