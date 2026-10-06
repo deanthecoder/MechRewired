@@ -11,8 +11,9 @@ from pathlib import Path
 PREFIX = "QUEST_COMBAT_SUMMARY:"
 CHUNK_PREFIX = "QUEST_COMBAT_CHUNK:"
 VARIANTS = ("baseline", "missile-smoke-reduced", "projectile-lights-small",
-            "smoke-off", "weapon-lights-off")
-FOCUSED_VARIANTS = ("missile-smoke-reduced", "projectile-lights-small")
+            "building-smoke-detailed", "smoke-off", "weapon-lights-off")
+FOCUSED_VARIANTS = ("missile-smoke-reduced", "projectile-lights-small",
+                    "building-smoke-detailed")
 METRICS = (
     ("hudInstrumentDraws", "HUD instrument redraws", ""),
     ("meanMs", "mean frame", " ms"),
@@ -168,11 +169,32 @@ def eligible(record):
 
 
 def focused_effect_mismatch(variant, base_rows, candidates):
-    """Return why a schema-7 focused-effects comparison cannot be trusted."""
+    """Return why a focused-effects comparison cannot be trusted."""
     combined = base_rows + candidates
-    if not all(r.get("effectPolicy") == "focused-effects-v1" and number(r, "schema") == 7
-               for r in combined):
-        return f"{variant}: schema-7 focused-effects-v1 metadata is missing or mismatched"
+    schemas = {number(r, "schema") for r in combined}
+    policies = {r.get("effectPolicy") for r in combined}
+    if len(schemas) != 1 or len(policies) != 1:
+        return f"{variant}: compared records have mismatched schema or effect policy"
+    schema, policy = next(iter(schemas)), next(iter(policies))
+    if variant == "building-smoke-detailed" and schema != 8:
+        return "building-smoke-detailed: requires schema 8 focused-effects-v2 metadata"
+    if ((schema, policy) != (7, "focused-effects-v1")
+            and (schema, policy) != (8, "focused-effects-v2")):
+        return f"{variant}: schema/effect policy metadata is missing or unsupported"
+    if schema == 8:
+        for row in base_rows:
+            if row.get("buildingSmokeMaterial") != "simple-unshaded":
+                return f"{variant}: schema-8 baseline building smoke material was not simple-unshaded or was unrecorded"
+        expected_material = ("detailed-lit" if variant == "building-smoke-detailed"
+                             else "simple-unshaded")
+        if not all(r.get("buildingSmokeMaterial") == expected_material for r in candidates):
+            return f"{variant}: schema-8 building smoke material was not {expected_material} or was unrecorded"
+        if variant == "building-smoke-detailed":
+            emitter_counts = [number(r, "buildingSmokeEmitters") for r in base_rows + candidates]
+            if any(count is None or count <= 0 for count in emitter_counts):
+                return "building-smoke-detailed: buildingSmokeEmitters must be positive and recorded for every compared trial"
+            if len(set(emitter_counts)) != 1:
+                return "building-smoke-detailed: buildingSmokeEmitters differ between compared trials"
     if not all(r.get("smoke") is True and r.get("missileSmoke") is True
                and r.get("weaponLights") is True for r in combined):
         return f"{variant}: global smoke, missile smoke, or weapon lights were disabled or unrecorded"
@@ -194,13 +216,20 @@ def focused_effect_mismatch(variant, base_rows, candidates):
             return "missile-smoke-reduced: missile smoke scale was not 0.75 or was unrecorded"
         if not all_values(candidates, "projectileLightScale", 1.0):
             return "missile-smoke-reduced: projectile light scale changed or was unrecorded"
-    else:
+    elif variant == "projectile-lights-small":
         if not all(r.get("enemyMissileSmoke") is True for r in candidates):
             return "projectile-lights-small: enemy missile smoke was disabled or unrecorded"
         if not all_values(candidates, "missileSmokeScale", 1.0):
             return "projectile-lights-small: missile smoke scale changed or was unrecorded"
         if not all_values(candidates, "projectileLightScale", 0.5):
             return "projectile-lights-small: projectile light scale was not 0.5 or was unrecorded"
+    else:
+        if not all(r.get("enemyMissileSmoke") is True for r in candidates):
+            return "building-smoke-detailed: enemy missile smoke was disabled or unrecorded"
+        if not all_values(candidates, "missileSmokeScale", 1.0):
+            return "building-smoke-detailed: missile smoke scale changed or was unrecorded"
+        if not all_values(candidates, "projectileLightScale", 1.0):
+            return "building-smoke-detailed: projectile light scale changed or was unrecorded"
     return None
 
 
@@ -225,6 +254,9 @@ def analyze(records, output):
                   f"missile pool builds {fmt(number(rec, 'poolBuilds'))} / {fmt(number(rec, 'poolBuildMs'), ' ms')}; "
                   f"weapon effect pools {fmt(number(rec, 'weaponEffectPoolBuilds'))} builds / "
                   f"{fmt(number(rec, 'weaponEffectPoolFallbacks'))} fallbacks", file=output)
+            if "buildingSmokeMaterial" in rec or "buildingSmokeEmitters" in rec:
+                print(f"    Building smoke: material {rec.get('buildingSmokeMaterial', 'n/a')}; "
+                      f"emitters {fmt(number(rec, 'buildingSmokeEmitters'))}", file=output)
             print(f"    Render counts (all viewports): draw calls/frame "
                   f"{fmt(number(rec, 'drawCalls'))} mean / {fmt(number(rec, 'maxDrawCalls'))} peak; "
                   f"primitives/frame {fmt(number(rec, 'primitives'))} mean / "

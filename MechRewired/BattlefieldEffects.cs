@@ -42,6 +42,7 @@ public partial class BattlefieldEffects : Node3D
     private readonly List<DustEffect> m_dustPool = [];
     private ShaderMaterial m_fireVisualMaterial;
     private ShaderMaterial m_smokeVisualMaterial;
+    private ShaderMaterial m_simpleBuildingSmokeMaterial;
     private Godot.Material m_vaporVisualMaterial;
     private ShaderMaterial m_dustVisualMaterial;
     private StandardMaterial3D m_sparkVisualMaterial;
@@ -73,6 +74,7 @@ public partial class BattlefieldEffects : Node3D
     private float m_dustSpread = 68.0f;
     private float m_explosionFogDensity = 0.40f;
     private bool m_smokeAndDustEnabled = true;
+    private bool m_detailedBuildingSmokeEnabled;
 
     public BattlefieldEffects(
         IReadOnlyList<AudioStreamWav> explosionSounds,
@@ -120,6 +122,39 @@ public partial class BattlefieldEffects : Node3D
     {
         get => m_explosionFogDensity;
         set => m_explosionFogDensity = Mathf.Clamp(value, 0.0f, 1.0f);
+    }
+
+    /// <summary>Quest uses unshaded ambient soot by default; benchmarks can restore the detailed material live.</summary>
+    public bool DetailedBuildingSmokeEnabled
+    {
+        get => !QuestVrRuntime.Active || m_detailedBuildingSmokeEnabled;
+        set
+        {
+            m_detailedBuildingSmokeEnabled = value;
+            foreach (var emitter in m_tunableEmitters)
+            {
+                if (emitter.Geometry == ParticleGeometry.Smoke && IsInstanceValid(emitter.Particles))
+                {
+                    // Only swap the draw material: retain simulation, age, density and visibility.
+                    emitter.Particles.MaterialOverride = GetBuildingSmokeMaterial();
+                }
+            }
+        }
+    }
+
+    /// <summary>Number of instantiated ambient soot emitters, including currently hidden emitters.</summary>
+    public int BuildingSmokeEmitterCount
+    {
+        get
+        {
+            var count = 0;
+            foreach (var emitter in m_tunableEmitters)
+            {
+                if (emitter.Geometry == ParticleGeometry.Smoke && IsInstanceValid(emitter.Particles))
+                    count++;
+            }
+            return count;
+        }
     }
 
     /// <summary>
@@ -1177,6 +1212,7 @@ public partial class BattlefieldEffects : Node3D
             new Vector3(width * 2.0f, height * 1.5f + 10.0f, width * 2.0f));
         if (isSooty)
         {
+            particles.MaterialOverride = GetBuildingSmokeMaterial();
             RegisterAmbientEmitter(particles, ParticleGeometry.Smoke);
         }
         return particles;
@@ -1441,7 +1477,7 @@ public partial class BattlefieldEffects : Node3D
         process.ScaleMax = emitter.BaseScaleMax * size;
         process.Spread = emitter.BaseSpread;
 
-        if (emitter.Particles.MaterialOverride is ShaderMaterial material)
+        if (emitter.Particles.MaterialOverride is ShaderMaterial material && material != m_simpleBuildingSmokeMaterial)
         {
             material.SetShaderParameter("emission_strength", isFire ? 0.55f * m_fireBrightness : 0.04f);
         }
@@ -1608,6 +1644,50 @@ public partial class BattlefieldEffects : Node3D
         };
         var material = new ShaderMaterial { Shader = shader };
         material.SetShaderParameter("vapor_texture", m_authoredVaporTexture);
+        return material;
+    }
+
+    private ShaderMaterial GetBuildingSmokeMaterial() => DetailedBuildingSmokeEnabled
+        ? m_smokeVisualMaterial ??= CreateParticleShaderMaterial(true)
+        : m_simpleBuildingSmokeMaterial ??= CreateSimpleBuildingSmokeMaterial();
+
+    private static ShaderMaterial CreateSimpleBuildingSmokeMaterial()
+    {
+        var material = new ShaderMaterial
+        {
+            Shader = new Shader
+            {
+                Code = """
+                    shader_type spatial;
+                    render_mode blend_mix, cull_disabled, unshaded;
+
+                    uniform sampler2D smoke_texture : source_color;
+
+                    void vertex() {
+                        mat4 billboard = mat4(
+                            normalize(INV_VIEW_MATRIX[0]) * length(MODEL_MATRIX[0]),
+                            normalize(INV_VIEW_MATRIX[1]) * length(MODEL_MATRIX[0]),
+                            normalize(INV_VIEW_MATRIX[2]) * length(MODEL_MATRIX[2]),
+                            MODEL_MATRIX[3]);
+                        MODELVIEW_MATRIX = VIEW_MATRIX * billboard;
+                        float frame = clamp(floor(INSTANCE_CUSTOM.y * 64.0), 0.0, 63.0);
+                        UV = (UV + vec2(mod(frame, 8.0), floor(frame / 8.0))) / 8.0;
+                        // Keep the particle process material's lifetime and initial colour ramps.
+                    }
+
+                    void fragment() {
+                        vec4 sprite = texture(smoke_texture, UV);
+                        float opacity = sprite.a * COLOR.a;
+                        if (opacity < 0.008) {
+                            discard;
+                        }
+                        ALBEDO = sprite.rgb * COLOR.rgb;
+                        ALPHA = opacity;
+                    }
+                    """
+            }
+        };
+        material.SetShaderParameter("smoke_texture", ResourceLoader.Load<Texture2D>("res://Assets/Vfx/smokesprite.png"));
         return material;
     }
 

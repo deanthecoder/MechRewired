@@ -7,7 +7,8 @@ The live-combat test measures frame pacing while the mission is actively running
 AI, physics, weapons, and damage. Unlike the rendering test, it does not replay a
 fixed scene or guarantee the same combat sequence each time. The focused
 effects trials compare absent enemy trails plus smaller player smoke and smaller projectile
-lights while keeping global smoke and weapon lights enabled. Actual fighting can
+lights, plus the old detailed building-smoke material versus the new simple default,
+while keeping global smoke and weapon lights enabled. Actual fighting can
 vary, so results do not identify one unique bottleneck by themselves.
 
 ## Run on the headset
@@ -25,10 +26,10 @@ vary, so results do not identify one unique bottleneck by themselves.
 3. Open the Quest menu, select **BENCHMARKS > COMBAT TEST (RESTARTS)**, and keep
    your head still. Menu cancels the suite; losing headset focus also cancels it.
    This action intentionally restarts the mission, as the menu label says.
-4. The suite runs four fresh combat trials measured for 15 seconds each, then a
+4. The suite runs five fresh combat trials measured for 15 seconds each, then a
    fresh mission that restores the captured settings and resumes normal play
    after a complete run. Failed or cancelled runs leave the result menu paused.
-   Expect 60 seconds plus mission loading, sky setup, and reporting overhead.
+   Expect 75 seconds plus mission loading, sky setup, and reporting overhead.
    Stop log capture after `QUEST_COMBAT_STATUS: ... "complete"` appears.
 5. Analyze the log on the Mac:
 
@@ -70,14 +71,15 @@ measurement. Normal enemy actions and the resulting fight are not deterministic.
 
 All measured trials explicitly enable the combined baked sky, UV cockpit and
 baked cabin profile, waiting for sky capture before warm-up. Other captured
-settings are held constant. The four trials are:
+settings are held constant. The five trials are:
 
 | Trial | Variant | Change |
 | --- | --- | --- |
 | 1 | `baseline` | Combined baked profile; smoke and weapon lights ON |
 | 2 | `missile-smoke-reduced` | Enemy trails OFF; player smoke sprites at 75% size; building/impact smoke unchanged |
 | 3 | `projectile-lights-small` | Projectile light scale 0.5; all global effects ON |
-| 4 | `baseline` | Repeat the initial baseline to check drift |
+| 4 | `building-smoke-detailed` | Restore old lit building smoke; missile effects unchanged |
+| 5 | `baseline` | Repeat the initial baseline to check drift |
 
 Each starts in a fresh mission, so damage, ammunition, and lazily-created pools
 do not carry between trials. The final fresh mission restores the captured
@@ -101,8 +103,8 @@ Shader and driver caches can remain warm across mission reloads.
 
 The focused-effects trials compare a combined missile-smoke profile and projectile
 light scale against global smoke/light-on baselines. The baseline trials bracket
-the candidates and let the analyzer check drift. Schema 7 records the
-`focused-effects-v1` policy and effective per-trial scales; comparisons are
+the candidates and let the analyzer check drift. Schema 8 records the
+`focused-effects-v2` policy, building material and effective per-trial scales; comparisons are
 withheld if global effects or any unrelated focused setting differs. Historical
 `smoke-off` and `weapon-lights-off` logs remain supported. The rendering test compares
 the same combined baked profile, its glass variant, and a version with unlit
@@ -117,8 +119,8 @@ restores the user's original individual options, including after cancellation.
 The runner emits:
 
 - `QUEST_COMBAT_RUN:` device/build/settings and workload metadata as JSON,
-  including the enemy count in the mission. Schema 7 identifies the
-  `focused-effects-v1` trial policy. Schema 5 adds scoped direct-weapon
+  including the enemy count in the mission. Schema 8 identifies the
+  `focused-effects-v2` trial policy. Schema 5 adds scoped direct-weapon
   profiling. `options` records the user's pre-run choices for restoration;
   `baselineSettings` explicitly records baked lighting, smoke/dust, and weapon
   lights as ON. A fresh Quest graphics profile also defaults baked lighting and
@@ -194,9 +196,44 @@ do not count as additional baselines. These gates reduce misleading comparisons;
 they do not turn live combat into a deterministic replay. Historical smoke-off
 records are still accepted, but their deltas are withheld when baseline smoke
 was disabled or its state was not recorded. New focused-effects comparisons require
-schema 7 policy metadata, global smoke and lights enabled, default effect scales on
+matching schema/policy metadata, global smoke and lights enabled, default effect scales on
 both baselines, and only the declared candidate scale change. Mismatched effective
 graphics profiles also suppress comparisons.
+
+Schema 8 uses `focused-effects-v2`. Persistent sooty building smoke defaults to
+`simple-unshaded` on Quest: the existing smoke atlas and per-particle colour/opacity
+are retained, with one texture sample and no fragment lighting or normal maps.
+Particle count, size, lifetime and simulation are unchanged. Steam/vapor, fire,
+dust, missile trails and explosion/lingering smoke retain their existing materials.
+Desktop retains the detailed material.
+
+The `building-smoke-detailed` phase temporarily restores `detailed-lit` on existing
+building-smoke emitters without restarting them. All other phases use the simple
+default, and restoration also occurs on cancellation/failure. This comparison is
+old detailed versus new simple: a positive frame-time delta means the old material
+is slower. It adds one 15-second phase plus a mission reload; no new player option.
+Trial/summary logs record `buildingSmokeMaterial` and `buildingSmokeEmitters`.
+The analyzer requires matching positive emitter counts for this comparison.
+Counts describe instantiated emitters, not guaranteed on-screen coverage: keep the
+smoking building in view and treat live-combat visibility changes as a limitation.
+Schema-7 historical comparisons remain supported separately.
+
+The native Debug material check runs without original game data:
+
+```text
+godot --path MechRewired --rendering-method mobile --xr-mode off res://BuildingSmokeMaterialCheck.tscn -- --vr-preview
+```
+
+Omit `--vr-preview` to check desktop preservation. It checks platform defaults,
+existing/new emitter swaps, restoration, retained particle simulation state,
+and unaffected vapor/explosion materials. These checks establish implementation
+correctness; real Quest appearance and performance still need testing.
+
+On 6 October, a desktop Mobile-renderer VR-preview integration run completed all
+five 15-second phases and resumed normal unpaused play. Every phase recorded two
+building-smoke emitters; phase 4 recorded `detailed-lit` and the others
+`simple-unshaded`. The analyzer accepted the isolated comparison. These desktop
+timings are not evidence of a Quest performance gain.
 
 Quest HUD instruments reuse their canvas commands while instrument state stays
 unchanged, with a 30 Hz ceiling on updates during movement/combat. Reticles and
@@ -234,11 +271,11 @@ The smoke candidate removes enemy trails and reduces player smoke sprite width/h
 by 25% (0.82–1.28 m becomes 0.615–0.96 m). It measures that combination, not each
 change separately. The light candidate halves missile light range from 6 m to 3 m
 and laser light range from 8 m to 4 m, without changing energy or cadence.
-Building smoke and impact lights stay unchanged in every trial, preserving hit
-illumination. Cockpit appearance still needs a headset check. The suite adds no stages and does not change
-production visuals; any production visual change waits until the user chooses
-after reviewing headset results. Smoke and weapon lights remain enabled in the
-normal Quest baseline.
+Impact lights stay unchanged in every trial, preserving hit illumination.
+Building smoke changes only in its dedicated detailed-material phase. The missile
+smoke/light candidates remain benchmark-only; simple building smoke is now the
+production Quest default. Appearance still needs a headset check. Smoke and weapon
+lights remain enabled in normal play.
 
 Checking only objects that moved is not safe: a traveling projectile can reach a
 stationary mech between checks. A spatial candidate cache must account for the

@@ -167,6 +167,15 @@ public sealed class QuestGraphicsSettings
         }
     }
 
+    /// <summary>Benchmark-only comparison with the original persistent building-smoke material.</summary>
+    public bool DetailedBuildingSmokeEnabled
+    {
+        get => m_effects?.DetailedBuildingSmokeEnabled ?? false;
+        set { if (m_effects != null) m_effects.DetailedBuildingSmokeEnabled = value; }
+    }
+
+    public int BuildingSmokeEmitterCount => m_effects?.BuildingSmokeEmitterCount ?? 0;
+
     public bool SmokeAndDustEnabled
     {
         get => m_effects?.SmokeAndDustEnabled ?? false;

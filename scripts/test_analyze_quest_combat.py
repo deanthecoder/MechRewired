@@ -148,6 +148,14 @@ class AnalyzeVariantTests(unittest.TestCase):
                       projectileLightScale=0.5 if variant == "projectile-lights-small" else 1.0)
         return record
 
+    def schema8_record(self, trial, variant, mean_ms=10):
+        record = self.focused_record(trial, variant, mean_ms)
+        record.update(schema=8, effectPolicy="focused-effects-v2",
+                      buildingSmokeMaterial=("detailed-lit" if variant == "building-smoke-detailed"
+                                             else "simple-unshaded"),
+                      buildingSmokeEmitters=4)
+        return record
+
     def test_focused_effect_candidates_compare_with_expected_individual_settings(self):
         records = [
             self.focused_record(1, "baseline"),
@@ -187,6 +195,85 @@ class AnalyzeVariantTests(unittest.TestCase):
 
         self.assertIn("missile-smoke-reduced: projectile light scale changed", output.getvalue())
         self.assertIn("projectile-lights-small: missile smoke scale changed", output.getvalue())
+
+    def test_schema8_building_smoke_detailed_compares_with_matching_emitters(self):
+        records = [self.schema8_record(1, "baseline"),
+                   self.schema8_record(2, "building-smoke-detailed"),
+                   self.schema8_record(3, "baseline")]
+        output = io.StringIO()
+
+        ANALYZER.analyze(records, output)
+
+        self.assertIn("building-smoke-detailed (1 complete trial(s))", output.getvalue())
+
+    def test_schema8_focused_variants_remain_supported(self):
+        records = [self.schema8_record(1, "baseline"),
+                   self.schema8_record(2, "missile-smoke-reduced"),
+                   self.schema8_record(3, "projectile-lights-small"),
+                   self.schema8_record(4, "baseline")]
+        output = io.StringIO()
+
+        ANALYZER.analyze(records, output)
+
+        self.assertIn("missile-smoke-reduced (1 complete trial(s))", output.getvalue())
+        self.assertIn("projectile-lights-small (1 complete trial(s))", output.getvalue())
+
+    def test_schema8_building_smoke_withholds_missing_zero_or_mismatched_emitters(self):
+        for first_count, detailed_count in ((None, 4), (0, 4), (4, 3)):
+            with self.subTest(first_count=first_count, detailed_count=detailed_count):
+                baseline = self.schema8_record(1, "baseline")
+                detailed = self.schema8_record(2, "building-smoke-detailed")
+                baseline["buildingSmokeEmitters"] = first_count
+                detailed["buildingSmokeEmitters"] = detailed_count
+                output = io.StringIO()
+
+                ANALYZER.analyze([baseline, detailed, self.schema8_record(3, "baseline")], output)
+
+                self.assertIn("buildingSmokeEmitters", output.getvalue())
+                self.assertNotIn("building-smoke-detailed (1 complete trial(s))", output.getvalue())
+
+    def test_schema8_building_smoke_guards_material_effects_schema_and_policy(self):
+        cases = []
+        bad_material = self.schema8_record(2, "building-smoke-detailed")
+        bad_material["buildingSmokeMaterial"] = "simple-unshaded"
+        cases.append((bad_material, "building smoke material"))
+        bad_effect = self.schema8_record(2, "building-smoke-detailed")
+        bad_effect["missileSmokeScale"] = 0.75
+        cases.append((bad_effect, "missile smoke scale changed"))
+        bad_schema = self.schema8_record(2, "building-smoke-detailed")
+        bad_schema["schema"] = 7
+        bad_schema["effectPolicy"] = "focused-effects-v1"
+        cases.append((bad_schema, "mismatched schema or effect policy"))
+        bad_policy = self.schema8_record(2, "building-smoke-detailed")
+        bad_policy["effectPolicy"] = "focused-effects-v1"
+        cases.append((bad_policy, "mismatched schema or effect policy"))
+        for candidate, message in cases:
+            with self.subTest(message=message):
+                output = io.StringIO()
+
+                ANALYZER.analyze([self.schema8_record(1, "baseline"), candidate,
+                                  self.schema8_record(3, "baseline")], output)
+
+                self.assertIn(message, output.getvalue())
+                self.assertNotIn("building-smoke-detailed (1 complete trial(s))", output.getvalue())
+
+    def test_schema7_cannot_compare_new_building_smoke_phase(self):
+        baseline = self.focused_record(1, "baseline")
+        detailed = self.focused_record(2, "building-smoke-detailed")
+        output = io.StringIO()
+
+        ANALYZER.analyze([baseline, detailed, self.focused_record(3, "baseline")], output)
+
+        self.assertIn("building-smoke-detailed: requires schema 8", output.getvalue())
+        self.assertNotIn("building-smoke-detailed (1 complete trial(s))", output.getvalue())
+
+    def test_building_smoke_metadata_is_printed_when_present(self):
+        record = self.schema8_record(1, "baseline")
+        output = io.StringIO()
+
+        ANALYZER.analyze([record], output)
+
+        self.assertIn("Building smoke: material simple-unshaded; emitters 4.00", output.getvalue())
 
 
 if __name__ == "__main__":
