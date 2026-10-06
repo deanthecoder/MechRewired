@@ -881,7 +881,9 @@ public partial class PlayerHud : Control
             : $"{distanceMeters:F0}m";
         var descriptionBaseline = m_playerMech.IsVr ? VrTargetDescriptionBaseline : 675.0f;
         var distanceBaseline = m_playerMech.IsVr ? VrTargetDistanceBaseline : 706.0f;
-        DrawTargetPanelText(panelLeft, descriptionBaseline, enemyMech.Description, RadarAmber, 25, panelWidth);
+        var textFontSize = m_playerMech.IsVr ? 21 : 25;
+        var textWidth = m_playerMech.IsVr ? panelWidth - 16.0f : panelWidth;
+        DrawTargetPanelText(panelLeft, descriptionBaseline, enemyMech.Description, RadarAmber, textFontSize, textWidth);
         DrawTargetPanelText(
             panelLeft,
             distanceBaseline,
@@ -889,8 +891,8 @@ public partial class PlayerHud : Control
                 ? $"{distanceText}  {enemyMech.Health}/{enemyMech.MaximumHealth}"
                 : distanceText,
             HudGreen,
-            25,
-            panelWidth);
+            textFontSize,
+            textWidth);
     }
 
     private void DrawHostileActorTargetPanel(
@@ -910,14 +912,16 @@ public partial class PlayerHud : Control
             : $"{distanceMeters:F0}m";
         var descriptionBaseline = m_playerMech.IsVr ? VrTargetDescriptionBaseline : 675.0f;
         var distanceBaseline = m_playerMech.IsVr ? VrTargetDistanceBaseline : 706.0f;
-        DrawTargetPanelText(panelLeft, descriptionBaseline, actor.Description, RadarAmber, 25, panelWidth);
+        var textFontSize = m_playerMech.IsVr ? 21 : 25;
+        var textWidth = m_playerMech.IsVr ? panelWidth - 16.0f : panelWidth;
+        DrawTargetPanelText(panelLeft, descriptionBaseline, actor.Description, RadarAmber, textFontSize, textWidth);
         DrawTargetPanelText(
             panelLeft,
             distanceBaseline,
             $"{distanceText}  {actor.Health}/{actor.MaximumHealth}",
             HudGreen,
-            25,
-            panelWidth);
+            textFontSize,
+            textWidth);
     }
 
     private void DrawDiamond(Vector2 center, float radius, float width, Color? color = null)
