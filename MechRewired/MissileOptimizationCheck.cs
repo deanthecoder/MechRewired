@@ -14,6 +14,7 @@ public partial class MissileOptimizationCheck : Node3D
     {
         try
         {
+            QuestVrRuntime.Initialize(GetViewport());
             CheckGuidance();
             var wall = new StaticBody3D { CollisionLayer = BattlefieldPhysics.TerrainLayer, CollisionMask = 0,
                 Position = new Vector3(0, 0, -5) };
@@ -88,6 +89,23 @@ public partial class MissileOptimizationCheck : Node3D
             var cadence = new MechRewired.Simulation.MissileVisualCadence();
             var smoke = first.GetChildren().OfType<GpuParticles3D>().Single();
             var light = first.GetChildren().OfType<OmniLight3D>().Single();
+            QuestCombatTelemetry.ReducedMissileSmoke = true;
+            QuestCombatTelemetry.SmallProjectileLights = true;
+            first.Launch(Vector3.Zero, Vector3.Forward, 100, null, null, carriesSmoke: true, carriesLight: true);
+            first.SetProcess(false);
+            var scaledSmoke = (ParticleProcessMaterial)smoke.ProcessMaterial;
+            var expectedScale = QuestVrRuntime.Active ? 0.75f : 1.0f;
+            Check(Mathf.IsEqualApprox(scaledSmoke.ScaleMin, 0.82f * expectedScale) &&
+                  Mathf.IsEqualApprox(scaledSmoke.ScaleMax, 1.28f * expectedScale), "Quest smoke size candidate; desktop unchanged");
+            Check(Mathf.IsEqualApprox(light.OmniRange, QuestVrRuntime.Active ? 3 : 6) && light.Visible,
+                "smaller projectile light retains illumination");
+            first.Launch(Vector3.Zero, Vector3.Forward, 100, null, null, carriesSmoke: false, carriesLight: true);
+            Check(!smoke.Visible && !smoke.Emitting && light.Visible, "trail suppression retains projectile light");
+            QuestCombatTelemetry.ReducedMissileSmoke = false;
+            QuestCombatTelemetry.SmallProjectileLights = false;
+            first.Launch(Vector3.Zero, Vector3.Forward, 100, null, null, carriesSmoke: true, carriesLight: true);
+            Check(Mathf.IsEqualApprox(((ParticleProcessMaterial)smoke.ProcessMaterial).ScaleMax, 1.28f) &&
+                  Mathf.IsEqualApprox(light.OmniRange, 6) && smoke.Emitting, "pooled slot restores baseline size and light radius");
             var smokeLaunches = 0;
             var lightLaunches = 0;
             for (var launch = 0; launch < 24; launch++)
@@ -138,6 +156,8 @@ public partial class MissileOptimizationCheck : Node3D
             QuestCombatTelemetry.SmokeDisabled = false;
             QuestCombatTelemetry.WeaponLightsDisabled = false;
             QuestCombatTelemetry.Reset();
+            QuestCombatTelemetry.ReducedMissileSmoke = false;
+            QuestCombatTelemetry.SmallProjectileLights = false;
         }
     }
 

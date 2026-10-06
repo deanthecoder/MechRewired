@@ -107,6 +107,7 @@ public partial class LaserEffect : Node3D
     internal void Launch(Vector3 start, Vector3 end, Color color, float radius, float delay = 0.0f, bool reusable = true)
     {
         m_reusable = reusable;
+        m_light.OmniRange = QuestVrRuntime.Active && QuestCombatTelemetry.SmallProjectileLights ? 4.0f : 8.0f;
         m_start = start;
         m_distance = start.DistanceTo(end);
         m_direction = m_distance > 0.0001f ? start.DirectionTo(end) : Vector3.Forward;

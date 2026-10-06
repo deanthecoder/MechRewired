@@ -14,6 +14,7 @@ public partial class WeaponEffectPoolSmokeCheck : Node
     {
         try
         {
+            QuestVrRuntime.Initialize(GetViewport());
             var pool = WeaponEffectPool.Prewarm(this);
             Check(ReferenceEquals(pool, WeaponEffectPool.Prewarm(this)), "mission prewarm is idempotent");
             var nodes = pool.GetChildren();
@@ -28,9 +29,12 @@ public partial class WeaponEffectPoolSmokeCheck : Node
             QuestCombatTelemetry.Reset();
             QuestCombatTelemetry.Active = true;
             QuestCombatTelemetry.WeaponLightsDisabled = false;
+            QuestCombatTelemetry.SmallProjectileLights = true;
             WeaponEffectPool.FireLaser(this, Vector3.Zero, Vector3.Right * 100, Colors.Green, 0.055f, 0.1f);
             WeaponEffectPool.FireTracer(this, Vector3.Zero, Vector3.Right * 100, 0.1f);
             Check(laser.IsActive && tracer.IsActive && !pulse.Visible && !light.Visible, "delayed effects start hidden");
+            Check(Mathf.IsEqualApprox(light.OmniRange, QuestVrRuntime.Active ? 4 : 8), "Quest laser radius candidate; desktop unchanged");
+            QuestCombatTelemetry.SmallProjectileLights = false;
             WeaponEffectPool.FireLaser(this, Vector3.Zero, Vector3.Up * 50, Colors.Blue, 0.1f, 0.4f);
             var secondLaser = nodes.OfType<LaserEffect>().Skip(1).First();
             var secondPulse = secondLaser.GetChildren().OfType<MeshInstance3D>().Single();
@@ -49,6 +53,7 @@ public partial class WeaponEffectPoolSmokeCheck : Node
             Check(laser.IsActive && tracer.IsActive && pool.GetChildCount() == 128, "same slots reused with no new children");
             Check(ReferenceEquals(originalMesh, pulse.Mesh) && ReferenceEquals(originalMaterial, pulse.MaterialOverride), "GPU resources retained across shots");
             Check(light.LightColor == Colors.Red && Mathf.IsEqualApprox(pulse.Scale.X, 0.09f), "reuse resets color and radius");
+            Check(Mathf.IsEqualApprox(light.OmniRange, 8), "pooled laser restores baseline light radius");
             laser._Process(10);
             tracer._Process(10);
             var oneShotLaser = new LaserEffect(Vector3.Zero, Vector3.Right);
@@ -71,6 +76,7 @@ public partial class WeaponEffectPoolSmokeCheck : Node
         finally
         {
             QuestCombatTelemetry.Active = false;
+            QuestCombatTelemetry.SmallProjectileLights = false;
             QuestCombatTelemetry.Reset();
         }
     }

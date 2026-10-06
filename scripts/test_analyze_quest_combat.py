@@ -118,6 +118,54 @@ class AnalyzeVariantTests(unittest.TestCase):
 
         self.assertIn("weapon-lights-off: smoke was disabled or unrecorded", output.getvalue())
 
+    def focused_record(self, trial, variant, mean_ms=10):
+        record = self.record(trial, variant, True, True, mean_ms)
+        record.update(schema=7, effectPolicy="focused-effects-v1",
+                      enemyMissileSmoke=variant != "missile-smoke-reduced",
+                      missileSmokeScale=0.75 if variant == "missile-smoke-reduced" else 1.0,
+                      projectileLightScale=0.5 if variant == "projectile-lights-small" else 1.0)
+        return record
+
+    def test_focused_effect_candidates_compare_with_expected_individual_settings(self):
+        records = [
+            self.focused_record(1, "baseline"),
+            self.focused_record(2, "missile-smoke-reduced"),
+            self.focused_record(3, "projectile-lights-small"),
+            self.focused_record(4, "baseline"),
+        ]
+        output = io.StringIO()
+
+        ANALYZER.analyze(records, output)
+
+        self.assertIn("missile-smoke-reduced (1 complete trial(s))", output.getvalue())
+        self.assertIn("projectile-lights-small (1 complete trial(s))", output.getvalue())
+
+    def test_focused_effect_delta_is_withheld_for_mismatched_baseline_settings(self):
+        first = self.focused_record(1, "baseline")
+        second = self.focused_record(4, "baseline")
+        second["projectileLightScale"] = 0.5
+        records = [first, self.focused_record(2, "missile-smoke-reduced"),
+                   self.focused_record(3, "projectile-lights-small"), second]
+        output = io.StringIO()
+
+        ANALYZER.analyze(records, output)
+
+        self.assertIn("projectile-lights-small: baseline projectile light scale was not 1.0", output.getvalue())
+
+    def test_focused_effect_delta_is_withheld_when_candidate_changes_unrelated_effect(self):
+        smoke_candidate = self.focused_record(2, "missile-smoke-reduced")
+        smoke_candidate["projectileLightScale"] = 0.5
+        light_candidate = self.focused_record(3, "projectile-lights-small")
+        light_candidate["missileSmokeScale"] = 0.75
+        records = [self.focused_record(1, "baseline"), smoke_candidate,
+                   light_candidate, self.focused_record(4, "baseline")]
+        output = io.StringIO()
+
+        ANALYZER.analyze(records, output)
+
+        self.assertIn("missile-smoke-reduced: projectile light scale changed", output.getvalue())
+        self.assertIn("projectile-lights-small: missile smoke scale changed", output.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()

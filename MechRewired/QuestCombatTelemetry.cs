@@ -53,6 +53,12 @@ public static class QuestCombatTelemetry
 
     public static bool SmokeDisabled { get; set; }
 
+    /// <summary>Quest trial: suppress enemy trails and shrink remaining missile smoke to 75%.</summary>
+    public static bool ReducedMissileSmoke { get; set; }
+
+    /// <summary>Quest trial: halve projectile light ranges, preserving impact lights.</summary>
+    public static bool SmallProjectileLights { get; set; }
+
     /// <summary>Returns this sampling interval and clears its interval counters.</summary>
     public static QuestCombatTelemetrySnapshot SnapshotAndReset() => new(
         Interlocked.Exchange(ref s_enemyAiTicks, 0),

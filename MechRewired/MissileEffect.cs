@@ -32,6 +32,7 @@ public partial class MissileEffect : Node3D
     private static readonly StandardMaterial3D s_exhaustMaterial = CreateExhaustMaterial();
     private static readonly CylinderMesh s_exhaustMesh = CreateExhaustMesh();
     private static readonly ParticleProcessMaterial s_smokeProcessMaterial = CreateSmokeProcessMaterial();
+    private static readonly ParticleProcessMaterial s_smallSmokeProcessMaterial = CreateSmokeProcessMaterial(0.75f);
     private static readonly QuadMesh s_smokeMesh = CreateSmokeMesh();
     private static readonly ShaderMaterial s_smokeVisualMaterial = CreateSmokeVisualMaterial();
     private readonly bool m_defaultCarriesLight;
@@ -145,6 +146,9 @@ public partial class MissileEffect : Node3D
     {
         m_carriesSmoke = carriesSmoke;
         m_carriesLight = carriesLight ?? m_defaultCarriesLight;
+        m_light.OmniRange = QuestVrRuntime.Active && QuestCombatTelemetry.SmallProjectileLights ? 3.0f : 6.0f;
+        m_smokeTrail.ProcessMaterial = QuestVrRuntime.Active && QuestCombatTelemetry.ReducedMissileSmoke
+            ? s_smallSmokeProcessMaterial : s_smokeProcessMaterial;
         GlobalPosition = position;
         m_direction = direction.Normalized();
         m_velocity = m_direction * SpeedMetersPerSecond;
@@ -405,7 +409,7 @@ public partial class MissileEffect : Node3D
         Rings = 1
     };
 
-    private static ParticleProcessMaterial CreateSmokeProcessMaterial() =>
+    private static ParticleProcessMaterial CreateSmokeProcessMaterial(float sizeScale = 1.0f) =>
         new()
         {
             Direction = Vector3.Down,
@@ -415,8 +419,8 @@ public partial class MissileEffect : Node3D
             Gravity = new Vector3(0.08f, 0.42f, 0.04f),
             DampingMin = 0.65f,
             DampingMax = 1.25f,
-            ScaleMin = 0.82f,
-            ScaleMax = 1.28f,
+            ScaleMin = 0.82f * sizeScale,
+            ScaleMax = 1.28f * sizeScale,
             ColorRamp = new GradientTexture1D
             {
                 Gradient = new Gradient

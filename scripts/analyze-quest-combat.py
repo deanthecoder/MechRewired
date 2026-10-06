@@ -10,7 +10,9 @@ from pathlib import Path
 
 PREFIX = "QUEST_COMBAT_SUMMARY:"
 CHUNK_PREFIX = "QUEST_COMBAT_CHUNK:"
-VARIANTS = ("baseline", "smoke-off", "weapon-lights-off")
+VARIANTS = ("baseline", "missile-smoke-reduced", "projectile-lights-small",
+            "smoke-off", "weapon-lights-off")
+FOCUSED_VARIANTS = ("missile-smoke-reduced", "projectile-lights-small")
 METRICS = (
     ("hudInstrumentDraws", "HUD instrument redraws", ""),
     ("meanMs", "mean frame", " ms"),
@@ -161,6 +163,43 @@ def eligible(record):
             and number(record, "maxHeadAngle") <= 5)
 
 
+def focused_effect_mismatch(variant, base_rows, candidates):
+    """Return why a schema-7 focused-effects comparison cannot be trusted."""
+    combined = base_rows + candidates
+    if not all(r.get("effectPolicy") == "focused-effects-v1" and number(r, "schema") == 7
+               for r in combined):
+        return f"{variant}: schema-7 focused-effects-v1 metadata is missing or mismatched"
+    if not all(r.get("smoke") is True and r.get("missileSmoke") is True
+               and r.get("weaponLights") is True for r in combined):
+        return f"{variant}: global smoke, missile smoke, or weapon lights were disabled or unrecorded"
+
+    def all_values(rows, field, expected):
+        return all(number(r, field) == expected for r in rows)
+
+    if not all(r.get("enemyMissileSmoke") is True for r in base_rows):
+        return f"{variant}: baseline enemy missile smoke was disabled or unrecorded"
+    if not all_values(base_rows, "missileSmokeScale", 1.0):
+        return f"{variant}: baseline missile smoke scale was not 1.0 or was unrecorded"
+    if not all_values(base_rows, "projectileLightScale", 1.0):
+        return f"{variant}: baseline projectile light scale was not 1.0 or was unrecorded"
+
+    if variant == "missile-smoke-reduced":
+        if not all(r.get("enemyMissileSmoke") is False for r in candidates):
+            return "missile-smoke-reduced: enemy missile smoke was enabled or unrecorded"
+        if not all_values(candidates, "missileSmokeScale", 0.75):
+            return "missile-smoke-reduced: missile smoke scale was not 0.75 or was unrecorded"
+        if not all_values(candidates, "projectileLightScale", 1.0):
+            return "missile-smoke-reduced: projectile light scale changed or was unrecorded"
+    else:
+        if not all(r.get("enemyMissileSmoke") is True for r in candidates):
+            return "projectile-lights-small: enemy missile smoke was disabled or unrecorded"
+        if not all_values(candidates, "missileSmokeScale", 1.0):
+            return "projectile-lights-small: missile smoke scale changed or was unrecorded"
+        if not all_values(candidates, "projectileLightScale", 0.5):
+            return "projectile-lights-small: projectile light scale was not 0.5 or was unrecorded"
+    return None
+
+
 def analyze(records, output):
     if not records:
         print("No QUEST_COMBAT_SUMMARY records found.", file=output)
@@ -235,6 +274,11 @@ def analyze(records, output):
                 if not candidates:
                     print(f"    {variant}: no valid combat trial", file=output)
                     continue
+                if variant in FOCUSED_VARIANTS:
+                    mismatch = focused_effect_mismatch(variant, base_rows, candidates)
+                    if mismatch:
+                        print(f"    {mismatch}; deltas withheld", file=output)
+                        continue
                 if variant == "smoke-off":
                     if not all(r.get("smoke") is True for r in base_rows):
                         print("    smoke-off: baseline smoke was disabled or unrecorded; deltas withheld", file=output)

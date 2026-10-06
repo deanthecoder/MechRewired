@@ -739,7 +739,7 @@ public partial class EnemyMech : Node3D
                 pending.Impact,
                 terrainImpact: m_battlefieldEffects.SpawnWeaponImpact,
                 guidance: pending.Guidance,
-                carriesSmoke: visuals.Smoke,
+                carriesSmoke: visuals.Smoke && !(QuestVrRuntime.Active && QuestCombatTelemetry.ReducedMissileSmoke),
                 carriesLight: QuestVrRuntime.Active ? visuals.Light : null);
             m_pendingMissiles.RemoveAt(index);
         }
