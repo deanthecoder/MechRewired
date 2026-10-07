@@ -1,0 +1,9 @@
+QUEST_SKY_CACHE sun_patch=256x256 format=Rgbaf extent=0.050000 source_radiance=Size256 source_mode=Quality original_radiance=Size256 original_mode=Automatic complete=true
+SUN_CACHE_CHECK: {"fov":75,"beforeGpuMs":1.0926612100507547,"cachedGpuMs":1.0374389076156247,"repeatGpuMs":1.0877430902263983,"savedPercent":4.839766874083384,"meanMaxChannelError":3.050462427464399E-08,"maximumChannelError":0.003921568393707275,"pixelsOver003":0,"folder":"C:/Users/dedis/AppData/Roaming/Godot/app_userdata/MechRewired/benchmarks/sun-cache"}
+SUN_CACHE_CHECK: {"fov":12,"beforeGpuMs":1.0809027550672596,"cachedGpuMs":1.026790476034558,"repeatGpuMs":1.0837625214086788,"savedPercent":5.131709073638713,"meanMaxChannelError":1.3581189242276278E-06,"maximumChannelError":0.003921568393707275,"pixelsOver003":0,"folder":"C:/Users/dedis/AppData/Roaming/Godot/app_userdata/MechRewired/benchmarks/sun-cache"}
+SUN_CACHE_CHECK_COMPLETE
+QUEST_SKY_CACHE sun_patch=256x256 format=Rgbaf extent=0.050000 source_radiance=Size256 source_mode=Quality original_radiance=Size256 original_mode=Automatic complete=true
+QUEST_SKY_CACHE version=hdr-2048x1024-sun-colour256-analytic-disc-v3 final_radiance=Size256 final_mode=Automatic sun=LIGHT0_DIRECTION
+SUN_CACHE_CHECK: {"fov":75,"beforeGpuMs":1.0933295265690925,"cachedGpuMs":1.0486067938573151,"repeatGpuMs":1.0985296060772318,"savedPercent":4.318048706780909,"meanMaxChannelError":3.050462427464399E-08,"maximumChannelError":0.003921568393707275,"pixelsOver003":0,"folder":"C:/Users/dedis/AppData/Roaming/Godot/app_userdata/MechRewired/benchmarks/sun-cache"}
+SUN_CACHE_CHECK: {"fov":12,"beforeGpuMs":1.091594462674293,"cachedGpuMs":1.037564308601177,"repeatGpuMs":1.0915658539872828,"savedPercent":4.948408902211132,"meanMaxChannelError":1.3581189242276278E-06,"maximumChannelError":0.003921568393707275,"pixelsOver003":0,"folder":"C:/Users/dedis/AppData/Roaming/Godot/app_userdata/MechRewired/benchmarks/sun-cache"}
+SUN_CACHE_CHECK_COMPLETE

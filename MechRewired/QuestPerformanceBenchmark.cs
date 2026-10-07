@@ -102,7 +102,7 @@ public sealed partial class QuestPerformanceBenchmark : Node
             var runMetadata = JsonSerializer.Serialize(new
             {
                 missileVisualPolicy = "quest-per-mech-launch-smoke3-light8-v1",
-                schema = 5, graphicsProfiles = "combined-bakes-v1", skyCache = "hdr-2048x1024-separate-sun-longitude-v2", cockpitMode = "quest-uv-baked-interior-v1",
+                schema = 5, graphicsProfiles = "combined-bakes-v1", skyCache = QuestCachedSky.CacheVersion, cockpitMode = "quest-uv-baked-interior-v1",
                 cockpitLightingStrength = m_player.Cockpit.LightingStrength,
                 cockpitOriginalTextureScale = m_player.Cockpit.FrameTextureScale,
                 runId = Path.GetFileName(m_output), startedUtc = DateTime.UtcNow, mission = m_mission,
