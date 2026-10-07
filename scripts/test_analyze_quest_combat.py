@@ -156,6 +156,74 @@ class AnalyzeVariantTests(unittest.TestCase):
                       buildingSmokeEmitters=4)
         return record
 
+    def schema9_record(self, trial, variant, mean_ms=10):
+        record = self.record(trial, variant, True, True, mean_ms)
+        chunked = variant in ("terrain-chunked", "terrain-combined")
+        vertex_lit = variant in ("terrain-vertex-lit", "terrain-combined")
+        record.update(
+            schema=9, effectPolicy="focused-terrain-v1",
+            terrainTriplanar=False, terrainChunked=chunked,
+            terrainVertexLighting=vertex_lit,
+            terrainSpecularDisabled=vertex_lit,
+            terrainChunkSizeMetres=256 if chunked else 0,
+            terrainSourceTriangles=197266,
+            terrainChunkTriangles=197266 if chunked else 0,
+            terrainChunkCount=12 if chunked else 0,
+            enemyMissileSmoke=True, missileSmokeScale=1.0,
+            projectileLightScale=1.0,
+            buildingSmokeMaterial="simple-unshaded")
+        return record
+
+    def test_schema9_terrain_phases_compare_against_matched_baselines(self):
+        records = [
+            self.schema9_record(1, "baseline"),
+            self.schema9_record(2, "terrain-chunked"),
+            self.schema9_record(3, "terrain-vertex-lit"),
+            self.schema9_record(4, "terrain-combined"),
+            self.schema9_record(5, "baseline"),
+        ]
+        output = io.StringIO()
+
+        ANALYZER.analyze(records, output)
+
+        for variant in ("terrain-chunked", "terrain-vertex-lit", "terrain-combined"):
+            with self.subTest(variant=variant):
+                self.assertIn(f"{variant} (1 complete trial(s))", output.getvalue())
+
+    def test_schema9_terrain_rejects_unmatched_source_triangle_count(self):
+        baseline = self.schema9_record(1, "baseline")
+        candidate = self.schema9_record(2, "terrain-chunked")
+        candidate["terrainSourceTriangles"] += 1
+        output = io.StringIO()
+
+        ANALYZER.analyze([baseline, candidate, self.schema9_record(3, "baseline")], output)
+
+        self.assertIn("terrain source triangle counts differ", output.getvalue())
+        self.assertNotIn("terrain-chunked (1 complete trial(s))", output.getvalue())
+
+    def test_schema9_terrain_rejects_non_terrain_effect_changes(self):
+        changes = (
+            ("terrainTriplanar", True),
+            ("enemyMissileSmoke", False),
+            ("missileSmokeScale", 0.75),
+            ("projectileLightScale", 0.5),
+            ("buildingSmokeMaterial", "detailed-lit"),
+            ("terrainChunkTriangles", 0),
+            ("terrainChunkCount", 0),
+        )
+        for field, value in changes:
+            with self.subTest(field=field):
+                baseline = self.schema9_record(1, "baseline")
+                candidate = self.schema9_record(2, "terrain-chunked")
+                candidate[field] = value
+                output = io.StringIO()
+
+                ANALYZER.analyze([baseline, candidate,
+                                  self.schema9_record(3, "baseline")], output)
+
+                self.assertIn("terrain-chunked:", output.getvalue())
+                self.assertNotIn("terrain-chunked (1 complete trial(s))", output.getvalue())
+
     def test_focused_effect_candidates_compare_with_expected_individual_settings(self):
         records = [
             self.focused_record(1, "baseline"),

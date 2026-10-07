@@ -76,9 +76,9 @@ settings are held constant. The five trials are:
 | Trial | Variant | Change |
 | --- | --- | --- |
 | 1 | `baseline` | Combined baked profile; smoke and weapon lights ON |
-| 2 | `missile-smoke-reduced` | Enemy trails OFF; player smoke sprites at 75% size; building/impact smoke unchanged |
-| 3 | `projectile-lights-small` | Projectile light scale 0.5; all global effects ON |
-| 4 | `building-smoke-detailed` | Restore old lit building smoke; missile effects unchanged |
+| 2 | `terrain-chunked` | Split terrain rendering into 256 m sections; identical triangles and collision |
+| 3 | `terrain-vertex-lit` | Terrain vertex lighting with specular disabled; textures and light response retained |
+| 4 | `terrain-combined` | Both terrain changes together |
 | 5 | `baseline` | Repeat the initial baseline to check drift |
 
 Each starts in a fresh mission, so damage, ammunition, and lazily-created pools
@@ -101,12 +101,28 @@ reports the total enemy pool count and whether all missile pools are ready.
 Measured pool creation should now be zero; a nonzero count identifies a fallback.
 Shader and driver caches can remain warm across mission reloads.
 
-The focused-effects trials compare a combined missile-smoke profile and projectile
-light scale against global smoke/light-on baselines. The baseline trials bracket
-the candidates and let the analyzer check drift. Schema 8 records the
-`focused-effects-v2` policy, building material and effective per-trial scales; comparisons are
-withheld if global effects or any unrelated focused setting differs. Historical
-`smoke-off` and `weapon-lights-off` logs remain supported. The rendering test compares
+Schema 9 uses `focused-terrain-v1`. All stages use cheap UV terrain, normal missile
+smoke and projectile light sizes, and simple building smoke. The old effect phases
+were removed after no convincing device gain. The suite still has five 15-second
+trials. Chunking and lighting are benchmark-only changes shared with the laptop
+probe; they are restored on completion, cancellation or failure and never saved
+as player preferences. Chunk construction happens before warm-up and measurement.
+Logs include chunk size/count, source and chunk triangle totals, effective lighting
+and triplanar state. Physics geometry is unchanged. The 256 m size is the measured
+experimental candidate, not a tuned production default; occlusion culling is not
+enabled by this phase. Lighting combines vertex interpolation and disabled specular,
+so this suite does not isolate those two changes from each other.
+
+The baseline trials bracket the candidates and let the analyzer check drift.
+The 7 October laptop integration run completed all five schema-9 trials and resumed
+unpaused play. Both chunked trials conserved all 197,266 terrain triangles; the
+analyzer accepted all three comparisons. Debug/Release builds and 21 analyzer
+tests passed. This validates the suite, not Quest performance: the native preview
+uses desktop resolution/AA overrides unless explicitly configured like the separate
+laptop GPU probe. See [the integration analysis](data/laptop-combat-terrain-2026-10-07-analysis.txt).
+
+Historical schema-8 `focused-effects-v2`, `smoke-off` and `weapon-lights-off` logs
+remain supported. The separate rendering test compares
 the same combined baked profile, its glass variant, and a version with unlit
 terrain, bracketed by baselines: 20 trials, or 180 seconds of warm-up and
 sampling, plus setup and reporting. Combat retains two bracketing baseline trials
@@ -207,11 +223,11 @@ Particle count, size, lifetime and simulation are unchanged. Steam/vapor, fire,
 dust, missile trails and explosion/lingering smoke retain their existing materials.
 Desktop retains the detailed material.
 
-The `building-smoke-detailed` phase temporarily restores `detailed-lit` on existing
+The historical schema-8 `building-smoke-detailed` phase temporarily restored `detailed-lit` on existing
 building-smoke emitters without restarting them. All other phases use the simple
 default, and restoration also occurs on cancellation/failure. This comparison is
 old detailed versus new simple: a positive frame-time delta means the old material
-is slower. It adds one 15-second phase plus a mission reload; no new player option.
+is slower. This phase is no longer part of the current suite.
 Trial/summary logs record `buildingSmokeMaterial` and `buildingSmokeEmitters`.
 The analyzer requires matching positive emitter counts for this comparison.
 Counts describe instantiated emitters, not guaranteed on-screen coverage: keep the

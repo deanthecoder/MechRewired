@@ -11,9 +11,11 @@ from pathlib import Path
 PREFIX = "QUEST_COMBAT_SUMMARY:"
 CHUNK_PREFIX = "QUEST_COMBAT_CHUNK:"
 VARIANTS = ("baseline", "missile-smoke-reduced", "projectile-lights-small",
-            "building-smoke-detailed", "smoke-off", "weapon-lights-off")
+            "building-smoke-detailed", "smoke-off", "weapon-lights-off",
+            "terrain-chunked", "terrain-vertex-lit", "terrain-combined")
 FOCUSED_VARIANTS = ("missile-smoke-reduced", "projectile-lights-small",
                     "building-smoke-detailed")
+TERRAIN_VARIANTS = ("terrain-chunked", "terrain-vertex-lit", "terrain-combined")
 METRICS = (
     ("hudInstrumentDraws", "HUD instrument redraws", ""),
     ("meanMs", "mean frame", " ms"),
@@ -233,6 +235,61 @@ def focused_effect_mismatch(variant, base_rows, candidates):
     return None
 
 
+def focused_terrain_mismatch(variant, base_rows, candidates):
+    """Return why a focused terrain comparison cannot be trusted."""
+    combined = base_rows + candidates
+    schemas = {number(r, "schema") for r in combined}
+    policies = {r.get("effectPolicy") for r in combined}
+    if schemas != {9} or policies != {"focused-terrain-v1"}:
+        return f"{variant}: requires schema 9 focused-terrain-v1 metadata"
+
+    source_counts = [number(r, "terrainSourceTriangles") for r in combined]
+    if any(count is None or count <= 0 for count in source_counts):
+        return f"{variant}: terrainSourceTriangles must be positive and recorded for every compared trial"
+    if len(set(source_counts)) != 1:
+        return f"{variant}: terrain source triangle counts differ between compared trials"
+
+    for row in combined:
+        if (row.get("terrainTriplanar") is not False
+                or row.get("smoke") is not True
+                or row.get("missileSmoke") is not True
+                or row.get("enemyMissileSmoke") is not True
+                or row.get("weaponLights") is not True
+                or number(row, "missileSmokeScale") != 1.0
+                or number(row, "projectileLightScale") != 1.0
+                or row.get("buildingSmokeMaterial") != "simple-unshaded"):
+            return f"{variant}: terrain comparison requires triplanar off and all smoke/lights enabled at baseline settings"
+
+    expected = {
+        "baseline": (False, False),
+        "terrain-chunked": (True, False),
+        "terrain-vertex-lit": (False, True),
+        "terrain-combined": (True, True),
+    }
+    for row in base_rows:
+        if row.get("variant") != "baseline":
+            continue
+        if not _terrain_state_matches(row, expected["baseline"], source_counts[0]):
+            return f"{variant}: baseline terrain settings or chunk metadata do not match"
+    chunked, vertex_lit = expected[variant]
+    if not all(_terrain_state_matches(row, (chunked, vertex_lit), source_counts[0])
+               for row in candidates):
+        return f"{variant}: terrain settings or chunk metadata do not match the requested variant"
+    return None
+
+
+def _terrain_state_matches(row, expected_flags, source_count):
+    chunked, vertex_lit = expected_flags
+    expected_chunk_triangles = source_count if chunked else 0
+    return (row.get("terrainChunked") is chunked
+            and row.get("terrainVertexLighting") is vertex_lit
+            and row.get("terrainSpecularDisabled") is vertex_lit
+            and number(row, "terrainChunkSizeMetres") == (256 if chunked else 0)
+            and number(row, "terrainChunkTriangles") == expected_chunk_triangles
+            and ((number(row, "terrainChunkCount") or 0) > 0 if chunked
+                 else number(row, "terrainChunkCount") == 0))
+
+
 def analyze(records, output):
     if not records:
         print("No QUEST_COMBAT_SUMMARY records found.", file=output)
@@ -257,6 +314,13 @@ def analyze(records, output):
             if "buildingSmokeMaterial" in rec or "buildingSmokeEmitters" in rec:
                 print(f"    Building smoke: material {rec.get('buildingSmokeMaterial', 'n/a')}; "
                       f"emitters {fmt(number(rec, 'buildingSmokeEmitters'))}", file=output)
+            if "terrainChunked" in rec:
+                print(f"    Terrain: chunked={rec.get('terrainChunked')}, "
+                      f"vertexLighting={rec.get('terrainVertexLighting')}, "
+                      f"specularDisabled={rec.get('terrainSpecularDisabled')}; "
+                      f"chunks={fmt(number(rec, 'terrainChunkCount'))}, "
+                      f"source triangles={fmt(number(rec, 'terrainSourceTriangles'))}, "
+                      f"chunk triangles={fmt(number(rec, 'terrainChunkTriangles'))}", file=output)
             print(f"    Render counts (all viewports): draw calls/frame "
                   f"{fmt(number(rec, 'drawCalls'))} mean / {fmt(number(rec, 'maxDrawCalls'))} peak; "
                   f"primitives/frame {fmt(number(rec, 'primitives'))} mean / "
@@ -316,6 +380,11 @@ def analyze(records, output):
                     continue
                 if variant in FOCUSED_VARIANTS:
                     mismatch = focused_effect_mismatch(variant, base_rows, candidates)
+                    if mismatch:
+                        print(f"    {mismatch}; deltas withheld", file=output)
+                        continue
+                if variant in TERRAIN_VARIANTS:
+                    mismatch = focused_terrain_mismatch(variant, base_rows, candidates)
                     if mismatch:
                         print(f"    {mismatch}; deltas withheld", file=output)
                         continue

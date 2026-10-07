@@ -13,7 +13,7 @@ namespace MechRewired;
 public sealed partial class QuestCombatBenchmark : Node
 {
     private const double TrialSeconds = 15;
-    private static readonly string[] Variants = ["baseline", "missile-smoke-reduced", "projectile-lights-small", "building-smoke-detailed", "baseline"];
+    private static readonly string[] Variants = ["baseline", "terrain-chunked", "terrain-vertex-lit", "terrain-combined", "baseline"];
     private static Session s_session;
     private readonly PlayerMech m_player;
     private readonly PlayerHud m_hud;
@@ -26,6 +26,7 @@ public sealed partial class QuestCombatBenchmark : Node
     private bool m_cancelled;
     private bool m_reloadRequested;
     private Label3D m_label;
+    private TerrainBenchmarkGraphics m_terrainGraphics;
 
     private sealed class Session(string target, string mission, Options options)
     {
@@ -89,8 +90,8 @@ public sealed partial class QuestCombatBenchmark : Node
         s_session = new Session(target.Name, m_mission, CaptureOptions());
         PrintJson("RUN", JsonSerializer.Serialize(new
         {
-            runId = s_session.RunId, schema = 8, graphicsProfile = "baked-profile", poolPolicy = "quest-prewarmed-per-mech-v1", mission = m_mission, target = s_session.Target,
-            effectPolicy = "focused-effects-v2",
+            runId = s_session.RunId, schema = 9, graphicsProfile = "baked-profile", poolPolicy = "quest-prewarmed-per-mech-v1", mission = m_mission, target = s_session.Target,
+            effectPolicy = "focused-terrain-v1",
             buildingSmokePolicy = "quest-ambient-sooty-unshaded-v1",
             weaponEffectPoolPolicy = "mission64-per-family-limit128-v1",
             missileQueryPolicy = "pooled-parameters-disposed-results-v1",
@@ -103,7 +104,7 @@ public sealed partial class QuestCombatBenchmark : Node
             build = OS.HasFeature("debug") ? "debug" : "release", engine = Engine.GetVersionInfo()["string"].ToString(),
             device = OS.GetModelName(), gpu = RenderingServer.GetVideoAdapterName(),
             renderer = RenderingServer.GetCurrentRenderingMethod(), msaa = GetViewport().Msaa3D.ToString(),
-            terrainTriplanar = m_settings.TerrainTriplanarEnabled,
+            terrainTriplanar = false, savedTerrainTriplanar = m_settings.TerrainTriplanarEnabled,
             note = "Fresh mission per trial; live AI/physics/damage, fixed starting pose, player fire every 2s. Production Quest pools prewarmed; runtime pool creation is unexpected. Driver/shader caches may remain warm. Final mission also resets."
         }));
         Reload();
@@ -161,13 +162,16 @@ public sealed partial class QuestCombatBenchmark : Node
             m_rocks.ConfigureObserver(m_player);
             var variant = Variants[session.Trial];
             // Keep global smoke and weapon lights enabled in every measured stage.
-            // Candidate stages change only the declared effect under test.
+            // Candidate stages change only terrain rendering; physics and effects remain identical.
             m_settings.SmokeAndDustEnabled = true;
             QuestCombatTelemetry.SmokeDisabled = false;
             QuestCombatTelemetry.WeaponLightsDisabled = false;
-            QuestCombatTelemetry.ReducedMissileSmoke = variant == "missile-smoke-reduced";
-            QuestCombatTelemetry.SmallProjectileLights = variant == "projectile-lights-small";
-            m_settings.DetailedBuildingSmokeEnabled = variant == "building-smoke-detailed";
+            QuestCombatTelemetry.ReducedMissileSmoke = false;
+            QuestCombatTelemetry.SmallProjectileLights = false;
+            m_settings.DetailedBuildingSmokeEnabled = false;
+            m_terrainGraphics = new TerrainBenchmarkGraphics(GetTree().CurrentScene,
+                variant is "terrain-chunked" or "terrain-combined",
+                variant is "terrain-vertex-lit" or "terrain-combined");
             m_label = new Label3D { Text = "COMBAT / " + variant + "\nKeep head still; Menu cancels", FontSize = 22,
                 Position = new Vector3(0, .30f, -1.2f), PixelSize = .00065f, NoDepthTest = true };
             rig.Camera.AddChild(m_label);
@@ -179,7 +183,14 @@ public sealed partial class QuestCombatBenchmark : Node
             if (m_cancelled) throw new OperationCanceledException();
             var xr = XRServer.FindInterface("OpenXR") as OpenXRInterface;
             var hz = xr?.IsInitialized() == true ? xr.DisplayRefreshRate : 72;
-            PrintJson("TRIAL", JsonSerializer.Serialize(new { schema = 8, effectPolicy = "focused-effects-v2", runId = session.RunId, trial = session.Trial+1,
+            PrintJson("TRIAL", JsonSerializer.Serialize(new { schema = 9, effectPolicy = "focused-terrain-v1", runId = session.RunId, trial = session.Trial+1,
+                terrainChunked = variant is "terrain-chunked" or "terrain-combined",
+                terrainVertexLighting = variant is "terrain-vertex-lit" or "terrain-combined",
+                terrainSpecularDisabled = variant is "terrain-vertex-lit" or "terrain-combined",
+                terrainChunkSizeMetres = m_terrainGraphics.ChunkCount > 0 ? TerrainBenchmarkGraphics.ChunkSizeMetres : 0,
+                terrainChunkCount = m_terrainGraphics.ChunkCount,
+                terrainSourceTriangles = m_terrainGraphics.SourceTriangles,
+                terrainChunkTriangles = m_terrainGraphics.ChunkTriangles, terrainTriplanar = false,
                 buildingSmokeMaterial = m_settings.DetailedBuildingSmokeEnabled ? "detailed-lit" : "simple-unshaded",
                 buildingSmokeEmitters = m_settings.BuildingSmokeEmitterCount,
                 variant, graphicsProfile = "baked-profile", target = session.Target, pose = m_player.GlobalTransform.ToString(), hz,
@@ -249,6 +260,8 @@ public sealed partial class QuestCombatBenchmark : Node
         }
         finally
         {
+            m_terrainGraphics?.Dispose();
+            m_terrainGraphics = null;
             QuestCombatTelemetry.Active = previousActive;
             QuestCombatTelemetry.WeaponLightsDisabled = previousLights;
             QuestCombatTelemetry.SmokeDisabled = previousSmoke;
@@ -274,7 +287,14 @@ public sealed partial class QuestCombatBenchmark : Node
         var firstImpact = frames.FindIndex(f => f.Combat.Impacts > 0);
         var summary = new
         {
-            schema = 8, effectPolicy = "focused-effects-v2",
+            schema = 9, effectPolicy = "focused-terrain-v1",
+            terrainChunked = variant is "terrain-chunked" or "terrain-combined",
+            terrainVertexLighting = variant is "terrain-vertex-lit" or "terrain-combined",
+            terrainSpecularDisabled = variant is "terrain-vertex-lit" or "terrain-combined",
+            terrainChunkSizeMetres = m_terrainGraphics.ChunkCount > 0 ? TerrainBenchmarkGraphics.ChunkSizeMetres : 0,
+            terrainChunkCount = m_terrainGraphics.ChunkCount,
+            terrainSourceTriangles = m_terrainGraphics.SourceTriangles,
+            terrainChunkTriangles = m_terrainGraphics.ChunkTriangles, terrainTriplanar = false,
             buildingSmokeMaterial = m_settings.DetailedBuildingSmokeEnabled ? "detailed-lit" : "simple-unshaded",
             buildingSmokeEmitters = m_settings.BuildingSmokeEmitterCount,
             graphicsProfile = "baked-profile", bakedSky = m_settings.BakedSkyEnabled,
