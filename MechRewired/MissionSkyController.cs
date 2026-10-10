@@ -577,6 +577,19 @@ public sealed class MissionSkyController
         m_sunLight.DirectionalShadowBlendSplits = true;
         m_sunLight.DirectionalShadowFadeStart = 0.90f;
         SunShadowDistance = Mathf.Clamp(m_profile.DepthCueDistance * 2.0f, 1800.0f, 4000.0f);
+        if (QuestVrRuntime.Active)
+        {
+            // Spend texels on nearby mechs/buildings instead of kilometre-scale terrain.
+            m_sunLight.DirectionalShadowMode = DirectionalLight3D.ShadowMode.Parallel2Splits;
+            m_sunLight.DirectionalShadowSplit1 = 0.20f;
+            m_sunLight.DirectionalShadowBlendSplits = true;
+            m_sunLight.DirectionalShadowFadeStart = 0.80f;
+            SunShadowDistance = 500.0f;
+            m_sunLight.LightAngularDistance = 0.0f;
+            m_sunLight.ShadowBlur = 1.0f;
+            SunShadowOpacity = DefaultSunShadowOpacity;
+            return;
+        }
         // Jade Falcon's warm mountain level is authored close to noon, which produces a tight
         // ground-space PCSS penumbra. Its muted sun reads as a broad, hazy source instead, so
         // give the mountain and external-mech shadows a deliberately softer, lighter transition.

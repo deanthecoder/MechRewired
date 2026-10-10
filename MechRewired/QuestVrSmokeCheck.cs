@@ -34,6 +34,22 @@ public partial class QuestVrSmokeCheck : Node
             head.SetPose("default", Transform3D.Identity, Vector3.Zero, Vector3.Zero, XRPose.TrackingConfidenceEnum.High);
             await Frames(5);
             var rig = m_player.VrRig;
+            var sun = GetTree().Root.FindChildren("SunLight", "DirectionalLight3D", true, false)
+                .OfType<DirectionalLight3D>().Single();
+            Check(sun.ShadowEnabled && sun.DirectionalShadowMode == DirectionalLight3D.ShadowMode.Parallel2Splits,
+                "Quest sun shadows default on with two cascades");
+            Check(Math.Abs(sun.DirectionalShadowMaxDistance - 500.0f) < 0.001f &&
+                  Math.Abs(sun.DirectionalShadowFadeStart - 0.8f) < 0.001f,
+                "Quest shadows cover 500m and fade from 400m");
+            var terrain = GetTree().Root.FindChildren("*", "MeshInstance3D", true, false)
+                .OfType<MeshInstance3D>().Where(mesh => mesh.Name == "ImplicitGround" || mesh.Name == "DerivedTerrain").ToArray();
+            Check(terrain.Length > 0 && terrain.All(mesh => mesh.CastShadow == GeometryInstance3D.ShadowCastingSetting.Off),
+                "Quest terrain remains visible without casting shadows");
+            Check(GetTree().Root.FindChildren("DerivedTerrainShadowCaster", "", true, false).Count == 0,
+                "Quest omits the terrain shadow proxy");
+            Check(m_player.FindChildren("*", "MeshInstance3D", true, false).OfType<MeshInstance3D>()
+                .Any(mesh => mesh.CastShadow != GeometryInstance3D.ShadowCastingSetting.Off),
+                "Quest player geometry retains shadow casting");
             Check(!GetTree().Paused && !rig.Menu.IsOpen, "VR startup leaves mission unpaused with menu closed");
             Check(rig.Camera.Current && !m_player.CockpitCamera.Current, "tracked camera owns view");
             Check(rig.Position.DistanceTo(new Vector3(0, 0.12f, 0.10f)) < 0.001f,
@@ -82,6 +98,37 @@ public partial class QuestVrSmokeCheck : Node
             Check(m_player.Drive.IsReversing && m_player.Drive.ThrottlePercent > 0, "backward stick selects reverse from stop");
             left.SetInput("primary", Vector2.Zero);
             m_player.StopVrMovement();
+
+            var targeting = GetTree().Root.FindChildren("PlayerTargeting", "", true, false)
+                .OfType<PlayerTargeting>().Single();
+            var heat = (MechRewired.Simulation.MechHeat)typeof(PlayerTargeting)
+                .GetField("m_heat", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+                .GetValue(targeting)!;
+            heat.Add(heat.MaximumHeat * 2, allowOverrideHeat: true);
+            m_player.SetShutdownState(true, "hot controller restart test");
+            left.SetInput("primary_click", true);
+            await Frames(3);
+            Check(m_player.IsShutdown, "restart click cannot bypass critical heat");
+            left.SetInput("primary_click", false);
+            await Frames(3);
+            heat.Advance(1000);
+            m_player.SetShutdownState(true, "controller restart test");
+            left.SetInput("primary_click", true);
+            await Frames(3);
+            Check(!m_player.IsShutdown, "left stick click restarts a cooled reactor");
+            await Frames(3);
+            Check(!m_player.IsShutdown, "held restart click does not shut down reactor again");
+            left.SetInput("primary_click", false);
+            await Frames(3);
+            Check(rig.Menu.FindChildren("*", "Label3D", true, false).OfType<Label3D>()
+                .Any(label => label.Text == "PILOT CONTROLS  >"), "reactor controls are discoverable in pause menu");
+            var inspections = 0;
+            m_player.InspectTargetRequested += () => inspections++;
+            left.SetInput("ax_button", true);
+            await Frames(3);
+            Check(inspections == 1, "X inspects target once per press");
+            left.SetInput("ax_button", false);
+            await Frames(3);
 
             var targets = 0;
             m_player.NextTargetRequested += () => targets++;
@@ -187,6 +234,10 @@ public partial class QuestVrSmokeCheck : Node
             rig.Menu.Toggle();
             await Frames(4);
             await Capture("quest-vr-menu.png");
+            typeof(QuestVrMenu).GetMethod("SetPage", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+                .Invoke(rig.Menu, new object[] { 4 });
+            await Frames(3);
+            await Capture("quest-vr-pilot-controls.png");
             rig.Menu.Close();
             rig.Menu.ShowMissionResult("MISSION FAILED / SMOKE CHECK");
             Check(GetTree().Paused && rig.Menu.IsOpen && rig.Camera.Current, "mission result retains tracked view and opens restart menu");

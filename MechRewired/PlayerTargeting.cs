@@ -294,6 +294,7 @@ public partial class PlayerTargeting : Node
 
     public override void _Process(double delta)
     {
+        using var cpuScope = QuestCpuTelemetry.Measure(QuestCpuTelemetry.Category.PlayerTargeting);
         m_heat.Advance(delta);
         EvaluateHeatState();
         for (var index = 0; index < m_weaponCooldowns.Length; index++)

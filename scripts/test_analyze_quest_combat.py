@@ -224,6 +224,158 @@ class AnalyzeVariantTests(unittest.TestCase):
                 self.assertIn("terrain-chunked:", output.getvalue())
                 self.assertNotIn("terrain-chunked (1 complete trial(s))", output.getvalue())
 
+    def schema10_record(self, trial, variant, chunk_size=0, mean_ms=10):
+        record = self.record(trial, variant, True, True, mean_ms)
+        chunked = chunk_size > 0
+        record.update(
+            schema=10, effectPolicy="terrain-chunk-sizing-v1",
+            terrainTriplanar=False, terrainChunked=chunked,
+            terrainVertexLighting=True, terrainSpecularDisabled=True,
+            terrainChunkSizeMetres=chunk_size,
+            terrainSourceTriangles=197266,
+            terrainChunkTriangles=197266 if chunked else 0,
+            terrainChunkCount=8 if chunked else 0,
+            enemyMissileSmoke=True, missileSmokeScale=1.0,
+            projectileLightScale=1.0, buildingSmokeMaterial="simple-unshaded")
+        return record
+
+    def test_schema10_chunk_sizes_compare_with_vertex_lit_bracketing_baselines(self):
+        records = [
+            self.schema10_record(1, "baseline"),
+            self.schema10_record(2, "terrain-512m", 512),
+            self.schema10_record(3, "terrain-1024m", 1024),
+            self.schema10_record(4, "terrain-2048m", 2048),
+            self.schema10_record(5, "baseline"),
+        ]
+        output = io.StringIO()
+
+        ANALYZER.analyze(records, output)
+
+        for variant in ("terrain-512m", "terrain-1024m", "terrain-2048m"):
+            with self.subTest(variant=variant):
+                self.assertIn(f"{variant} (1 complete trial(s))", output.getvalue())
+
+    def test_schema10_chunk_size_must_match_variant(self):
+        baseline = self.schema10_record(1, "baseline")
+        candidate = self.schema10_record(2, "terrain-512m", 1024)
+        output = io.StringIO()
+
+        ANALYZER.analyze([baseline, candidate, self.schema10_record(3, "baseline")], output)
+
+        self.assertIn("terrain-512m: terrain settings or chunk metadata do not match", output.getvalue())
+
+    def schema11_record(self, trial, variant, mean_ms=10):
+        record = self.schema10_record(trial, variant, mean_ms=mean_ms)
+        record.update(
+            schema=11, effectPolicy="cpu-isolation-v1",
+            enemyUpdateStride=2 if variant == "enemy-half-rate" else 1,
+            hudFrozen=variant == "hud-frozen",
+            simulationFrozen=variant == "simulation-frozen",
+            diagnostic=variant in ("hud-frozen", "simulation-frozen"),
+            simulationWarmupSeconds=3, physicsTicksPerSecond=72,
+            physicsSteps=1.1, maxPhysicsSteps=2, slowFrameCount=5, gcFrameCount=1,
+            cpuScopes={"HudDraw": {"Calls": 12, "ElapsedMs": 3, "AllocatedBytes": 128}},
+        )
+        return record
+
+    def test_schema11_cpu_stages_and_frozen_upper_bounds(self):
+        rows = [self.schema11_record(1, "baseline"),
+                self.schema11_record(2, "enemy-half-rate"),
+                self.schema11_record(3, "hud-frozen", mean_ms=8),
+                self.schema11_record(4, "simulation-frozen", mean_ms=7),
+                self.schema11_record(5, "baseline")]
+        for row in rows[2:4]:
+            row.update(enemyShots=0, impacts=0, missileLaunches=0)
+        output = io.StringIO()
+        ANALYZER.analyze(rows, output)
+        text = output.getvalue()
+        for variant in ("enemy-half-rate", "hud-frozen", "simulation-frozen"):
+            self.assertIn(f"{variant} (1 complete trial(s))", text)
+        self.assertIn("Diagnostic upper-bound only; not a gameplay gain", text)
+        self.assertIn("HudDraw: 3.00 ms / 12.00 calls / 128 B allocated", text)
+        self.assertIn("overlapping scopes must not be summed", text)
+        self.assertIn("mean physics steps/frame", text)
+        self.assertNotIn("combat workload is unconfirmed", text)
+
+    def test_schema11_rejects_mismatched_metadata(self):
+        mutations = [("schema", 10), ("effectPolicy", "wrong"),
+                     ("enemyUpdateStride", 1), ("hudFrozen", True),
+                     ("simulationFrozen", True), ("diagnostic", True),
+                     ("simulationWarmupSeconds", 0), ("physicsTicksPerSecond", 60),
+                     ("terrainChunked", True), ("terrainVertexLighting", False),
+                     ("terrainSpecularDisabled", False), ("terrainSourceTriangles", 10),
+                     ("terrainTriplanar", True), ("smoke", False),
+                     ("missileSmokeScale", 0.5), ("weaponLights", False)]
+        for field, value in mutations:
+            with self.subTest(field=field):
+                candidate = self.schema11_record(2, "enemy-half-rate")
+                candidate[field] = value
+                output = io.StringIO()
+                ANALYZER.analyze([self.schema11_record(1, "baseline"), candidate,
+                                  self.schema11_record(5, "baseline")], output)
+                self.assertIn("deltas withheld", output.getvalue())
+                self.assertNotIn("enemy-half-rate (1 complete trial(s))", output.getvalue())
+
+    def test_schema11_only_diagnostics_allow_missing_combat(self):
+        candidate = self.schema11_record(2, "enemy-half-rate")
+        candidate.update(enemyShots=0, impacts=0)
+        output = io.StringIO()
+        ANALYZER.analyze([self.schema11_record(1, "baseline"), candidate,
+                          self.schema11_record(5, "baseline")], output)
+        self.assertIn("enemy-half-rate: no valid combat trial", output.getvalue())
+
+    def test_schema11_frozen_stage_requires_flag_and_warmup(self):
+        for field, value in [("hudFrozen", False), ("simulationWarmupSeconds", 2),
+                             ("diagnostic", False)]:
+            candidate = self.schema11_record(2, "hud-frozen")
+            candidate[field] = value
+            output = io.StringIO()
+            ANALYZER.analyze([self.schema11_record(1, "baseline"), candidate,
+                              self.schema11_record(5, "baseline")], output)
+            self.assertNotIn("hud-frozen (1 complete trial(s))", output.getvalue())
+
+    def schema12_record(self, trial, variant, mean_ms=10):
+        record = self.schema11_record(trial, variant, mean_ms)
+        record.update(schema=12, effectPolicy="player-grounding-v1",
+                      playerGroundingPolicy=("legacy-foot-vertices" if variant == "baseline"
+                                             else "quest-hidden-rig-cached-surface-v1"))
+        return record
+
+    def test_schema12_grounding_compares_three_live_stages(self):
+        output = io.StringIO()
+        ANALYZER.analyze([self.schema12_record(1, "baseline"),
+                          self.schema12_record(2, "player-ground-fast", 8),
+                          self.schema12_record(3, "baseline")], output)
+        self.assertIn("player-ground-fast (1 complete trial(s))", output.getvalue())
+        self.assertIn("mean frame: 8.00 ms (-20.0% vs baseline)", output.getvalue())
+        self.assertNotIn("Diagnostic upper-bound", output.getvalue())
+
+    def test_schema12_grounding_policy_must_match_stage_including_baseline(self):
+        for trial, policy in [(1, "quest-hidden-rig-cached-surface-v1"),
+                              (2, "legacy-foot-vertices"), (2, None), (3, "wrong")]:
+            rows = [self.schema12_record(1, "baseline"),
+                    self.schema12_record(2, "player-ground-fast"),
+                    self.schema12_record(3, "baseline")]
+            rows[trial - 1]["playerGroundingPolicy"] = policy
+            output = io.StringIO()
+            ANALYZER.analyze(rows, output)
+            self.assertIn("player grounding policy does not match", output.getvalue())
+            self.assertNotIn("player-ground-fast (1 complete trial(s))", output.getvalue())
+
+    def test_schema12_grounding_rejects_other_workload_changes(self):
+        for field, value in [("schema", 11), ("effectPolicy", "cpu-isolation-v1"),
+                             ("enemyUpdateStride", 2), ("hudFrozen", True),
+                             ("simulationFrozen", True), ("diagnostic", True),
+                             ("simulationWarmupSeconds", 0), ("physicsTicksPerSecond", 60),
+                             ("terrainVertexLighting", False), ("smoke", False)]:
+            candidate = self.schema12_record(2, "player-ground-fast")
+            candidate[field] = value
+            output = io.StringIO()
+            ANALYZER.analyze([self.schema12_record(1, "baseline"), candidate,
+                              self.schema12_record(3, "baseline")], output)
+            self.assertIn("deltas withheld", output.getvalue())
+            self.assertNotIn("player-ground-fast (1 complete trial(s))", output.getvalue())
+
     def test_focused_effect_candidates_compare_with_expected_individual_settings(self):
         records = [
             self.focused_record(1, "baseline"),

@@ -181,6 +181,7 @@ public partial class MissileEffect : Node3D
 
     public override void _Process(double delta)
     {
+        using var cpuScope = QuestCpuTelemetry.Measure(QuestCpuTelemetry.Category.Missiles);
         if (!m_isFlying)
         {
             Age += (float)delta;

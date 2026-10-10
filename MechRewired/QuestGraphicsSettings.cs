@@ -38,8 +38,8 @@ public sealed class QuestGraphicsSettings
         m_terrainTriplanarEnabled = QuestGraphicsPreferences.LoadTerrainTriplanar();
         ApplyTerrainTriplanar();
 
-        // The headset baseline avoids the full-screen and compositor passes first.
-        SunShadowsEnabled = false;
+        // Use the nearby-object shadow profile while keeping expensive screen/compositor passes off.
+        SunShadowsEnabled = true;
         AmbientOcclusionEnabled = false;
         ScreenReflectionsEnabled = false;
         GlowEnabled = false;

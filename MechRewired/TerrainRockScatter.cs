@@ -169,6 +169,7 @@ public sealed partial class TerrainRockScatter : Node3D
 
     public override void _Process(double delta)
     {
+        using var cpuScope = QuestCpuTelemetry.Measure(QuestCpuTelemetry.Category.TerrainRocks);
         if (m_observer != null)
         {
             UpdateActiveCells();
@@ -435,7 +436,7 @@ public sealed partial class TerrainRockScatter : Node3D
             Name = castsShadow ? $"RockShadow_{shapeIndex}" : $"Rock_{shapeIndex}",
             Multimesh = multiMesh,
             MaterialOverride = material,
-            CastShadow = castsShadow ? GeometryInstance3D.ShadowCastingSetting.On : GeometryInstance3D.ShadowCastingSetting.Off
+            CastShadow = castsShadow && !QuestVrRuntime.Active ? GeometryInstance3D.ShadowCastingSetting.On : GeometryInstance3D.ShadowCastingSetting.Off
         });
     }
 

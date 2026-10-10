@@ -128,6 +128,45 @@ install_game_data() {
   printf 'Verified your file in Downloads/MechRewired. In MechRewired select IMPORT MW2.PRJ to copy it into private app storage.\n'
 }
 
+fetch_benchmarks() {
+  local destination="$repo_dir/local/quest-benchmarks/$(date +%Y%m%d-%H%M%S)"
+  local app_destination="$destination/app-storage"
+  local downloads_destination="$destination/downloads"
+  local remote_path local_destination
+  connect_quest
+  mkdir -p "$app_destination" "$downloads_destination"
+  # App-specific external storage remains readable over ADB even when Android
+  # prevents a release app from writing into the public Downloads directory.
+  for remote_path in /storage/emulated/0/Android/data/uk.co.deanthecoder.mechrewired/files/benchmarks \
+    /sdcard/Download/MechRewired/benchmarks; do
+    if [[ "$remote_path" == /storage/emulated/0/Android/data/* ]]; then
+      local_destination="$app_destination"
+    else
+      local_destination="$downloads_destination"
+    fi
+    if "$adb_bin" -s "$quest_serial" shell test -d "$remote_path" >/dev/null 2>&1; then
+      if ! "$adb_bin" -s "$quest_serial" pull "$remote_path/" "$local_destination/"; then
+        printf 'Could not read Quest benchmark mirror: %s\n' "$remote_path" >&2
+      fi
+    fi
+  done
+  if find "$app_destination" -type f -name '*.log' -print -quit | rg -q .; then
+    printf 'Fetched preferred app-storage benchmark logs to %s\n' "$app_destination"
+    if find "$downloads_destination" -type f -name '*.log' -print -quit | rg -q .; then
+      printf 'Fetched separate Downloads mirror to %s\n' "$downloads_destination"
+    fi
+    printf 'Quest benchmark files are under %s\n' "$destination"
+  elif find "$downloads_destination" -type f -name '*.log' -print -quit | rg -q .; then
+    printf 'App-storage mirror is unavailable; fetched Downloads fallback to %s\n' "$downloads_destination"
+    printf 'Quest benchmark files are under %s\n' "$destination"
+  else
+    rmdir "$app_destination" "$downloads_destination" "$destination" 2>/dev/null || true
+    printf 'No ADB-readable combat benchmark files were found. Run the benchmark once with this build, then retry. The app-private user:// copy is not readable from a Release APK over ADB.\n' >&2
+    printf 'Expected mirrors: /storage/emulated/0/Android/data/uk.co.deanthecoder.mechrewired/files/benchmarks or /sdcard/Download/MechRewired/benchmarks\n' >&2
+    exit 1
+  fi
+}
+
 build_quest() {
   local output_path="$1" signing_dir signing_key signing_password export_status export_log quest_dotnet_dir
   # IDE shells can force MSBuild from a different SDK than the dotnet executable.
@@ -256,8 +295,11 @@ case "${1:-install}" in
     connect_quest
     install_game_data
     ;;
+  fetch-benchmarks)
+    fetch_benchmarks
+    ;;
   *)
-    printf 'Usage: scripts/quest.sh [build|install|connect|data|share]\n' >&2
+    printf 'Usage: scripts/quest.sh [build|install|connect|data|share|fetch-benchmarks]\n' >&2
     exit 2
     ;;
 esac

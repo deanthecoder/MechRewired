@@ -163,14 +163,15 @@ public partial class MechRig : Node
     };
 
     /// <summary>
-    /// Advances the gait and airborne toe pose, returning true when a foot plants.
+    /// Advances gait/footfall timing; optionally skips applying an invisible leg pose.
     /// </summary>
     public bool Advance(
         float signedDistanceMeters,
         float headingChangeRadians,
         float speedFraction,
         float delta,
-        bool airborne = false)
+        bool airborne = false,
+        bool applyPose = true)
     {
         m_airbornePose.Advance(delta, airborne);
         var planted = m_gait.Advance(
@@ -178,7 +179,7 @@ public partial class MechRig : Node
             headingChangeRadians,
             speedFraction,
             delta);
-        ApplyPose();
+        if (applyPose) ApplyPose();
         return planted;
     }
 

@@ -39,8 +39,8 @@ enabled=PackedStringArray("res://addons/console/plugin.cfg", "res://addons/quest
 [rendering]
 
 renderer/rendering_method.mobile="mobile"
-lights_and_shadows/directional_shadow/size.mobile=2048
-lights_and_shadows/directional_shadow/soft_shadow_filter_quality.mobile=0
+lights_and_shadows/directional_shadow/size.mobile=4096
+lights_and_shadows/directional_shadow/soft_shadow_filter_quality.mobile=1
 textures/vram_compression/import_etc2_astc=true
 lights_and_shadows/directional_shadow/size=8192
 lights_and_shadows/directional_shadow/soft_shadow_filter_quality=3

@@ -12,8 +12,10 @@ namespace MechRewired;
 /// <summary>Short live encounter suite. Fresh missions isolate damage, ammunition and lazy pools.</summary>
 public sealed partial class QuestCombatBenchmark : Node
 {
-    private const double TrialSeconds = 15;
-    private static readonly string[] Variants = ["baseline", "terrain-chunked", "terrain-vertex-lit", "terrain-combined", "baseline"];
+    private const double TrialSeconds = 12;
+    private const double SimulationWarmupSeconds = 3;
+    private static readonly (string Name, float ChunkSizeMetres)[] Variants =
+        [("baseline", 0), ("player-ground-fast", 0), ("baseline", 0)];
     private static Session s_session;
     private readonly PlayerMech m_player;
     private readonly PlayerHud m_hud;
@@ -27,6 +29,7 @@ public sealed partial class QuestCombatBenchmark : Node
     private bool m_reloadRequested;
     private Label3D m_label;
     private TerrainBenchmarkGraphics m_terrainGraphics;
+    private QuestCombatDiagnostics m_diagnostics;
 
     private sealed class Session(string target, string mission, Options options)
     {
@@ -45,7 +48,8 @@ public sealed partial class QuestCombatBenchmark : Node
 
     private readonly record struct Frame(double Seconds, double Ms, double GpuMs, double CpuMs,
         double ProcessMs, double PhysicsMs, double DrawCalls, double Primitives, long AllocatedBytes, int Gc0, int Gc1, int Gc2,
-        QuestCombatTelemetrySnapshot Combat, float HeadTranslation, float HeadAngle);
+        QuestCombatTelemetrySnapshot Combat, QuestCpuTelemetry.Snapshot CpuScopes, ulong PhysicsSteps,
+        float HeadTranslation, float HeadAngle);
 
     public static bool IsSuiteActive => s_session != null;
 
@@ -88,26 +92,44 @@ public sealed partial class QuestCombatBenchmark : Node
             return;
         }
         s_session = new Session(target.Name, m_mission, CaptureOptions());
+        if (!QuestCombatLogArchive.BeginRun(s_session.RunId))
+        {
+            s_session = null;
+            m_player.VrRig.Menu.ShowMissionResult("COMBAT TEST: CANNOT SAVE LOG");
+            QuestCombatLogArchive.EndRun();
+            return;
+        }
         PrintJson("RUN", JsonSerializer.Serialize(new
         {
-            runId = s_session.RunId, schema = 9, graphicsProfile = "baked-profile", poolPolicy = "quest-prewarmed-per-mech-v1", mission = m_mission, target = s_session.Target,
-            effectPolicy = "focused-terrain-v1",
+            runId = s_session.RunId, schema = 12, graphicsProfile = "baked-profile", poolPolicy = "quest-prewarmed-per-mech-v1", mission = m_mission, target = s_session.Target,
+            effectPolicy = "player-grounding-v1",
             skyCache = QuestCachedSky.CacheVersion,
+            shadowPolicy = "quest-objects-500m-4096-two-cascades-v1",
             buildingSmokePolicy = "quest-ambient-sooty-unshaded-v1",
             weaponEffectPoolPolicy = "mission64-per-family-limit128-v1",
             missileQueryPolicy = "pooled-parameters-disposed-results-v1",
             missileGuidancePolicy = "salvo-target-velocity-per-frame-v1",
             missileVisualPolicy = "quest-per-mech-launch-smoke3-light8-v1",
             targetingPolicy = "segment-bounds-quest-250ms-v1",
-            variants = Variants, secondsPerTrial = TrialSeconds, enemyCount = m_enemies.Count,
+            variants = Variants.Select(stage => stage.Name).ToArray(), secondsPerTrial = TrialSeconds, simulationWarmupSeconds = SimulationWarmupSeconds,
+            physicsTicksPerSecond = Engine.PhysicsTicksPerSecond, archivePath = QuestCombatLogArchive.PrimaryPath, enemyCount = m_enemies.Count,
             options = s_session.Settings,
-            baselineSettings = new { bakedProfile = true, smoke = true, weaponLights = true },
+            baselineSettings = new { bakedProfile = true, smoke = true, weaponLights = true,
+                terrainVertexLighting = true, terrainSpecularDisabled = true, terrainChunkSizeMetres = 0,
+                playerGroundingPolicy = "legacy-foot-vertices" },
             build = OS.HasFeature("debug") ? "debug" : "release", engine = Engine.GetVersionInfo()["string"].ToString(),
             device = OS.GetModelName(), gpu = RenderingServer.GetVideoAdapterName(),
             renderer = RenderingServer.GetCurrentRenderingMethod(), msaa = GetViewport().Msaa3D.ToString(),
             terrainTriplanar = false, savedTerrainTriplanar = m_settings.TerrainTriplanarEnabled,
-            note = "Fresh mission per trial; live AI/physics/damage, fixed starting pose, player fire every 2s. Production Quest pools prewarmed; runtime pool creation is unexpected. Driver/shader caches may remain warm. Final mission also resets."
+            note = "Fresh mission per trial; 3s identical live warmup then 12s measured. Bracketing baselines use legacy player foot vertices; candidate skips the hidden rig and caches stationary surface queries. XR tracking stays active. Production Quest pools prewarmed; runtime pool creation is unexpected. Driver/shader caches may remain warm. Final mission also resets."
         }));
+        if (QuestCombatLogArchive.PrimaryError != null)
+        {
+            s_session = null;
+            QuestCombatLogArchive.EndRun();
+            m_player.VrRig.Menu.ShowMissionResult("COMBAT TEST: CANNOT SAVE LOG");
+            return;
+        }
         Reload();
     }
 
@@ -141,6 +163,8 @@ public sealed partial class QuestCombatBenchmark : Node
             {
                 s_session = null;
                 PrintJson("STATUS", JsonSerializer.Serialize(new { runId = session.RunId, status = session.Result }));
+                QuestCombatLogArchive.EndRun();
+                if (QuestCombatLogArchive.PrimaryError != null) session.Result = "archive-failed";
                 if (session.Result == "complete")
                 {
                     rig.Menu.Close();
@@ -157,13 +181,16 @@ public sealed partial class QuestCombatBenchmark : Node
             GetTree().Paused = true;
             rig.BenchmarkActive = true;
             rig.BenchmarkCancelRequested = () => m_cancelled = true;
+            var stage = Variants[session.Trial];
+            var variant = stage.Name;
+            // Select grounding before pose setup and both warmups, not after measurement starts.
+            QuestCombatDiagnostics.LegacyPlayerGrounding = variant == "baseline";
             m_player.StopVrMovement();
             m_player.GlobalTransform = FindEncounterPose(enemy);
             m_player.SetVrTorsoAim(0, 0);
             m_rocks.ConfigureObserver(m_player);
-            var variant = Variants[session.Trial];
             // Keep global smoke and weapon lights enabled in every measured stage.
-            // Candidate stages change only terrain rendering; physics and effects remain identical.
+            // Hold terrain rendering fixed while isolating callback costs. All changes are trial-local.
             m_settings.SmokeAndDustEnabled = true;
             QuestCombatTelemetry.SmokeDisabled = false;
             QuestCombatTelemetry.WeaponLightsDisabled = false;
@@ -171,8 +198,8 @@ public sealed partial class QuestCombatBenchmark : Node
             QuestCombatTelemetry.SmallProjectileLights = false;
             m_settings.DetailedBuildingSmokeEnabled = false;
             m_terrainGraphics = new TerrainBenchmarkGraphics(GetTree().CurrentScene,
-                variant is "terrain-chunked" or "terrain-combined",
-                variant is "terrain-vertex-lit" or "terrain-combined");
+                stage.ChunkSizeMetres > 0, vertexLit: true,
+                chunkSizeMetres: stage.ChunkSizeMetres > 0 ? stage.ChunkSizeMetres : TerrainBenchmarkGraphics.ChunkSizeMetres);
             m_label = new Label3D { Text = "COMBAT / " + variant + "\nKeep head still; Menu cancels", FontSize = 22,
                 Position = new Vector3(0, .30f, -1.2f), PixelSize = .00065f, NoDepthTest = true };
             rig.Camera.AddChild(m_label);
@@ -184,16 +211,21 @@ public sealed partial class QuestCombatBenchmark : Node
             if (m_cancelled) throw new OperationCanceledException();
             var xr = XRServer.FindInterface("OpenXR") as OpenXRInterface;
             var hz = xr?.IsInitialized() == true ? xr.DisplayRefreshRate : 72;
-            PrintJson("TRIAL", JsonSerializer.Serialize(new { schema = 9, effectPolicy = "focused-terrain-v1", runId = session.RunId, trial = session.Trial+1,
-                terrainChunked = variant is "terrain-chunked" or "terrain-combined",
-                terrainVertexLighting = variant is "terrain-vertex-lit" or "terrain-combined",
-                terrainSpecularDisabled = variant is "terrain-vertex-lit" or "terrain-combined",
-                terrainChunkSizeMetres = m_terrainGraphics.ChunkCount > 0 ? TerrainBenchmarkGraphics.ChunkSizeMetres : 0,
+            PrintJson("TRIAL", JsonSerializer.Serialize(new { schema = 12, effectPolicy = "player-grounding-v1", runId = session.RunId, trial = session.Trial+1,
+                terrainChunked = stage.ChunkSizeMetres > 0,
+                terrainVertexLighting = true,
+                terrainSpecularDisabled = true,
+                terrainChunkSizeMetres = stage.ChunkSizeMetres,
                 terrainChunkCount = m_terrainGraphics.ChunkCount,
                 terrainSourceTriangles = m_terrainGraphics.SourceTriangles,
                 terrainChunkTriangles = m_terrainGraphics.ChunkTriangles, terrainTriplanar = false,
                 buildingSmokeMaterial = m_settings.DetailedBuildingSmokeEnabled ? "detailed-lit" : "simple-unshaded",
                 buildingSmokeEmitters = m_settings.BuildingSmokeEmitterCount,
+                playerGroundingPolicy = variant == "baseline" ? "legacy-foot-vertices" : "quest-hidden-rig-cached-surface-v1",
+                enemyUpdateStride = 1,
+                hudFrozen = false, simulationFrozen = false,
+                diagnostic = false,
+                simulationWarmupSeconds = SimulationWarmupSeconds, physicsTicksPerSecond = Engine.PhysicsTicksPerSecond,
                 variant, graphicsProfile = "baked-profile", target = session.Target, pose = m_player.GlobalTransform.ToString(), hz,
                 missilePoolCount = m_enemies.Sum(e => e.MissilePoolCount),
                 missilePoolsReady = m_enemies.Where(e => e.HasMissileWeapons).All(e => e.MissilePoolReady),
@@ -204,16 +236,39 @@ public sealed partial class QuestCombatBenchmark : Node
                 projectileLightScale = QuestCombatTelemetry.SmallProjectileLights ? 0.5 : 1.0,
                 cockpitUv = m_settings.QuestUvMaterialsEnabled,
                 bakedInteriorLighting = m_settings.QuestUvMaterialsEnabled && m_settings.BakedInteriorLightingEnabled }));
+            EnsureArchive();
+            // Start every trial from the same amount of live combat under its grounding policy.
+            // Track warmup projectile lifetimes; reset interval counters before timing. No file I/O here.
+            GetTree().Paused = false;
+            QuestCombatTelemetry.Active = true;
+            var simulationWarmup = Stopwatch.StartNew();
+            var warmupShot = 0.5;
+            while (simulationWarmup.Elapsed.TotalSeconds < SimulationWarmupSeconds && !m_cancelled)
+            {
+                await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
+                if (!GodotObject.IsInstanceValid(this) || !IsInsideTree()) return;
+                if (simulationWarmup.Elapsed.TotalSeconds >= warmupShot)
+                {
+                    m_player.VrFire();
+                    warmupShot += 2;
+                }
+            }
+            GetTree().Paused = true;
+            if (m_cancelled) throw new OperationCanceledException();
+            m_diagnostics = new QuestCombatDiagnostics();
+            m_diagnostics.Apply(tree.CurrentScene, variant);
             RenderingServer.ViewportSetMeasureRenderTime(viewport.GetViewportRid(), true);
             var frames = new List<Frame>(2400);
             var hudDrawsAtStart = m_hud.VrInstrumentDrawCount;
             var head = rig.Camera.Transform;
             QuestCombatTelemetry.Reset();
+            QuestCpuTelemetry.Reset();
             QuestCombatTelemetry.Active = true;
             var allocated = GC.GetTotalAllocatedBytes(false);
             var gc0 = GC.CollectionCount(0); var gc1 = GC.CollectionCount(1); var gc2 = GC.CollectionCount(2);
             var clock = Stopwatch.StartNew();
             var previous = clock.Elapsed.TotalSeconds;
+            var previousPhysicsFrame = Engine.GetPhysicsFrames();
             var nextShot = 0.5;
             GetTree().Paused = false;
             while (clock.Elapsed.TotalSeconds < TrialSeconds && !m_cancelled && !m_player.IsDestroyed && !enemy.IsDestroyed)
@@ -221,6 +276,7 @@ public sealed partial class QuestCombatBenchmark : Node
                 await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
                 if (!GodotObject.IsInstanceValid(this) || !IsInsideTree()) return;
                 var now = clock.Elapsed.TotalSeconds;
+                var physicsFrame = Engine.GetPhysicsFrames();
                 var totalAllocated = GC.GetTotalAllocatedBytes(false);
                 var c0 = GC.CollectionCount(0); var c1 = GC.CollectionCount(1); var c2 = GC.CollectionCount(2);
                 frames.Add(new Frame(now, (now-previous)*1000,
@@ -231,10 +287,12 @@ public sealed partial class QuestCombatBenchmark : Node
                     Performance.GetMonitor(Performance.Monitor.RenderTotalDrawCallsInFrame),
                     Performance.GetMonitor(Performance.Monitor.RenderTotalPrimitivesInFrame),
                     Math.Max(0,totalAllocated-allocated), c0-gc0,c1-gc1,c2-gc2, QuestCombatTelemetry.SnapshotAndReset(),
+                    QuestCpuTelemetry.SnapshotAndReset(), physicsFrame - previousPhysicsFrame,
                     rig.Camera.Position.DistanceTo(head.Origin),
                     Mathf.RadToDeg(rig.Camera.Basis.GetRotationQuaternion().AngleTo(head.Basis.GetRotationQuaternion()))));
+                previousPhysicsFrame = physicsFrame;
                 previous = now; allocated = totalAllocated; gc0=c0; gc1=c1; gc2=c2;
-                if (now >= nextShot)
+                if (variant != "simulation-frozen" && now >= nextShot)
                 {
                     m_player.VrFire();
                     nextShot += 2;
@@ -244,6 +302,7 @@ public sealed partial class QuestCombatBenchmark : Node
             QuestCombatTelemetry.Active = false;
             var status = m_cancelled ? "cancelled" : m_player.IsDestroyed ? "player-destroyed" : enemy.IsDestroyed ? "target-destroyed" : "complete";
             Report(session, variant, status, frames, hz > 0 ? 1000.0/hz : 1000.0/72, m_hud.VrInstrumentDrawCount - hudDrawsAtStart);
+            EnsureArchive();
             if (status != "complete") { session.Result = status; session.Restoring = true; }
             else if (++session.Trial == Variants.Length) session.Restoring = true;
         }
@@ -251,9 +310,12 @@ public sealed partial class QuestCombatBenchmark : Node
         {
             session.Result = error is OperationCanceledException ? "cancelled" : "failed";
             session.Restoring = true;
+            PrintJson("ERROR", JsonSerializer.Serialize(new { runId = session.RunId, trial = session.Trial + 1, error = error.ToString() }));
             GD.PushWarning("QUEST_COMBAT_ERROR: " + error.Message);
             if (restoring)
             {
+                PrintJson("STATUS", JsonSerializer.Serialize(new { runId = session.RunId, status = "restore-failed" }));
+                QuestCombatLogArchive.EndRun();
                 s_session = null;
                 if (GodotObject.IsInstanceValid(rig)) rig.Menu.ShowMissionResult("COMBAT TEST: RESTORE FAILED");
             }
@@ -261,6 +323,9 @@ public sealed partial class QuestCombatBenchmark : Node
         }
         finally
         {
+            QuestCombatDiagnostics.LegacyPlayerGrounding = false;
+            m_diagnostics?.Dispose();
+            m_diagnostics = null;
             m_terrainGraphics?.Dispose();
             m_terrainGraphics = null;
             QuestCombatTelemetry.Active = previousActive;
@@ -288,16 +353,18 @@ public sealed partial class QuestCombatBenchmark : Node
         var firstImpact = frames.FindIndex(f => f.Combat.Impacts > 0);
         var summary = new
         {
-            schema = 9, effectPolicy = "focused-terrain-v1",
-            terrainChunked = variant is "terrain-chunked" or "terrain-combined",
-            terrainVertexLighting = variant is "terrain-vertex-lit" or "terrain-combined",
-            terrainSpecularDisabled = variant is "terrain-vertex-lit" or "terrain-combined",
-            terrainChunkSizeMetres = m_terrainGraphics.ChunkCount > 0 ? TerrainBenchmarkGraphics.ChunkSizeMetres : 0,
+            schema = 12, effectPolicy = "player-grounding-v1",
+            terrainChunked = Variants[session.Trial].ChunkSizeMetres > 0,
+            terrainVertexLighting = true,
+            terrainSpecularDisabled = true,
+            terrainChunkSizeMetres = Variants[session.Trial].ChunkSizeMetres,
             terrainChunkCount = m_terrainGraphics.ChunkCount,
             terrainSourceTriangles = m_terrainGraphics.SourceTriangles,
             terrainChunkTriangles = m_terrainGraphics.ChunkTriangles, terrainTriplanar = false,
             buildingSmokeMaterial = m_settings.DetailedBuildingSmokeEnabled ? "detailed-lit" : "simple-unshaded",
             buildingSmokeEmitters = m_settings.BuildingSmokeEmitterCount,
+            sunShadows = m_settings.SunShadowsEnabled, sunShadowDistance = m_sky.SunShadowDistance,
+            shadowPolicy = "quest-objects-500m-4096-two-cascades-v1",
             graphicsProfile = "baked-profile", bakedSky = m_settings.BakedSkyEnabled,
             cockpitUv = m_settings.QuestUvMaterialsEnabled,
             bakedInteriorLighting = m_settings.QuestUvMaterialsEnabled && m_settings.BakedInteriorLightingEnabled,
@@ -308,6 +375,14 @@ public sealed partial class QuestCombatBenchmark : Node
             projectileLightScale = QuestCombatTelemetry.SmallProjectileLights ? 0.5 : 1.0,
             missileSmokeStride = MechRewired.Simulation.MissileVisualCadence.SmokeStride,
             missileLightStride = MechRewired.Simulation.MissileVisualCadence.LightStride,
+            playerGroundingPolicy = variant == "baseline" ? "legacy-foot-vertices" : "quest-hidden-rig-cached-surface-v1",
+            enemyUpdateStride = 1,
+            hudFrozen = false, simulationFrozen = false,
+            diagnostic = false,
+            simulationWarmupSeconds = SimulationWarmupSeconds, physicsTicksPerSecond = Engine.PhysicsTicksPerSecond,
+            physicsSteps = frames.Average(f => (double)f.PhysicsSteps), maxPhysicsSteps = frames.Max(f => f.PhysicsSteps),
+            slowFrameCount = frames.Count(f => f.Ms > budget), gcFrameCount = frames.Count(f => f.Gc0 + f.Gc1 + f.Gc2 > 0),
+            cpuScopes = SummarizeCpuScopes(frames),
             runId = session.RunId, trial = session.Trial+1, variant, status, target = session.Target, frames = frames.Count,
             hudInstrumentDraws, meanMs = stats.MeanFrameMs, p95Ms = stats.P95FrameMs, p99Ms = stats.P99FrameMs,
             averageFps = stats.AverageFps, onePercentLowFps = stats.OnePercentLowFps,
@@ -339,7 +414,11 @@ public sealed partial class QuestCombatBenchmark : Node
             maxHeadTranslation=frames.Max(f=>f.HeadTranslation), maxHeadAngle=frames.Max(f=>f.HeadAngle)
         };
         PrintJson("SUMMARY", JsonSerializer.Serialize(summary));
-        // Report after timing, bounding log volume while retaining events and the worst stalls.
+        // Keep every frame in the archive for later correlation; serialize only after timing.
+        foreach (var frame in frames)
+            QuestCombatLogArchive.AppendTaggedLine("QUEST_COMBAT_FRAME: " + JsonSerializer.Serialize(new { runId = session.RunId, trial = session.Trial + 1, frame }));
+        QuestCombatLogArchive.Flush();
+        // Also expose bounded diagnostic records through logcat.
         foreach (var frame in frames.OrderByDescending(f=>f.Ms).Take(20).OrderBy(f=>f.Seconds))
             PrintJson("SPIKE", JsonSerializer.Serialize(new {runId=session.RunId, trial=session.Trial+1, frame}));
         foreach (var bucket in frames.GroupBy(f=>(int)f.Seconds))
@@ -356,6 +435,22 @@ public sealed partial class QuestCombatBenchmark : Node
         foreach (var frame in frames.Where(f=>f.Combat.WeaponLaunches>0 || f.Combat.MissileLaunches>0 || f.Combat.Impacts>0 || f.Combat.MissilePoolsCreated>0))
             PrintJson("EVENT", JsonSerializer.Serialize(new {runId=session.RunId, trial=session.Trial+1, frame.Seconds, frame.Ms, frame.DrawCalls, frame.Primitives, frame.Combat}));
 
+    }
+
+    private static Dictionary<string, QuestCpuTelemetry.Measurement> SummarizeCpuScopes(List<Frame> frames)
+    {
+        var totals = new Dictionary<string, QuestCpuTelemetry.Measurement>();
+        foreach (var property in typeof(QuestCpuTelemetry.Snapshot).GetProperties())
+        {
+            var calls = 0; var ms = 0.0; long bytes = 0;
+            foreach (var frame in frames)
+            {
+                var value = (QuestCpuTelemetry.Measurement)property.GetValue(frame.CpuScopes);
+                calls += value.Calls; ms += value.ElapsedMs; bytes += value.AllocatedBytes;
+            }
+            totals[property.Name] = new QuestCpuTelemetry.Measurement(calls, ms, bytes);
+        }
+        return totals;
     }
 
     private Transform3D FindEncounterPose(EnemyMech enemy)
@@ -381,7 +476,17 @@ public sealed partial class QuestCombatBenchmark : Node
     private static void PrintJson(string kind, string json)
     {
         foreach (var line in QuestCombatLogChunker.Format(kind, json, Interlocked.Increment(ref s_logRecordId)))
+        {
+            QuestCombatLogArchive.AppendTaggedLine(line);
             GD.Print(line);
+        }
+        QuestCombatLogArchive.Flush();
+    }
+
+    private static void EnsureArchive()
+    {
+        if (QuestCombatLogArchive.PrimaryError != null)
+            throw new IOException("Combat benchmark archive failed: " + QuestCombatLogArchive.PrimaryError);
     }
 
     private Options CaptureOptions() => new(m_settings.SunShadowsEnabled, m_settings.GlowEnabled,
@@ -408,6 +513,8 @@ public sealed partial class QuestCombatBenchmark : Node
             var error = tree.ReloadCurrentScene();
             if (error == Error.Ok) return;
             m_reloadRequested = false;
+            PrintJson("STATUS", JsonSerializer.Serialize(new { runId = s_session?.RunId, status = "reload-failed", error = error.ToString() }));
+            QuestCombatLogArchive.EndRun();
             s_session = null;
             m_player.VrRig.Menu.ShowMissionResult("COMBAT TEST: RESTART FAILED");
             GD.PushError("QUEST_COMBAT_RELOAD_FAILED: " + error);
@@ -418,8 +525,11 @@ public sealed partial class QuestCombatBenchmark : Node
         if (!m_reloadRequested && s_session != null)
         {
             PrintJson("STATUS", JsonSerializer.Serialize(new {runId=s_session.RunId,status="scene-exited"}));
+            QuestCombatLogArchive.EndRun();
             s_session=null;
         }
+        QuestCombatDiagnostics.EnemyHalfRate = false;
+        QuestCombatDiagnostics.LegacyPlayerGrounding = false;
         QuestCombatTelemetry.Active=false;
         QuestCombatTelemetry.WeaponLightsDisabled=false;
         QuestCombatTelemetry.SmokeDisabled=false;

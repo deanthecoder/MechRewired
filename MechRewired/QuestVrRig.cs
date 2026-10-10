@@ -90,6 +90,7 @@ public partial class QuestVrRig : XROrigin3D
 
     public override void _Process(double delta)
     {
+        using var cpuScope = QuestCpuTelemetry.Measure(QuestCpuTelemetry.Category.VrProcess);
         var headTracked = (XRServer.GetTracker("head") as XRPositionalTracker)?.GetPose("default")?.HasTrackingData == true;
         var sessionState = m_interface?.GetSessionState();
         var sessionFocused = QuestVrRuntime.Preview || sessionState == OpenXRInterface.SessionState.Focused;
@@ -176,6 +177,7 @@ public partial class QuestVrRig : XROrigin3D
         JumpJetsRequested = locomotionTracked && jumpJetsHeld && !m_jumpJetsRequireRelease;
         if (stopPressed)
         {
+            if (m_player.IsShutdown) m_player.VrToggleReactor();
             m_player.StopVrMovement();
             m_waitForThrottleCenter = true;
         }

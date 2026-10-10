@@ -15,15 +15,20 @@ public sealed class TerrainBenchmarkGraphics : IDisposable
     private readonly List<(ShaderMaterial Material, Shader OriginalShader)> m_materials = [];
     private readonly List<(MeshInstance3D Source, bool WasVisible)> m_sources = [];
     private readonly List<MeshInstance3D> m_chunks = [];
+    private readonly float m_chunkSizeMetres;
     private bool m_disposed;
 
     public int ChunkCount { get; private set; }
     public long SourceTriangles { get; private set; }
     public long ChunkTriangles { get; private set; }
 
-    public TerrainBenchmarkGraphics(Node missionRoot, bool chunked, bool vertexLit)
+    public TerrainBenchmarkGraphics(Node missionRoot, bool chunked, bool vertexLit,
+        float chunkSizeMetres = ChunkSizeMetres)
     {
         ArgumentNullException.ThrowIfNull(missionRoot);
+        if (!float.IsFinite(chunkSizeMetres) || chunkSizeMetres <= 0)
+            throw new ArgumentOutOfRangeException(nameof(chunkSizeMetres));
+        m_chunkSizeMetres = chunkSizeMetres;
         try
         {
             var meshes = Descendants(missionRoot).OfType<MeshInstance3D>()
@@ -98,7 +103,7 @@ public sealed class TerrainBenchmarkGraphics : IDisposable
                 var ic = indices[i + 2];
                 var localCenter = (vertices[ia] + vertices[ib] + vertices[ic]) / 3.0f;
                 var center = source.GlobalTransform * localCenter;
-                var cell = ((int)Mathf.Floor(center.X / ChunkSizeMetres), (int)Mathf.Floor(center.Z / ChunkSizeMetres));
+                var cell = ((int)Mathf.Floor(center.X / m_chunkSizeMetres), (int)Mathf.Floor(center.Z / m_chunkSizeMetres));
                 if (!builders.TryGetValue(cell, out var builder)) builders[cell] = builder = new SurfaceBuilder();
                 builder.Add(ia, vertices, normals, colors, uvs);
                 builder.Add(ib, vertices, normals, colors, uvs);

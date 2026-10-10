@@ -189,8 +189,8 @@ headset confirmation of that correction is pending. Results are in
 [QUEST_TESTS_2026-10-01.md](QUEST_TESTS_2026-10-01.md); the shorter combined-profile
 test is described in [QUEST_BENCHMARK.md](QUEST_BENCHMARK.md).
 
-The Quest baseline keeps weapon lights and smoke/dust on. Sun shadows, scene
-glow, HUD glow and cockpit glass start off. Combat performance is evaluated with
+The Quest baseline keeps weapon lights, smoke/dust and nearby object sun shadows
+on. Scene glow, HUD glow and cockpit glass start off. Combat performance is evaluated with
 the baked sky/cabin and these effects retained.
 
 Terrain parallax is always off in VR, including desktop VR preview, and has no menu toggle.
@@ -279,3 +279,78 @@ confirmed OpenXR startup, 7,735 indexed resources, and the Wolf mission's Mad Do
 deployment. A headset screenshot showed the cockpit and desert terrain, paused
 behind a Quest system overlay. Comfort, controller feel, and sustained performance
 still need hands-on testing.
+
+
+### Reactor and inspect controls
+
+Left-stick click stops the mech while online. While shut down, it requests a reactor
+restart and keeps the throttle stopped until the stick returns to neutral. The
+existing critical-heat check still refuses restart while too hot; let the game run
+to cool down (the pause menu pauses cooling). A held click does not repeat.
+
+Left X inspects the selected actor or the active inspect objective when applicable.
+The pause menu's **PILOT CONTROLS** page exposes **REACTOR POWER**, **HEAT OVERRIDE**,
+and **INSPECT TARGET (X)**. Reactor power and inspect close the menu before acting.
+Override retains the existing higher heat limit and cannot be enabled while offline.
+
+### HUD panel seams
+
+Sparse HUD coverage now uses one indexed mesh with shared positions and texture
+coordinates along neighboring cell edges, replacing independently transformed
+quads. It retains the original HUD artwork, material, gaze anchor and occupied
+coverage area. Geometry updates only when the set of occupied cells changes.
+
+The coverage check compares the rendered sparse surface with the original full
+quad, both straight on and tilted with 2x MSAA. Native Mac Forward+ and Mobile
+checks pass for normal, glow, fullscreen radar and hidden radar modes. The reported
+Quest panel banding was not reproduced on the Mac; confirming its removal still
+requires viewing the radar and navigation panels while moving the headset. The
+mesh rebuild cost also needs the next Quest performance capture.
+
+### Player grounding cost (8 October 2026)
+
+Quest keeps the normal fixed physics rate and live movement, collision/slope checks,
+jump-jet/landing logic, heat, damage and input. The invisible player leg rig advances
+its gait clock for footfall events but does not write animated joint poses. It also
+skips the per-toe-vertex terrain adjustment used to prevent visible feet clipping;
+the chassis still follows the original terrain surface through movement and landing.
+A pre-existing decorative foot-clearance offset settles smoothly back to zero.
+This can slightly change chassis height on uneven ground; headset movement/landing
+validation is still required. Desktop animation and enemy rigs are unchanged.
+
+Successful player surface queries reuse height/slope only at exactly the same X/Z
+on the immutable terrain index, while grounded with no jump request. Movement,
+airborne/jump updates and terrain reconfiguration refresh/invalidate that cache;
+failed queries are never cached. Timers and fuel continue advancing every tick.
+
+The combat benchmark now runs legacy → optimized → legacy (45 seconds of combat
+plus reload/report overhead). Baselines deliberately restore the old foot work;
+normal Quest play and the restored mission use the optimization. Detailed timing
+includes gait, ground clearance, jump updates, surface requests and actual surface
+queries, so cache hits and the expensive substep can be distinguished in saved logs.
+
+Quest cockpit stomp feedback uses a broadened distance-driven gait pulse with
+exponential smoothing to move only the cockpit mesh down by up to 2.5 cm. Each
+foot alternates a gentle sideways sway (up to 1 cm) and roll (up to 0.34 degrees).
+Its strength follows gait weight and smoothly settles when stopping or airborne. The tracked camera,
+aim, collision and cached grounding are unaffected; no new terrain queries or
+physics simulation are added. Headset feel still needs validation.
+
+The 10 October Quest chem-plant screenshot confirms absent cast shadows with the
+performance baseline's sun-shadow setting disabled. SUN SHADOWS remains available
+in the graphics menu. This cockpit-motion adjustment does not change that setting.
+
+### Nearby object shadows (10 October 2026)
+
+SUN SHADOWS now defaults on. The mobile directional atlas is 4,096 pixels (was
+2,048), with a small PCF filter, two blended cascades split at 100 m, a 500 m
+camera distance limit and fading from 400 to 500 m. Quest sun angular softness
+is zero; this profile uses the filtered map rather than a variable penumbra.
+Reducing the covered distance concentrates shadow detail on nearby objects.
+This is a headset candidate: flicker reduction and cost need on-device feedback.
+
+Quest implicit ground and derived terrain receive building/mech shadows but
+do not cast shadows. The dedicated terrain shadow proxy is omitted, and scatter
+rocks also do not cast. Mech and building geometry retains shadow casting.
+Desktop terrain shadows and long-range sun tuning remain unchanged. The sun
+shadow menu switch still works; turning it off disables the directional pass.

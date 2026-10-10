@@ -46,7 +46,11 @@ public partial class QuestHudCoverageCheck : Node
                 GD.Print($"HUD_COVERAGE: {mode} cells={hud.VrCoverage.VisibleCells}/576 visiblePixels={lit}");
                 if (mode == "normal" && hud.VrCoverage.VisibleCells >= 576)
                     throw new InvalidOperationException("Normal HUD still covers the entire plane.");
-                if (mode == "normal") await CompareSurfaces(hud);
+                if (mode == "normal")
+                {
+                    await CompareSurfaces(hud, false);
+                    await CompareSurfaces(hud, true);
+                }
             }
             // Clearing one layer must retain the other, then removing both must clear stale cells.
             hud.VrCoverage.Begin(false); hud.VrCoverage.End();
@@ -60,12 +64,13 @@ public partial class QuestHudCoverageCheck : Node
         catch (Exception error) { GD.PushError(error.ToString()); GetTree().Quit(1); }
     }
 
-    private async Task CompareSurfaces(PlayerHud hud)
+    private async Task CompareSurfaces(PlayerHud hud, bool oblique)
     {
         SubViewport MakeViewport(bool sparse)
         {
             var viewport = new SubViewport { Size = new Vector2I(1280, 720),
                 World3D = new World3D(), TransparentBg = true,
+                Msaa3D = oblique ? Viewport.Msaa.Msaa2X : Viewport.Msaa.Disabled,
                 RenderTargetUpdateMode = SubViewport.UpdateMode.Always };
             AddChild(viewport);
             viewport.AddChild(new Camera3D { Projection = Camera3D.ProjectionType.Orthogonal,
@@ -76,7 +81,9 @@ public partial class QuestHudCoverageCheck : Node
                 Mesh = hud.VrSurface.Mesh, MaterialOverride = hud.VrSurface.MaterialOverride,
                 Layers = PlayerCockpit.RenderLayer
             };
-            surface.Transform = Transform3D.Identity;
+            surface.Transform = oblique
+                ? new Transform3D(Basis.FromEuler(new Vector3(.07f, .23f, .03f)), new Vector3(.001f, .003f, 0))
+                : Transform3D.Identity;
             viewport.AddChild(surface);
             return viewport;
         }
@@ -89,7 +96,7 @@ public partial class QuestHudCoverageCheck : Node
         var a = expected.GetData(); var b = actual.GetData();
         var differences = 0;
         for (var i = 0; i < a.Length; i++) if (Math.Abs(a[i] - b[i]) > 2) differences++;
-        GD.Print($"HUD_COVERAGE: reference comparison differingChannels={differences}/{a.Length}");
+        GD.Print($"HUD_COVERAGE: reference comparison oblique={oblique} differingChannels={differences}/{a.Length}");
         if (differences > a.Length / 1000) throw new InvalidOperationException("Sparse HUD differs from original surface.");
         reference.QueueFree(); sparse.QueueFree();
     }

@@ -1,0 +1,485 @@
+[
+  {
+    "schema": 12,
+    "effectPolicy": "player-grounding-v1",
+    "terrainChunked": false,
+    "terrainVertexLighting": true,
+    "terrainSpecularDisabled": true,
+    "terrainChunkSizeMetres": 0,
+    "terrainChunkCount": 0,
+    "terrainSourceTriangles": 197386,
+    "terrainChunkTriangles": 0,
+    "terrainTriplanar": false,
+    "buildingSmokeMaterial": "simple-unshaded",
+    "buildingSmokeEmitters": 2,
+    "graphicsProfile": "baked-profile",
+    "bakedSky": true,
+    "cockpitUv": true,
+    "bakedInteriorLighting": true,
+    "smoke": true,
+    "missileSmoke": true,
+    "weaponLights": true,
+    "enemyMissileSmoke": true,
+    "missileSmokeScale": 1,
+    "projectileLightScale": 1,
+    "missileSmokeStride": 3,
+    "missileLightStride": 8,
+    "playerGroundingPolicy": "legacy-foot-vertices",
+    "enemyUpdateStride": 1,
+    "hudFrozen": false,
+    "simulationFrozen": false,
+    "diagnostic": false,
+    "simulationWarmupSeconds": 3,
+    "physicsTicksPerSecond": 60,
+    "physicsSteps": 0.8583333333333333,
+    "maxPhysicsSteps": 1,
+    "slowFrameCount": 476,
+    "gcFrameCount": 1,
+    "cpuScopes": {
+      "PlayerPhysics": {
+        "Calls": 721,
+        "ElapsedMs": 1598.4082369999971,
+        "AllocatedBytes": 92288
+      },
+      "PlayerTargeting": {
+        "Calls": 840,
+        "ElapsedMs": 46.201406,
+        "AllocatedBytes": 6848
+      },
+      "HudProcess": {
+        "Calls": 840,
+        "ElapsedMs": 38.356731999999894,
+        "AllocatedBytes": 43200
+      },
+      "HudDraw": {
+        "Calls": 1200,
+        "ElapsedMs": 887.5483699999996,
+        "AllocatedBytes": 961368
+      },
+      "EnemyPhysics": {
+        "Calls": 2884,
+        "ElapsedMs": 272.48043299999966,
+        "AllocatedBytes": 627992
+      },
+      "Missiles": {
+        "Calls": 12819,
+        "ElapsedMs": 299.3603330000001,
+        "AllocatedBytes": 1076208
+      },
+      "TerrainRocks": {
+        "Calls": 840,
+        "ElapsedMs": 2.635585000000005,
+        "AllocatedBytes": 33600
+      },
+      "VrProcess": {
+        "Calls": 840,
+        "ElapsedMs": 53.635783999999965,
+        "AllocatedBytes": 241920
+      },
+      "HudCoverage": {
+        "Calls": 1200,
+        "ElapsedMs": 31.71688299999998,
+        "AllocatedBytes": 448728
+      },
+      "PlayerGroundClearance": {
+        "Calls": 721,
+        "ElapsedMs": 1476.6921699999994,
+        "AllocatedBytes": 92288
+      },
+      "PlayerSurface": {
+        "Calls": 721,
+        "ElapsedMs": 21.24401099999998,
+        "AllocatedBytes": 0
+      },
+      "PlayerSurfaceQuery": {
+        "Calls": 721,
+        "ElapsedMs": 20.196256999999974,
+        "AllocatedBytes": 0
+      },
+      "PlayerGait": {
+        "Calls": 721,
+        "ElapsedMs": 1513.4873079999986,
+        "AllocatedBytes": 92288
+      },
+      "PlayerJumpJets": {
+        "Calls": 721,
+        "ElapsedMs": 34.03324100000001,
+        "AllocatedBytes": 0
+      }
+    },
+    "runId": "20261010-154740-d54e48",
+    "trial": 1,
+    "variant": "baseline",
+    "status": "complete",
+    "target": "Enemy-Falcon Nova-1",
+    "frames": 840,
+    "hudInstrumentDraws": 360,
+    "meanMs": 14.285662023809538,
+    "p95Ms": 18.37119999999981,
+    "p99Ms": 21.664499999999975,
+    "averageFps": 70.0002560842701,
+    "onePercentLowFps": 41.68426669038065,
+    "firstVolleyMeanMs": 14.088726760563379,
+    "firstVolleyMaxMs": 24.929199999999984,
+    "repeatedVolleyMeanMs": 14.330720628415312,
+    "firstImpactFrameMs": 18.082000000000043,
+    "cpuMs": 0.5687011905014515,
+    "gpuMs": 11.831187122058527,
+    "physicsMs": 5.070564285714306,
+    "processMs": 12.511695238095351,
+    "renderCounterScope": "all-viewports-last-rendered-frame",
+    "drawCalls": 167.27023809523808,
+    "maxDrawCalls": 251,
+    "primitives": 258186.9738095238,
+    "maxPrimitives": 274143,
+    "allocatedBytes": 8054088,
+    "gc0": 1,
+    "gc1": 0,
+    "gc2": 0,
+    "enemyAiMs": 270.94778799999995,
+    "losMs": 11.291665000000004,
+    "losCalls": 58,
+    "poolBuilds": 0,
+    "poolBuildMs": 0,
+    "weaponShots": 12,
+    "playerDirectRaycastCalls": 4,
+    "playerDirectRaycastMs": 5.381354,
+    "playerDirectDamageCalls": 4,
+    "playerDirectDamageMs": 0.413178,
+    "playerWeaponVisualCalls": 4,
+    "playerWeaponVisualMs": 0.605675,
+    "missileTerrainQueryCalls": 11075,
+    "missileTerrainQueryMs": 153.4416330000001,
+    "playerWorldRaycastMs": 3.3745849999999997,
+    "playerMechRaycastMs": 1.9876559999999999,
+    "weaponEffectPoolBuilds": 0,
+    "weaponEffectPoolFallbacks": 0,
+    "enemyShots": 6,
+    "missileLaunches": 52,
+    "impacts": 59,
+    "maxHeadTranslation": 0.0018622035,
+    "maxHeadAngle": 0.6501176
+  },
+  {
+    "schema": 12,
+    "effectPolicy": "player-grounding-v1",
+    "terrainChunked": false,
+    "terrainVertexLighting": true,
+    "terrainSpecularDisabled": true,
+    "terrainChunkSizeMetres": 0,
+    "terrainChunkCount": 0,
+    "terrainSourceTriangles": 197386,
+    "terrainChunkTriangles": 0,
+    "terrainTriplanar": false,
+    "buildingSmokeMaterial": "simple-unshaded",
+    "buildingSmokeEmitters": 2,
+    "graphicsProfile": "baked-profile",
+    "bakedSky": true,
+    "cockpitUv": true,
+    "bakedInteriorLighting": true,
+    "smoke": true,
+    "missileSmoke": true,
+    "weaponLights": true,
+    "enemyMissileSmoke": true,
+    "missileSmokeScale": 1,
+    "projectileLightScale": 1,
+    "missileSmokeStride": 3,
+    "missileLightStride": 8,
+    "playerGroundingPolicy": "quest-hidden-rig-cached-surface-v1",
+    "enemyUpdateStride": 1,
+    "hudFrozen": false,
+    "simulationFrozen": false,
+    "diagnostic": false,
+    "simulationWarmupSeconds": 3,
+    "physicsTicksPerSecond": 60,
+    "physicsSteps": 0.8532544378698225,
+    "maxPhysicsSteps": 2,
+    "slowFrameCount": 484,
+    "gcFrameCount": 1,
+    "cpuScopes": {
+      "PlayerPhysics": {
+        "Calls": 721,
+        "ElapsedMs": 73.38021499999998,
+        "AllocatedBytes": 0
+      },
+      "PlayerTargeting": {
+        "Calls": 845,
+        "ElapsedMs": 44.446409999999915,
+        "AllocatedBytes": 6720
+      },
+      "HudProcess": {
+        "Calls": 845,
+        "ElapsedMs": 38.01438000000009,
+        "AllocatedBytes": 43200
+      },
+      "HudDraw": {
+        "Calls": 1205,
+        "ElapsedMs": 910.694265999999,
+        "AllocatedBytes": 1005544
+      },
+      "EnemyPhysics": {
+        "Calls": 2884,
+        "ElapsedMs": 274.797941,
+        "AllocatedBytes": 625608
+      },
+      "Missiles": {
+        "Calls": 12970,
+        "ElapsedMs": 307.7844339999997,
+        "AllocatedBytes": 1089824
+      },
+      "TerrainRocks": {
+        "Calls": 845,
+        "ElapsedMs": 2.803597000000005,
+        "AllocatedBytes": 33800
+      },
+      "VrProcess": {
+        "Calls": 845,
+        "ElapsedMs": 54.11401000000005,
+        "AllocatedBytes": 243360
+      },
+      "HudCoverage": {
+        "Calls": 1205,
+        "ElapsedMs": 36.41199600000002,
+        "AllocatedBytes": 492544
+      },
+      "PlayerGroundClearance": {
+        "Calls": 721,
+        "ElapsedMs": 0.4889549999999962,
+        "AllocatedBytes": 0
+      },
+      "PlayerSurface": {
+        "Calls": 721,
+        "ElapsedMs": 1.035692999999998,
+        "AllocatedBytes": 0
+      },
+      "PlayerSurfaceQuery": {
+        "Calls": 0,
+        "ElapsedMs": 0,
+        "AllocatedBytes": 0
+      },
+      "PlayerGait": {
+        "Calls": 721,
+        "ElapsedMs": 10.06603,
+        "AllocatedBytes": 0
+      },
+      "PlayerJumpJets": {
+        "Calls": 721,
+        "ElapsedMs": 11.48807099999999,
+        "AllocatedBytes": 0
+      }
+    },
+    "runId": "20261010-154740-d54e48",
+    "trial": 2,
+    "variant": "player-ground-fast",
+    "status": "complete",
+    "target": "Enemy-Falcon Nova-1",
+    "frames": 845,
+    "hudInstrumentDraws": 360,
+    "meanMs": 14.21523147928993,
+    "p95Ms": 16.421699999999984,
+    "p99Ms": 18.17160000000051,
+    "averageFps": 70.3470781644951,
+    "onePercentLowFps": 46.0490432543777,
+    "firstVolleyMeanMs": 14.0918323943662,
+    "firstVolleyMaxMs": 20.56809999999998,
+    "repeatedVolleyMeanMs": 14.245519674355497,
+    "firstImpactFrameMs": 13.915400000000023,
+    "cpuMs": 0.5919207111970913,
+    "gpuMs": 11.78778816539155,
+    "physicsMs": 1.7589053254438165,
+    "processMs": 12.572495857988228,
+    "renderCounterScope": "all-viewports-last-rendered-frame",
+    "drawCalls": 167.62130177514794,
+    "maxDrawCalls": 251,
+    "primitives": 258223.85325443788,
+    "maxPrimitives": 274275,
+    "allocatedBytes": 8045728,
+    "gc0": 1,
+    "gc1": 0,
+    "gc2": 0,
+    "enemyAiMs": 272.9693729999998,
+    "losMs": 11.811669,
+    "losCalls": 58,
+    "poolBuilds": 0,
+    "poolBuildMs": 0,
+    "weaponShots": 12,
+    "playerDirectRaycastCalls": 4,
+    "playerDirectRaycastMs": 5.742082,
+    "playerDirectDamageCalls": 4,
+    "playerDirectDamageMs": 0.427135,
+    "playerWeaponVisualCalls": 4,
+    "playerWeaponVisualMs": 0.599844,
+    "missileTerrainQueryCalls": 11220,
+    "missileTerrainQueryMs": 159.11797899999996,
+    "playerWorldRaycastMs": 3.530625,
+    "playerMechRaycastMs": 2.193177,
+    "weaponEffectPoolBuilds": 0,
+    "weaponEffectPoolFallbacks": 0,
+    "enemyShots": 6,
+    "missileLaunches": 52,
+    "impacts": 59,
+    "maxHeadTranslation": 0.002171857,
+    "maxHeadAngle": 0.57878387
+  },
+  {
+    "schema": 12,
+    "effectPolicy": "player-grounding-v1",
+    "terrainChunked": false,
+    "terrainVertexLighting": true,
+    "terrainSpecularDisabled": true,
+    "terrainChunkSizeMetres": 0,
+    "terrainChunkCount": 0,
+    "terrainSourceTriangles": 197386,
+    "terrainChunkTriangles": 0,
+    "terrainTriplanar": false,
+    "buildingSmokeMaterial": "simple-unshaded",
+    "buildingSmokeEmitters": 2,
+    "graphicsProfile": "baked-profile",
+    "bakedSky": true,
+    "cockpitUv": true,
+    "bakedInteriorLighting": true,
+    "smoke": true,
+    "missileSmoke": true,
+    "weaponLights": true,
+    "enemyMissileSmoke": true,
+    "missileSmokeScale": 1,
+    "projectileLightScale": 1,
+    "missileSmokeStride": 3,
+    "missileLightStride": 8,
+    "playerGroundingPolicy": "legacy-foot-vertices",
+    "enemyUpdateStride": 1,
+    "hudFrozen": false,
+    "simulationFrozen": false,
+    "diagnostic": false,
+    "simulationWarmupSeconds": 3,
+    "physicsTicksPerSecond": 60,
+    "physicsSteps": 0.8490566037735849,
+    "maxPhysicsSteps": 2,
+    "slowFrameCount": 435,
+    "gcFrameCount": 1,
+    "cpuScopes": {
+      "PlayerPhysics": {
+        "Calls": 720,
+        "ElapsedMs": 1597.9081199999982,
+        "AllocatedBytes": 92160
+      },
+      "PlayerTargeting": {
+        "Calls": 848,
+        "ElapsedMs": 42.76478100000001,
+        "AllocatedBytes": 6720
+      },
+      "HudProcess": {
+        "Calls": 848,
+        "ElapsedMs": 37.20422999999994,
+        "AllocatedBytes": 43200
+      },
+      "HudDraw": {
+        "Calls": 1208,
+        "ElapsedMs": 890.7062969999988,
+        "AllocatedBytes": 973144
+      },
+      "EnemyPhysics": {
+        "Calls": 2880,
+        "ElapsedMs": 274.2323409999999,
+        "AllocatedBytes": 625480
+      },
+      "Missiles": {
+        "Calls": 12982,
+        "ElapsedMs": 271.81427400000007,
+        "AllocatedBytes": 1087328
+      },
+      "TerrainRocks": {
+        "Calls": 848,
+        "ElapsedMs": 2.7249700000000034,
+        "AllocatedBytes": 33920
+      },
+      "VrProcess": {
+        "Calls": 848,
+        "ElapsedMs": 53.16238900000004,
+        "AllocatedBytes": 244224
+      },
+      "HudCoverage": {
+        "Calls": 1208,
+        "ElapsedMs": 33.877436,
+        "AllocatedBytes": 459928
+      },
+      "PlayerGroundClearance": {
+        "Calls": 720,
+        "ElapsedMs": 1472.776913999999,
+        "AllocatedBytes": 92160
+      },
+      "PlayerSurface": {
+        "Calls": 720,
+        "ElapsedMs": 21.224526999999984,
+        "AllocatedBytes": 0
+      },
+      "PlayerSurfaceQuery": {
+        "Calls": 720,
+        "ElapsedMs": 20.174633999999987,
+        "AllocatedBytes": 0
+      },
+      "PlayerGait": {
+        "Calls": 720,
+        "ElapsedMs": 1510.5761760000019,
+        "AllocatedBytes": 92160
+      },
+      "PlayerJumpJets": {
+        "Calls": 720,
+        "ElapsedMs": 34.31531600000005,
+        "AllocatedBytes": 0
+      }
+    },
+    "runId": "20261010-154740-d54e48",
+    "trial": 3,
+    "variant": "baseline",
+    "status": "complete",
+    "target": "Enemy-Falcon Nova-1",
+    "frames": 848,
+    "hudInstrumentDraws": 360,
+    "meanMs": 14.16416945754715,
+    "p95Ms": 17.990099999999565,
+    "p99Ms": 19.429999999999836,
+    "averageFps": 70.60068032913614,
+    "onePercentLowFps": 42.50620354426154,
+    "firstVolleyMeanMs": 14.13170972222222,
+    "firstVolleyMaxMs": 25.570199999999986,
+    "repeatedVolleyMeanMs": 14.186940460081175,
+    "firstImpactFrameMs": 17.515100000000004,
+    "cpuMs": 0.5697358483624346,
+    "gpuMs": 11.42793279548861,
+    "physicsMs": 5.203505896226421,
+    "processMs": 11.750113207547285,
+    "renderCounterScope": "all-viewports-last-rendered-frame",
+    "drawCalls": 167.63915094339623,
+    "maxDrawCalls": 250,
+    "primitives": 258219.76650943398,
+    "maxPrimitives": 274178,
+    "allocatedBytes": 8048304,
+    "gc0": 1,
+    "gc1": 0,
+    "gc2": 0,
+    "enemyAiMs": 272.6265140000003,
+    "losMs": 10.961199000000004,
+    "losCalls": 58,
+    "poolBuilds": 0,
+    "poolBuildMs": 0,
+    "weaponShots": 12,
+    "playerDirectRaycastCalls": 4,
+    "playerDirectRaycastMs": 5.296356,
+    "playerDirectDamageCalls": 4,
+    "playerDirectDamageMs": 0.429532,
+    "playerWeaponVisualCalls": 4,
+    "playerWeaponVisualMs": 0.613437,
+    "missileTerrainQueryCalls": 11194,
+    "missileTerrainQueryMs": 134.8121170000001,
+    "playerWorldRaycastMs": 3.3701049999999997,
+    "playerMechRaycastMs": 1.909322,
+    "weaponEffectPoolBuilds": 0,
+    "weaponEffectPoolFallbacks": 0,
+    "enemyShots": 6,
+    "missileLaunches": 52,
+    "impacts": 59,
+    "maxHeadTranslation": 0.001688219,
+    "maxHeadAngle": 0.33102235
+  }
+]

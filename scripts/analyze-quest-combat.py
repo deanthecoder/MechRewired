@@ -12,11 +12,19 @@ PREFIX = "QUEST_COMBAT_SUMMARY:"
 CHUNK_PREFIX = "QUEST_COMBAT_CHUNK:"
 VARIANTS = ("baseline", "missile-smoke-reduced", "projectile-lights-small",
             "building-smoke-detailed", "smoke-off", "weapon-lights-off",
-            "terrain-chunked", "terrain-vertex-lit", "terrain-combined")
+            "terrain-chunked", "terrain-vertex-lit", "terrain-combined",
+            "terrain-512m", "terrain-1024m", "terrain-2048m",
+            "enemy-half-rate", "hud-frozen", "simulation-frozen", "player-ground-fast")
 FOCUSED_VARIANTS = ("missile-smoke-reduced", "projectile-lights-small",
                     "building-smoke-detailed")
-TERRAIN_VARIANTS = ("terrain-chunked", "terrain-vertex-lit", "terrain-combined")
+TERRAIN_VARIANTS = ("terrain-chunked", "terrain-vertex-lit", "terrain-combined",
+                    "terrain-512m", "terrain-1024m", "terrain-2048m")
+CPU_VARIANTS = ("enemy-half-rate", "hud-frozen", "simulation-frozen", "player-ground-fast")
 METRICS = (
+    ("physicsSteps", "mean physics steps/frame", ""),
+    ("maxPhysicsSteps", "peak physics steps/frame", ""),
+    ("slowFrameCount", "frames over refresh budget", ""),
+    ("gcFrameCount", "frames with GC", ""),
     ("hudInstrumentDraws", "HUD instrument redraws", ""),
     ("meanMs", "mean frame", " ms"),
     ("p95Ms", "p95 frame", " ms"),
@@ -157,13 +165,63 @@ def identify(record):
     return f"{record.get('runId', '?')}/trial {record.get('trial', '?')}/{record.get('variant', '?')}"
 
 
+def is_cpu_diagnostic(record):
+    return (number(record, "schema") == 11
+            and record.get("effectPolicy") == "cpu-isolation-v1"
+            and record.get("variant") in ("hud-frozen", "simulation-frozen")
+            and record.get("diagnostic") is True)
+
+
+def cpu_isolation_mismatch(variant, base_rows, candidates):
+    """Check isolation metadata before interpreting an intentionally reduced workload."""
+    combined = base_rows + candidates
+    grounding = variant == "player-ground-fast"
+    expected_schema, expected_policy = (12, "player-grounding-v1") if grounding else (11, "cpu-isolation-v1")
+    if any(number(r, "schema") != expected_schema or r.get("effectPolicy") != expected_policy
+           for r in combined):
+        return f"{variant}: requires schema {expected_schema} {expected_policy} metadata"
+    source_counts = [number(r, "terrainSourceTriangles") for r in combined]
+    if any(v is None or v <= 0 for v in source_counts) or len(set(source_counts)) != 1:
+        return f"{variant}: terrain source triangle counts differ or are unrecorded"
+    rates = [number(r, "physicsTicksPerSecond") for r in combined]
+    if any(v is None or v <= 0 for v in rates) or len(set(rates)) != 1:
+        return f"{variant}: physics tick rates differ or are unrecorded"
+    for row in combined:
+        stage = row.get("variant")
+        if grounding:
+            expected_grounding = ("legacy-foot-vertices" if stage == "baseline"
+                                  else "quest-hidden-rig-cached-surface-v1")
+            if (stage not in ("baseline", "player-ground-fast")
+                    or row.get("playerGroundingPolicy") != expected_grounding):
+                return f"{variant}: player grounding policy does not match the requested variant"
+        if (number(row, "enemyUpdateStride") != (2 if stage == "enemy-half-rate" else 1)
+                or row.get("hudFrozen") is not (stage == "hud-frozen")
+                or row.get("simulationFrozen") is not (stage == "simulation-frozen")
+                or row.get("diagnostic") is not (stage in ("hud-frozen", "simulation-frozen"))
+                or number(row, "simulationWarmupSeconds") != 3):
+            return f"{variant}: diagnostic settings do not match the requested variant"
+        if not _terrain_sizing_state_matches(row, 0, source_counts[0], True):
+            return f"{variant}: requires matching unchunked vertex-lit terrain with specular disabled"
+        if (row.get("terrainTriplanar") is not False
+                or row.get("smoke") is not True
+                or row.get("missileSmoke") is not True
+                or row.get("enemyMissileSmoke") is not True
+                or row.get("weaponLights") is not True
+                or number(row, "missileSmokeScale") != 1.0
+                or number(row, "projectileLightScale") != 1.0
+                or row.get("buildingSmokeMaterial") != "simple-unshaded"):
+            return f"{variant}: smoke/light or terrain settings changed outside the CPU experiment"
+    return None
+
+
 def eligible(record):
     """Withhold percentages when the sample cannot support a combat comparison."""
     return (str(record.get("status", "")).lower() == "complete"
             and (number(record, "frames") or 0) > 0
             and (number(record, "meanMs") or 0) > 0
-            and (number(record, "enemyShots") or 0) > 0
-            and (number(record, "impacts") or 0) > 0
+            and (is_cpu_diagnostic(record) or
+                 ((number(record, "enemyShots") or 0) > 0
+                  and (number(record, "impacts") or 0) > 0))
             and number(record, "maxHeadTranslation") is not None
             and number(record, "maxHeadTranslation") <= 0.05
             and number(record, "maxHeadAngle") is not None
@@ -240,8 +298,13 @@ def focused_terrain_mismatch(variant, base_rows, candidates):
     combined = base_rows + candidates
     schemas = {number(r, "schema") for r in combined}
     policies = {r.get("effectPolicy") for r in combined}
-    if schemas != {9} or policies != {"focused-terrain-v1"}:
-        return f"{variant}: requires schema 9 focused-terrain-v1 metadata"
+    if len(schemas) != 1 or len(policies) != 1:
+        return f"{variant}: compared records have mismatched schema or terrain policy"
+    schema, policy = next(iter(schemas)), next(iter(policies))
+    legacy = (schema, policy) == (9, "focused-terrain-v1")
+    sizing = (schema, policy) == (10, "terrain-chunk-sizing-v1")
+    if not (legacy or sizing):
+        return f"{variant}: requires schema 9 focused-terrain-v1 or schema 10 terrain-chunk-sizing-v1 metadata"
 
     source_counts = [number(r, "terrainSourceTriangles") for r in combined]
     if any(count is None or count <= 0 for count in source_counts):
@@ -266,14 +329,21 @@ def focused_terrain_mismatch(variant, base_rows, candidates):
         "terrain-vertex-lit": (False, True),
         "terrain-combined": (True, True),
     }
+    if sizing:
+        requested_size = {"terrain-512m": 512, "terrain-1024m": 1024,
+                          "terrain-2048m": 2048}.get(variant)
+        if requested_size is None:
+            return f"{variant}: not a supported terrain chunk-size stage"
+        baseline_matches = lambda row: _terrain_sizing_state_matches(row, 0, source_counts[0], True)
+        candidate_matches = lambda row: _terrain_sizing_state_matches(row, requested_size, source_counts[0], True)
+    else:
+        chunked, vertex_lit = expected[variant]
+        baseline_matches = lambda row: _terrain_state_matches(row, expected["baseline"], source_counts[0])
+        candidate_matches = lambda row: _terrain_state_matches(row, (chunked, vertex_lit), source_counts[0])
     for row in base_rows:
-        if row.get("variant") != "baseline":
-            continue
-        if not _terrain_state_matches(row, expected["baseline"], source_counts[0]):
+        if not baseline_matches(row):
             return f"{variant}: baseline terrain settings or chunk metadata do not match"
-    chunked, vertex_lit = expected[variant]
-    if not all(_terrain_state_matches(row, (chunked, vertex_lit), source_counts[0])
-               for row in candidates):
+    if not all(candidate_matches(row) for row in candidates):
         return f"{variant}: terrain settings or chunk metadata do not match the requested variant"
     return None
 
@@ -286,6 +356,17 @@ def _terrain_state_matches(row, expected_flags, source_count):
             and row.get("terrainSpecularDisabled") is vertex_lit
             and number(row, "terrainChunkSizeMetres") == (256 if chunked else 0)
             and number(row, "terrainChunkTriangles") == expected_chunk_triangles
+            and ((number(row, "terrainChunkCount") or 0) > 0 if chunked
+                 else number(row, "terrainChunkCount") == 0))
+
+
+def _terrain_sizing_state_matches(row, chunk_size, source_count, vertex_lit):
+    chunked = chunk_size > 0
+    return (row.get("terrainChunked") is chunked
+            and row.get("terrainVertexLighting") is vertex_lit
+            and row.get("terrainSpecularDisabled") is vertex_lit
+            and number(row, "terrainChunkSizeMetres") == chunk_size
+            and number(row, "terrainChunkTriangles") == (source_count if chunked else 0)
             and ((number(row, "terrainChunkCount") or 0) > 0 if chunked
                  else number(row, "terrainChunkCount") == 0))
 
@@ -318,6 +399,7 @@ def analyze(records, output):
                 print(f"    Terrain: chunked={rec.get('terrainChunked')}, "
                       f"vertexLighting={rec.get('terrainVertexLighting')}, "
                       f"specularDisabled={rec.get('terrainSpecularDisabled')}; "
+                      f"chunk size={fmt(number(rec, 'terrainChunkSizeMetres'))} m; "
                       f"chunks={fmt(number(rec, 'terrainChunkCount'))}, "
                       f"source triangles={fmt(number(rec, 'terrainSourceTriangles'))}, "
                       f"chunk triangles={fmt(number(rec, 'terrainChunkTriangles'))}", file=output)
@@ -341,13 +423,28 @@ def analyze(records, output):
                     mean = total / calls if total is not None and calls else None
                     print(f"    {label}: {fmt(total, ' ms')} / {fmt(calls)} calls; "
                           f"{fmt(mean, ' ms/call')}", file=output)
+            if "playerGroundingPolicy" in rec:
+                print(f"    Player grounding: {rec.get('playerGroundingPolicy')}", file=output)
+            if "physicsSteps" in rec:
+                print(f"    Physics steps/frame: {fmt(number(rec, 'physicsSteps'))} mean / "
+                      f"{fmt(number(rec, 'maxPhysicsSteps'))} peak; slow frames "
+                      f"{fmt(number(rec, 'slowFrameCount'))}; GC frames {fmt(number(rec, 'gcFrameCount'))}", file=output)
+            if isinstance(rec.get("cpuScopes"), dict):
+                print("    CPU scopes are inclusive; overlapping scopes must not be summed.", file=output)
+                for category, scope in sorted(rec["cpuScopes"].items()):
+                    if isinstance(scope, dict):
+                        print(f"      {category}: {fmt(number(scope, 'ElapsedMs'), ' ms')} / "
+                              f"{fmt(number(scope, 'Calls'))} calls / "
+                              f"{fmt(number(scope, 'AllocatedBytes'), ' B')} allocated", file=output)
+            if is_cpu_diagnostic(rec):
+                print("    Diagnostic upper-bound only: frozen work is not a gameplay performance gain.", file=output)
             if status != "complete":
                 print(f"  WARNING {tag}: status {status} (incomplete/death run excluded from deltas)", file=output)
             if (number(rec, "weaponShots") or 0) <= 0:
                 print(f"  WARNING {tag}: no weapon shots recorded", file=output)
-            if (number(rec, "enemyShots") or 0) <= 0:
+            if (number(rec, "enemyShots") or 0) <= 0 and not is_cpu_diagnostic(rec):
                 print(f"  WARNING {tag}: no enemy weapon shots recorded; enemy did not engage, so combat workload is unconfirmed", file=output)
-            if (number(rec, "impacts") or 0) <= 0:
+            if (number(rec, "impacts") or 0) <= 0 and not is_cpu_diagnostic(rec):
                 print(f"  WARNING {tag}: no impacts recorded", file=output)
             translation = number(rec, "maxHeadTranslation")
             angle = number(rec, "maxHeadAngle")
@@ -378,6 +475,11 @@ def analyze(records, output):
                 if not candidates:
                     print(f"    {variant}: no valid combat trial", file=output)
                     continue
+                if variant in CPU_VARIANTS:
+                    mismatch = cpu_isolation_mismatch(variant, base_rows, candidates)
+                    if mismatch:
+                        print(f"    {mismatch}; deltas withheld", file=output)
+                        continue
                 if variant in FOCUSED_VARIANTS:
                     mismatch = focused_effect_mismatch(variant, base_rows, candidates)
                     if mismatch:
@@ -415,7 +517,8 @@ def analyze(records, output):
                     if not all(r.get("weaponLights") is False for r in candidates):
                         print("    weapon-lights-off: trial weapon lights were enabled or unrecorded; deltas withheld", file=output)
                         continue
-                profile_fields = ("graphicsProfile", "bakedSky", "cockpitUv", "bakedInteriorLighting")
+                profile_fields = ("graphicsProfile", "bakedSky", "cockpitUv", "bakedInteriorLighting",
+                                  "sunShadows", "sunShadowDistance", "shadowPolicy")
                 if any(len({json.dumps(r.get(field)) for r in base_rows + candidates}) > 1 for field in profile_fields):
                     print(f"    {variant}: graphics profiles differ; variant deltas withheld", file=output)
                     continue
@@ -423,10 +526,12 @@ def analyze(records, output):
                              if summarize(base_rows, field) is not None and summarize(candidates, field) is not None
                              and abs(summarize(candidates, field) - summarize(base_rows, field))
                              > max(2, summarize(base_rows, field) * 0.25)]
-                if different:
+                if different and not all(is_cpu_diagnostic(r) for r in candidates):
                     print(f"    {variant}: workload differs ({', '.join(different)}); variant deltas withheld", file=output)
                     continue
                 print(f"    {variant} ({len(candidates)} complete trial(s)):", file=output)
+                if all(is_cpu_diagnostic(r) for r in candidates):
+                    print("      Diagnostic upper-bound only; not a gameplay gain. Combat workload intentionally differs.", file=output)
                 for key, label, suffix in METRICS:
                     value = summarize(candidates, key)
                     change = delta(summarize(base_rows, key), value)

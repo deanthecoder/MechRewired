@@ -351,8 +351,25 @@ public partial class EnemyMech : Node3D
         }
     }
 
+    private double m_benchmarkAccumulatedDelta;
+    private bool m_benchmarkAlternateTick;
+
     public override void _PhysicsProcess(double delta)
     {
+        if (QuestCombatTelemetry.Active && QuestCombatDiagnostics.EnemyHalfRate)
+        {
+            m_benchmarkAccumulatedDelta += delta;
+            m_benchmarkAlternateTick = !m_benchmarkAlternateTick;
+            if (m_benchmarkAlternateTick) return;
+            delta = m_benchmarkAccumulatedDelta;
+            m_benchmarkAccumulatedDelta = 0;
+        }
+        else
+        {
+            m_benchmarkAccumulatedDelta = 0;
+            m_benchmarkAlternateTick = false;
+        }
+        using var cpuScope = QuestCpuTelemetry.Measure(QuestCpuTelemetry.Category.EnemyPhysics);
         if (!QuestCombatTelemetry.Active)
         {
             ProcessCombat(delta);

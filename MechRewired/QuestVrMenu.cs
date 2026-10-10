@@ -28,6 +28,7 @@ public sealed partial class QuestVrMenu : Node3D
     private MeshInstance3D m_cursor;
     private MeshInstance3D m_beam;
     private Label3D m_performanceLabel;
+    private Label3D m_instructionLabel;
     private bool m_triggerWasDown;
     private int m_hoveredRow = -1;
     private int m_lastHoveredRow = -2;
@@ -60,6 +61,7 @@ public sealed partial class QuestVrMenu : Node3D
     private string m_lastSkyStatus;
     private string SkyStatus => m_settings.SkyBakePending ? "BAKING" : m_settings.BakedProfileEnabled ? "ON" : "OFF";
     public bool IsOpen => Visible;
+    public PlayerMech Pilot { get; set; }
     public Action RunBenchmark { get; set; }
     public Action RunCombatBenchmark { get; set; }
 
@@ -70,6 +72,16 @@ public sealed partial class QuestVrMenu : Node3D
         AddAction("RECENTER VIEW", RecenterAndClose);
         AddAction("GRAPHICS SETTINGS  >", () => SetPage(1));
         AddAction("HUD SETTINGS  >", () => SetPage(2));
+        if (Pilot != null)
+        {
+            AddAction("PILOT CONTROLS  >", () => SetPage(4));
+            AddRow("REACTOR POWER", () => { Close(); Pilot.VrToggleReactor(); },
+                () => Pilot.IsShutdown ? "RESTART" : "SHUT DOWN", 4);
+            AddRow("HEAT OVERRIDE", Pilot.VrToggleShutdownOverride,
+                () => Pilot.IsShutdown ? "OFFLINE" : Pilot.IsShutdownOverride ? "ON" : "OFF", 4);
+            AddAction("INSPECT TARGET (X)", () => { Close(); Pilot.VrInspect(); }, 4);
+            AddAction("<  BACK", () => SetPage(0), 4);
+        }
         if (RunBenchmark != null || RunCombatBenchmark != null)
         {
             AddAction("BENCHMARKS  >", () => SetPage(3));
@@ -208,7 +220,7 @@ public sealed partial class QuestVrMenu : Node3D
         };
         AddChild(panel);
         AddLabel("MECHREWIRED  /  PAUSED", new Vector3(-0.39f, 0.35f, 0.012f), 36, new Color(0.35f, 0.95f, 0.85f));
-        AddLabel("POINT AND PULL TRIGGER", new Vector3(-0.39f, 0.30f, 0.012f), 18, new Color(0.55f, 0.70f, 0.72f));
+        m_instructionLabel = AddLabel("POINT AND PULL TRIGGER", new Vector3(-0.39f, 0.30f, 0.012f), 18, new Color(0.55f, 0.70f, 0.72f));
         m_performanceLabel = AddLabel("", new Vector3(0.39f, -0.32f, 0.012f), 17, new Color(0.55f, 0.70f, 0.72f));
         m_performanceLabel.HorizontalAlignment = HorizontalAlignment.Right;
         m_performanceLabel.Width = 250.0f;
@@ -338,6 +350,9 @@ public sealed partial class QuestVrMenu : Node3D
 
     private void SetPage(int page)
     {
+        m_instructionLabel.Text = page == 4
+            ? "COOL DOWN, THEN CLICK LEFT STICK TO RESTART"
+            : "POINT AND PULL TRIGGER";
         m_page = page;
         m_hoveredRow = -1;
         m_lastHoveredRow = -2;

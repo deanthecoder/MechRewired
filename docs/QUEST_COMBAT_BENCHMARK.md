@@ -3,43 +3,45 @@
 The first complete headset run and its tagged telemetry are recorded in
 [QUEST_TESTS_2026-10-01.md](QUEST_TESTS_2026-10-01.md).
 
-The live-combat test measures frame pacing while the mission is actively running
-AI, physics, weapons, and damage. Unlike the rendering test, it does not replay a
-fixed scene or guarantee the same combat sequence each time. The focused
-effects trials compare absent enemy trails plus smaller player smoke and smaller projectile
-lights, plus the old detailed building-smoke material versus the new simple default,
-while keeping global smoke and weapon lights enabled. Actual fighting can
-vary, so results do not identify one unique bottleneck by themselves.
+The current suite compares legacy player foot-vertex grounding against the Quest
+optimization that skips the hidden player rig and caches stationary terrain surface
+queries. Both baseline trials deliberately restore legacy work; ordinary Quest
+play uses the optimized path. The suite keeps normal live combat and all effects.
+Earlier CPU freeze probes, terrain chunk-size and effect-density comparisons have
+been retired from the active suite; the analyzer still accepts their historical logs.
 
 ## Run on the headset
 
-1. Build and install the Release APK with `scripts/quest.sh install`.
-2. On the Mac, start log capture before selecting the test:
+1. Build and install the Release APK with `./scripts/quest.sh install`.
+2. Open **BENCHMARKS > COMBAT TEST (RESTARTS)** and keep your head still. This
+   intentionally resets mission progress. Menu or loss of headset focus cancels.
+3. Wait for completion. Three fresh missions each run three seconds of live warmup
+   and twelve seconds of measurement: 45 seconds plus loading and reporting.
+   A final fresh mission restores settings and resumes play. Failed/cancelled
+   runs leave the result menu paused.
+4. Retrieve the automatically saved logs whenever convenient:
 
    ```sh
-   adb logcat -v raw -s godot:I > quest-combat.log
+   ./scripts/quest.sh fetch-benchmarks
+   python3 scripts/analyze-quest-combat.py /absolute/path/to/retrieved/run.log
    ```
 
-   The file is written in the terminal's current directory. The menu action
-   intentionally resets mission progress; finish or abandon a mission whose
-   progress you want to keep before starting the test.
-3. Open the Quest menu, select **BENCHMARKS > COMBAT TEST (RESTARTS)**, and keep
-   your head still. Menu cancels the suite; losing headset focus also cancels it.
-   This action intentionally restarts the mission, as the menu label says.
-4. The suite runs five fresh combat trials measured for 15 seconds each, then a
-   fresh mission that restores the captured settings and resumes normal play
-   after a complete run. Failed or cancelled runs leave the result menu paused.
-   Expect 75 seconds plus mission loading, sky setup, and reporting overhead.
-   Stop log capture after `QUEST_COMBAT_STATUS: ... "complete"` appears.
-5. Analyze the log on the Mac:
+No live monitor or Developer Hub recording is required. Each run has a unique
+UTC timestamp/ID and a required private archive at `user://benchmarks/combat/`.
+On Android it also attempts an ADB-readable mirror at
+`/storage/emulated/0/Android/data/uk.co.deanthecoder.mechrewired/files/benchmarks/`
+and a best-effort Downloads mirror. The fetch command reports where it copied
+the files. Failure of a mirror is logged; failure of the primary archive stops
+the suite with a failure result. The newest ten runs are retained per location.
+App uninstall/data clearing removes private/app-specific copies: fetch before that.
 
-   ```sh
-   python3 scripts/analyze-quest-combat.py quest-combat.log
-   ```
-
-   You can also give Codex the log's absolute path. The report needs only the
-   log; it does not use screenshots. Keep the log locally because the test does
-   not export one.
+RUN and TRIAL records are flushed before measurement. Full frame samples are
+buffered in memory during measurement, then written and flushed after each trial;
+STATUS and ERROR records are also flushed. An interrupted process therefore keeps
+completed trials and the current trial marker, but can lose the in-flight trial's
+samples. A missing completion marker must not be treated as a completed suite.
+Tagged summary/chunk records retain the existing analyzer format. Live logcat is
+still available, but no longer required to preserve results.
 
 Desktop VR preview can exercise the command-line code path:
 
@@ -57,7 +59,7 @@ The suite prefers a surviving mobile, missile-armed, high-health enemy, with
 node name breaking ties. On each fresh mission it searches eight directions at
 65 m, then 45 m and 90 m, accepting only terrain-supported positions with clear
 enemy line of sight. It fails setup instead of timing an obstructed encounter.
-The player starts facing the enemy; the chosen target and pose are logged. Enemy AI, physics, and damage remain active.
+The player starts facing the enemy; the chosen target and pose are logged. Enemy AI, physics, and damage remain active in every trial.
 
 The `segment-bounds-quest-250ms-v1` targeting policy checks awareness every 0.25
 seconds on Quest, with staggered initial sensor phases. Targets outside observation
@@ -66,20 +68,19 @@ then perform exact triangle checks and stop at the first blocker. Moving scenery
 uses current vertices, so aircraft and scripted paths remain correct. A fresh muzzle-to-target check still runs before each shot.
 Desktop awareness retains its 0.2-second interval. Compare LOS time per call and
 combat p95/p99 with the 1 October logs; headset gains are not yet measured.
-The player fires at 0.5 seconds and then every two seconds for the 15-second
-measurement. Normal enemy actions and the resulting fight are not deterministic.
+The player fires at 0.5 and 2.5 seconds of each three-second live warmup,
+then at 0.5 seconds and every two seconds of the twelve-second measurement.
+Normal enemy actions and the resulting fight are not deterministic.
 
 All measured trials explicitly enable the combined baked sky, UV cockpit and
 baked cabin profile, waiting for sky capture before warm-up. Other captured
-settings are held constant. The five trials are:
+settings are held constant. The three trials are:
 
 | Trial | Variant | Change |
 | --- | --- | --- |
-| 1 | `baseline` | Combined baked profile; smoke and weapon lights ON |
-| 2 | `terrain-chunked` | Split terrain rendering into 256 m sections; identical triangles and collision |
-| 3 | `terrain-vertex-lit` | Terrain vertex lighting with specular disabled; textures and light response retained |
-| 4 | `terrain-combined` | Both terrain changes together |
-| 5 | `baseline` | Repeat the initial baseline to check drift |
+| 1 | `baseline` | Combined baked profile; normal combat; legacy player foot-vertex grounding |
+| 2 | `player-ground-fast` | Skip the hidden Quest player rig and cache stationary surface queries |
+| 3 | `baseline` | Repeat legacy grounding to check drift |
 
 Each starts in a fresh mission, so damage, ammunition, and lazily-created pools
 do not carry between trials. The final fresh mission restores the captured
@@ -101,25 +102,31 @@ reports the total enemy pool count and whether all missile pools are ready.
 Measured pool creation should now be zero; a nonzero count identifies a fallback.
 Shader and driver caches can remain warm across mission reloads.
 
-Schema 9 uses `focused-terrain-v1`. All stages use cheap UV terrain, normal missile
-smoke and projectile light sizes, and simple building smoke. The old effect phases
-were removed after no convincing device gain. The suite still has five 15-second
-trials. Chunking and lighting are benchmark-only changes shared with the laptop
-probe; they are restored on completion, cancellation or failure and never saved
-as player preferences. Chunk construction happens before warm-up and measurement.
-Logs include chunk size/count, source and chunk triangle totals, effective lighting
-and triplanar state. Physics geometry is unchanged. The 256 m size is the measured
-experimental candidate, not a tuned production default; occlusion culling is not
-enabled by this phase. Lighting combines vertex interpolation and disabled specular,
-so this suite does not isolate those two changes from each other.
+Schema 12 uses `player-grounding-v1`. Every trial uses unchunked vertex lighting
+with specular disabled, cheap UV terrain, normal sparse missile smoke/light cadence,
+and simple building smoke. `playerGroundingPolicy` is `legacy-foot-vertices` in
+baselines and `quest-hidden-rig-cached-surface-v1` in the optimized trial. The
+policy is selected before pose setup and both warmups. It is reset on completion,
+cancellation, failure, and scene exit so ordinary Quest play uses optimization.
+Enemy updates retain stride one, and HUD/simulation freezing is disabled.
+
+Per-frame CPU scopes continue to record player physics, targeting, HUD process/draw
+and coverage, enemy physics, missiles, rocks, and XR updates. Times and allocation
+counts are inclusive and must not be summed. Use the `PlayerPhysics` scope alongside
+frame pacing, physics steps, and workload counters to assess this change.
+
+Historical schema-11 `cpu-isolation-v1` freeze and half-rate probes remain analyzable.
+Frozen results are diagnostic upper bounds rather than gameplay performance gains.
+
+Historical schema-9 terrain variants and schema-10 chunk sizes remain analyzable.
 
 The baseline trials bracket the candidates and let the analyzer check drift.
 The 7 October laptop integration run completed all five schema-9 trials and resumed
 unpaused play. Both chunked trials conserved all 197,266 terrain triangles; the
 analyzer accepted all three comparisons. Debug/Release builds and 21 analyzer
-tests passed. This validates the suite, not Quest performance: the native preview
-uses desktop resolution/AA overrides unless explicitly configured like the separate
-laptop GPU probe. See [the integration analysis](data/laptop-combat-terrain-2026-10-07-analysis.txt).
+tests passed. This validates the earlier suite, not Quest performance: the native
+preview uses desktop resolution/AA overrides unless explicitly configured like the
+separate laptop GPU probe. See [the integration analysis](data/laptop-combat-terrain-2026-10-07-analysis.txt).
 
 Historical schema-8 `focused-effects-v2`, `smoke-off` and `weapon-lights-off` logs
 remain supported. The separate rendering test compares
@@ -135,8 +142,8 @@ restores the user's original individual options, including after cancellation.
 The runner emits:
 
 - `QUEST_COMBAT_RUN:` device/build/settings and workload metadata as JSON,
-  including the enemy count in the mission. Schema 8 identifies the
-  `focused-effects-v2` trial policy. Schema 5 adds scoped direct-weapon
+  including the enemy count, physics tick rate, archive path, warmup duration
+  and schema-12 `player-grounding-v1` policy. Schema 5 adds scoped direct-weapon
   profiling. `options` records the user's pre-run choices for restoration;
   `baselineSettings` explicitly records baked lighting, smoke/dust, and weapon
   lights as ON. A fresh Quest graphics profile also defaults baked lighting and
@@ -153,7 +160,26 @@ The runner emits:
 - `QUEST_COMBAT_SPIKE:`, `QUEST_COMBAT_SECOND:`, `QUEST_COMBAT_EVENTS:` and
   `QUEST_COMBAT_EVENT:` bounded worst-frame, per-second, first-volley, and event
   detail records, emitted after each trial's measurement window.
-- `QUEST_COMBAT_STATUS:` final suite status.
+- `QUEST_COMBAT_FRAME:` every sampled frame, written only to the archive after timing.
+  Contains frame interval, render counters, CPU scopes, combat events, GC/allocation
+  deltas, physics-step count and head movement.
+- `QUEST_COMBAT_STATUS:` final suite status; `QUEST_COMBAT_ERROR:` failure details.
+
+Schema 11 records inclusive callback wall time, calls and current-thread allocated
+bytes for player physics, targeting, enemy physics, missiles, terrain rocks, VR
+input, HUD processing/drawing and HUD coverage. `cpuScopes` in SUMMARY contains
+trial totals; FRAME/SPIKE records contain each sampling interval. No dictionaries,
+reflection, serialization or file writes occur in measured callback scopes.
+Measurement itself has overhead; all stages use the same instrumentation.
+
+The frame boundary is the process-frame signal. Scope counters describe callbacks
+since the previous sample; engine render/process counters may describe an earlier
+completed frame. Look for patterns rather than assuming perfect same-frame GPU
+attribution. Inclusive/nested scopes must not be added together. Physics-step
+counts expose catch-up ticks; `slowFrameCount` counts intervals above the refresh
+budget, and `gcFrameCount` counts intervals with a collection. Managed allocations
+exclude native allocations. Uninstrumented engine work, render waits, driver and
+compositor work remain outside these callback timings.
 
 The three scoped timings cover player direct-weapon raycasts, hit damage and
 impact handling, and beam/tracer construction. Their call counts and elapsed
@@ -203,12 +229,14 @@ cabin lighting is part of the combined profile and excludes sun lighting. The
 need measurement and must not be inferred by adding individual savings.
 
 The analyzer prints per-trial timings even for incomplete runs. It withholds
-percentage comparisons unless both bracketing baselines and the candidate have
+percentage comparisons unless both bracketing baselines and normal combat candidates have
 actual enemy fire and impacts, valid frame counts, and head movement within
 0.05 m / 5 degrees. It also withholds comparisons for baseline drift above 10%
 or workload differences in enemy shots, missile launches or impacts exceeding
 the larger of two events and 25% of the baseline count. Duplicate summary lines
-do not count as additional baselines. These gates reduce misleading comparisons;
+do not count as additional baselines. Schema-11 freeze probes deliberately permit
+zero combat events and workload differences, but require matching experiment
+metadata and are explicitly labeled diagnostic upper bounds. These gates reduce misleading comparisons;
 they do not turn live combat into a deterministic replay. Historical smoke-off
 records are still accepted, but their deltas are withheld when baseline smoke
 was disabled or its state was not recorded. New focused-effects comparisons require
@@ -352,3 +380,54 @@ the existing lens-flare compositor startup shader errors in this local import.
 This is focused desktop allocation evidence, not a new Quest combat allocation total
 or an FPS improvement. HUD, physics-result wrappers and benchmark overhead remain
 outside this cleanup. No additional headset benchmark stages were added.
+
+## CPU diagnostics integration check — 8 October 2026
+
+Desktop preview run `20261008-180205-fca883` completed all five schema-11 stages
+and resumed unpaused play. The automatic archive contains five decoded summaries,
+3,575 frame records (matching the summed frame counts), and final completion status.
+Enemy callbacks fell from 2,880 to 1,440 in the half-rate stage. HUD callbacks were
+zero in the HUD freeze, and player/enemy/missile callbacks were zero in the simulation
+freeze. This verifies experiment controls and durable recording, not Quest timing.
+The desktop run emitted existing lens-effect render-thread cleanup errors during
+mission reload; these remain outside this diagnostic change.
+
+Standalone checks cover callback restoration, XR child callback preservation,
+CPU-scope gating/allocation/reset, archive round-trip and newest-ten retention.
+Analyzer tests cover schema-11 validity and historical schemas; mocked-ADB tests
+cover distinct mirror destinations and Downloads fallback. A Release Android
+export passed APK managed-asset validation. On-headset retrieval remains to be
+verified after the first run of this build.
+
+## Player grounding checks — 9 October 2026
+
+`QuestPlayerGroundingCheck.tscn` loads a real mission in desktop VR preview and
+checks cached/fresh terrain height and slope parity, exact-position invalidation,
+failed-query behavior, jump-request and airborne bypass, clearance settling, and
+identical gait phase/weight/footfall events without hidden joint writes. The normal
+default rig still animates. Run after a Debug build:
+
+```sh
+godot --path MechRewired --rendering-method mobile res://QuestPlayerGroundingCheck.tscn -- --vr-preview
+```
+
+Native check passed on 9 October. Across 100 direct ground-clearance calls, the
+legacy path took 33.791 ms and allocated 6,400 managed bytes; the optimized path
+took 0.003 ms and allocated zero. This isolates the skipped method on this Mac;
+it is not an estimate of Quest frame savings. Known Shader/Sampler RID shutdown
+warnings remained. All 30 analyzer tests passed, including schema-12 policy guards.
+
+New inclusive CPU scopes are `PlayerGait`, `PlayerGroundClearance`,
+`PlayerJumpJets`, `PlayerSurface`, and `PlayerSurfaceQuery`. The last counts actual
+index lookups while `PlayerSurface` also includes cache hits. Foot-vertex queries
+in the legacy path are covered by `PlayerGroundClearance`, not `PlayerSurfaceQuery`.
+These nested scopes must not be added to the enclosing `PlayerPhysics` time.
+
+Full desktop integration run `20261009-162859-d67bbc` completed all three stages,
+saved 2,146 frame records and resumed unpaused gameplay. Player physics callback
+time was 0.529 / 0.062 / 0.566 ms per tick (legacy / optimized / legacy).
+The candidate made zero chassis surface-index queries during the stationary
+measurement after its warmup cache fill, versus 721 per baseline. Each stage
+recorded six enemy shots and 55 impacts. This is a roughly 89% reduction in the
+measured callback on the Mac, not a demonstrated Quest frame-time gain. The
+existing lens-effect cleanup warnings appeared during scene reload.

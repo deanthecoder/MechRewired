@@ -1808,7 +1808,7 @@ public partial class Main : Node3D
                     // Terrain WTBs include hidden faces around/beneath their visible land.
                     // Casting those two-sided shadows blacks out the fallback plane below them.
                     CastShadow = levelObject.Kind == MechWarriorLevelObjectKind.Terrain
-                        ? GeometryInstance3D.ShadowCastingSetting.On
+                        ? QuestVrRuntime.Active ? GeometryInstance3D.ShadowCastingSetting.Off : GeometryInstance3D.ShadowCastingSetting.On
                         : GeometryInstance3D.ShadowCastingSetting.DoubleSided,
                     // Authored terrain meshes are control geometry only. One welded derivative
                     // owns rendering for every biome, preventing transient overlap and z-fighting.
@@ -2377,6 +2377,7 @@ public partial class Main : Node3D
                     GetTree().Paused = false;
                     GetTree().CallDeferred(SceneTree.MethodName.ReloadCurrentScene);
                 });
+            vrMenu.Pilot = playerMech;
             var benchmark = new QuestPerformanceBenchmark(levelRoot, playerMech, playerHud, missionSky,
                 terrainSurface, terrainRocks, battlefieldActors, enemyMechs,
                 Path.GetFileNameWithoutExtension(missionResources.ScenarioEntry.Name));
@@ -4145,6 +4146,7 @@ public partial class Main : Node3D
         var ground = new MeshInstance3D
         {
             Name = "ImplicitGround",
+            CastShadow = QuestVrRuntime.Active ? GeometryInstance3D.ShadowCastingSetting.Off : GeometryInstance3D.ShadowCastingSetting.On,
             Position = new Vector3(
                 center.X,
                 DerivedTerrainSurfaceBuilder.ImplicitGroundHeight,
@@ -4243,17 +4245,19 @@ public partial class Main : Node3D
         };
         levelRoot.AddChild(instance);
         instance.AddToGroup(DebugCamera.SolidMeshGroup);
-        // The visible mesh receives every world shadow, while this lightly height-relaxed proxy
-        // casts the landform shadow without reproducing sharp MW2 control diagonals. One path is
-        // used for every biome, including Jade's large shadow-casting mountains.
-        var shadowCaster = new MeshInstance3D
+        // Terrain receives object shadows on Quest but contributes no landform caster pass.
+        // Desktop retains the relaxed proxy used to avoid authored control-diagonal artifacts.
+        if (!QuestVrRuntime.Active)
         {
-            Name = "DerivedTerrainShadowCaster",
-            Mesh = derived.ShadowMesh,
-            Position = Vector3.Down * DerivedTerrainSurfaceBuilder.ShadowDepthOffsetMetres,
-            CastShadow = GeometryInstance3D.ShadowCastingSetting.ShadowsOnly
-        };
-        levelRoot.AddChild(shadowCaster);
+            var shadowCaster = new MeshInstance3D
+            {
+                Name = "DerivedTerrainShadowCaster",
+                Mesh = derived.ShadowMesh,
+                Position = Vector3.Down * DerivedTerrainSurfaceBuilder.ShadowDepthOffsetMetres,
+                CastShadow = GeometryInstance3D.ShadowCastingSetting.ShadowsOnly
+            };
+            levelRoot.AddChild(shadowCaster);
+        }
         var wireframe = new MeshInstance3D
         {
             Name = "DerivedTerrainWireframe",

@@ -196,6 +196,7 @@ public partial class PlayerHud : Control
 
     public override void _Process(double delta)
     {
+        using var cpuScope = QuestCpuTelemetry.Measure(QuestCpuTelemetry.Category.HudProcess);
         var shouldBeVisible = m_playerMech.IsVr || m_playerMech.CockpitCamera?.Current == true;
         if (Visible != shouldBeVisible)
         {
@@ -312,6 +313,7 @@ public partial class PlayerHud : Control
 
     public override void _Draw()
     {
+        using var cpuScope = QuestCpuTelemetry.Measure(QuestCpuTelemetry.Category.HudDraw);
         VrCoverage?.Begin(targeting: false);
         if (m_vrTargetLayer != null) VrInstrumentDrawCount++;
         UpdateLayout();
@@ -357,6 +359,7 @@ public partial class PlayerHud : Control
 
     private void DrawVrTargeting(Control targetLayer)
     {
+        using var cpuScope = QuestCpuTelemetry.Measure(QuestCpuTelemetry.Category.HudDraw);
         VrCoverage?.Begin(targeting: true);
         UpdateLayout();
         m_drawCanvas = targetLayer;
