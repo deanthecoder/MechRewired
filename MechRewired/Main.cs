@@ -247,8 +247,9 @@ public partial class Main : Node3D
         return campaign != ClanCampaignSelection.None;
     }
 
-    private void StartCampaign(MechWarriorProjectArchive archive, ClanCampaignSelection campaign)
+    private async void StartCampaign(MechWarriorProjectArchive archive, ClanCampaignSelection campaign)
     {
+        var startupTimer = System.Diagnostics.Stopwatch.StartNew();
         var clanSelection = GetNodeOrNull<ClanSelectionScreen>("ClanSelection");
         clanSelection?.Hide();
         var (scenarioPath, playerMechPath) = campaign switch
@@ -285,7 +286,8 @@ public partial class Main : Node3D
                 archive,
                 missionResources,
                 missionDefinition);
-            BuildScene(
+            GD.Print($"MISSION_STARTUP: mission data {startupTimer.Elapsed.TotalMilliseconds:F0} ms.");
+            var player = BuildScene(
                 archive,
                 palette,
                 playerChassis,
@@ -300,6 +302,33 @@ public partial class Main : Node3D
                 playerMechDefinition,
                 missionGamePieces,
                 missionResources);
+
+            GD.Print($"MISSION_STARTUP: scene assembled {startupTimer.Elapsed.TotalMilliseconds:F0} ms total.");
+            // Audio runs independently of rendering. Keep deployment and mission time from
+            // starting while the renderer uploads resources and prepares the first frame.
+            var tree = GetTree();
+            var pausedForStartup = !tree.Paused;
+            if (pausedForStartup) tree.Paused = true;
+            try
+            {
+                if (DisplayServer.GetName() == "headless")
+                    await ToSignal(tree, SceneTree.SignalName.ProcessFrame);
+                else
+                    await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
+
+                if (!IsInstanceValid(player) || !player.IsInsideTree())
+                    return;
+
+                GD.Print($"MISSION_STARTUP: first frame ready {startupTimer.Elapsed.TotalMilliseconds:F0} ms total.");
+            }
+            finally
+            {
+                // Only release the pause we own. A benchmark or menu may change the
+                // pause state while its restored mission reaches the first frame.
+                if (pausedForStartup && IsInstanceValid(tree) && player.VrRig?.Menu?.IsOpen != true)
+                    tree.Paused = false;
+            }
+            player.BeginDeploymentAudio();
         }
         catch (Exception exception)
         {
@@ -1439,7 +1468,7 @@ public partial class Main : Node3D
         return ordered;
     }
 
-    private void BuildScene(
+    private PlayerMech BuildScene(
         MechWarriorProjectArchive archive,
         MechWarriorPalette palette,
         MechWarriorMechChassis playerChassis,
@@ -1455,6 +1484,12 @@ public partial class Main : Node3D
         IReadOnlyList<MechWarriorMissionGamePiece> missionGamePieces,
         MechWarriorMissionResources missionResources)
     {
+        var stageTimer = System.Diagnostics.Stopwatch.StartNew();
+        void LogStage(string stage)
+        {
+            GD.Print($"MISSION_STARTUP: {stage} {stageTimer.Elapsed.TotalMilliseconds:F0} ms.");
+            stageTimer.Restart();
+        }
         var runtimeContent = new MissionRuntimeContent();
         var terrainBiome = level.TerrainBiome;
         var usesDesertTerrain = terrainBiome == MechWarriorTerrainBiome.Desert;
@@ -1773,7 +1808,7 @@ public partial class Main : Node3D
                     // Terrain WTBs include hidden faces around/beneath their visible land.
                     // Casting those two-sided shadows blacks out the fallback plane below them.
                     CastShadow = levelObject.Kind == MechWarriorLevelObjectKind.Terrain
-                        ? GeometryInstance3D.ShadowCastingSetting.On
+                        ? QuestVrRuntime.Active ? GeometryInstance3D.ShadowCastingSetting.Off : GeometryInstance3D.ShadowCastingSetting.On
                         : GeometryInstance3D.ShadowCastingSetting.DoubleSided,
                     // Authored terrain meshes are control geometry only. One welded derivative
                     // owns rendering for every biome, preventing transient overlap and z-fighting.
@@ -1878,6 +1913,7 @@ public partial class Main : Node3D
             $"{renderedActorComponentCount} active actor components, {renderedDebrisCount} ground-settled debris objects, " +
             $"{meshCache.Count} unique models; luminosity levels {GeneralIlluminationLevel} terrain / " +
             $"{ObjectIlluminationLevel} objects).");
+        LogStage("world objects");
         IReadOnlyList<DebugTriangle> groundCoverageTriangles;
         if (usesDesertTerrain)
         {
@@ -1918,6 +1954,7 @@ public partial class Main : Node3D
             groundCoverageTriangles = derivedTerrain.CollisionTriangles;
         }
 
+        LogStage("derived terrain");
         foreach (var sourceTerrainRoot in sourceTerrainRoots)
         {
             sourceTerrainRoot.QueueFree();
@@ -1940,6 +1977,7 @@ public partial class Main : Node3D
             "derived terrain",
             "The original terrain control meshes are supplemented by the derived terrain surface and implicit ground.");
         GD.Print($"MechRewired: prepared {terrainBiome.ToString().ToLowerInvariant()} terrain surface.");
+        LogStage("implicit ground and terrain index");
         var terrainRocks = TerrainRockScatter.Create(
             terrainSurface,
             GetTerrainBounds(debugTriangles),
@@ -2032,6 +2070,7 @@ public partial class Main : Node3D
             dropShipDepartureDirection,
             runtimeContent);
 
+        LogStage("scenery and effects");
         var playerMechSounds = PlayerMechSounds.Load(archive, missionResources.MissionPrefix);
         GD.Print("MechRewired: loaded player and mission audio.");
         var playerMech = new PlayerMech(
@@ -2151,7 +2190,9 @@ public partial class Main : Node3D
             BuildWeaponMounts(playerChassis, playerObjectsById, playerTorsoObjectId),
             terrainSurface,
             () => GetSceneryObstacles(staticSceneryObstacles, battlefieldActors));
+        LogStage("player and audio");
         terrainRocks?.ConfigureObserver(playerMech);
+        LogStage("initial rock population");
 #if DEBUG
         RegisterDebugConsoleCockpit(playerMech.Cockpit);
         RegisterDebugConsoleSky(
@@ -2208,6 +2249,16 @@ public partial class Main : Node3D
             battlefieldActor.ConfigureEffectPersistence(playerMech);
         }
 
+        // Aircraft and authored paths replace triangle records as they move. Only immutable
+        // terrain may enter the cached XZ hierarchy; all other entries remain live.
+        var movingTriangleIndices = FindChildren("*", string.Empty, true, false)
+            .OfType<AuthoredAircraftController>()
+            .SelectMany(controller => controller.MovingTriangleIndices)
+            .Concat(FindChildren("*", string.Empty, true, false)
+                .OfType<AuthoredWorldPathController>()
+                .SelectMany(controller => controller.MovingTriangleIndices))
+            .ToHashSet();
+        var combatTriangles = new TerrainRayIndex(debugTriangles.AsReadOnly(), movingTriangleIndices);
         var enemyMechs = LoadEnemyMechs(
             archive,
             palette,
@@ -2223,7 +2274,7 @@ public partial class Main : Node3D
             atmosphericVisibilityRange,
             () => GetSceneryObstacles(staticSceneryObstacles, battlefieldActors),
             terrainSurface,
-            debugTriangles.AsReadOnly(),
+            combatTriangles,
             runtimeContent);
         GD.Print(
             $"MechRewired: configured {staticSceneryObstacles.Count} static and " +
@@ -2255,7 +2306,7 @@ public partial class Main : Node3D
         var playerTargeting = new PlayerTargeting(
             playerMech,
             playerMission,
-            debugTriangles.AsReadOnly(),
+            combatTriangles,
             battlefieldActors,
             hostileAircraft,
             enemyMechs,
@@ -2264,6 +2315,7 @@ public partial class Main : Node3D
             playerMechSounds,
             battlefieldEffects);
         AddChild(playerTargeting);
+        WeaponEffectPool.Prewarm(this);
         playerNavigation.MissionAreaBoundaryExited += boundary =>
         {
             var previousOutcome = playerMission.Outcome;
@@ -2325,8 +2377,19 @@ public partial class Main : Node3D
                     GetTree().Paused = false;
                     GetTree().CallDeferred(SceneTree.MethodName.ReloadCurrentScene);
                 });
+            vrMenu.Pilot = playerMech;
+            var benchmark = new QuestPerformanceBenchmark(levelRoot, playerMech, playerHud, missionSky,
+                terrainSurface, terrainRocks, battlefieldActors, enemyMechs,
+                Path.GetFileNameWithoutExtension(missionResources.ScenarioEntry.Name));
+            var combatBenchmark = new QuestCombatBenchmark(playerMech, playerHud, graphics, missionSky,
+                terrainSurface, terrainRocks, enemyMechs,
+                Path.GetFileNameWithoutExtension(missionResources.ScenarioEntry.Name));
+            vrMenu.RunBenchmark = benchmark.Start;
+            vrMenu.RunCombatBenchmark = combatBenchmark.Start;
             AddChild(vrMenu);
             rig.Menu = vrMenu;
+            AddChild(benchmark);
+            AddChild(combatBenchmark);
 #if DEBUG
             if (QuestVrRuntime.Preview && OS.GetCmdlineUserArgs().Contains("--vr-smoke"))
                 AddChild(new QuestVrSmokeCheck(playerMech, playerHud));
@@ -2421,6 +2484,8 @@ public partial class Main : Node3D
             gallery.CaptureMission(playerMech, playerHud, missionSky, battlefieldActors, enemyMechs,
                 Path.GetFileNameWithoutExtension(missionResources.ScenarioEntry.Name));
 #endif
+        LogStage("mission systems and HUD");
+        return playerMech;
     }
 
 #if DEBUG
@@ -2517,6 +2582,7 @@ public partial class Main : Node3D
     {
         var enemyRoot = new Node3D { Name = "EnemyMechs" };
         AddChild(enemyRoot);
+        WeaponEffectPool.Prewarm(enemyRoot);
         var enemies = new List<EnemyMech>();
         var damageSilhouettes = new Dictionary<string, MechDamageSilhouette>(StringComparer.OrdinalIgnoreCase);
         var chassisWithoutDamageSilhouettes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -2681,6 +2747,8 @@ public partial class Main : Node3D
             enemy.RotationDegrees = MechWarriorCoordinateSystem.ToGodotRotation(
                 new System.Numerics.Vector3(0.0f, gamePiece.SpawnPoint.StartingAngle, 0.0f));
             enemies.Add(enemy);
+            // Prepare only Quest missile-armed pools, after the parent has finished adding the enemy.
+            enemy.PrewarmMissiles();
             if (animatedGaitParts == 0 && !enemy.IsStationaryEmplacement)
             {
                 GD.PushWarning(
@@ -4078,6 +4146,7 @@ public partial class Main : Node3D
         var ground = new MeshInstance3D
         {
             Name = "ImplicitGround",
+            CastShadow = QuestVrRuntime.Active ? GeometryInstance3D.ShadowCastingSetting.Off : GeometryInstance3D.ShadowCastingSetting.On,
             Position = new Vector3(
                 center.X,
                 DerivedTerrainSurfaceBuilder.ImplicitGroundHeight,
@@ -4176,17 +4245,19 @@ public partial class Main : Node3D
         };
         levelRoot.AddChild(instance);
         instance.AddToGroup(DebugCamera.SolidMeshGroup);
-        // The visible mesh receives every world shadow, while this lightly height-relaxed proxy
-        // casts the landform shadow without reproducing sharp MW2 control diagonals. One path is
-        // used for every biome, including Jade's large shadow-casting mountains.
-        var shadowCaster = new MeshInstance3D
+        // Terrain receives object shadows on Quest but contributes no landform caster pass.
+        // Desktop retains the relaxed proxy used to avoid authored control-diagonal artifacts.
+        if (!QuestVrRuntime.Active)
         {
-            Name = "DerivedTerrainShadowCaster",
-            Mesh = derived.ShadowMesh,
-            Position = Vector3.Down * DerivedTerrainSurfaceBuilder.ShadowDepthOffsetMetres,
-            CastShadow = GeometryInstance3D.ShadowCastingSetting.ShadowsOnly
-        };
-        levelRoot.AddChild(shadowCaster);
+            var shadowCaster = new MeshInstance3D
+            {
+                Name = "DerivedTerrainShadowCaster",
+                Mesh = derived.ShadowMesh,
+                Position = Vector3.Down * DerivedTerrainSurfaceBuilder.ShadowDepthOffsetMetres,
+                CastShadow = GeometryInstance3D.ShadowCastingSetting.ShadowsOnly
+            };
+            levelRoot.AddChild(shadowCaster);
+        }
         var wireframe = new MeshInstance3D
         {
             Name = "DerivedTerrainWireframe",

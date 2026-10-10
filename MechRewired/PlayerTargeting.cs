@@ -8,6 +8,7 @@
 //
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
+using System.Diagnostics;
 using Godot;
 using MechRewired.Missions;
 using MechRewired.Resources;
@@ -44,6 +45,7 @@ public partial class PlayerTargeting : Node
     private readonly IReadOnlyList<EnemyMech> m_enemyMechs;
     private readonly IReadOnlyDictionary<(string SourcePath, int ObjectId), BattlefieldActor> m_actorsByObject;
     private readonly IReadOnlyDictionary<BattlefieldActor, BattlefieldActor> m_objectiveRootsByActor;
+    private readonly BattlefieldActor[] m_objectiveRoots;
     private readonly AudioStreamPlayer m_weaponSound;
     private readonly AudioStreamPlayer m_missileLockSound;
     private readonly AudioStreamPlayer m_fireModeSound;
@@ -59,6 +61,7 @@ public partial class PlayerTargeting : Node
     private readonly double[] m_weaponCooldowns;
     private readonly Dictionary<ushort, int> m_ammunitionByWeapon;
     private readonly List<MissileEffect> m_missilePool = [];
+    private readonly MissileVisualCadence m_missileVisualCadence = new();
     private readonly List<PendingMissile> m_pendingMissiles = [];
     private readonly List<PendingWeaponFire> m_pendingWeaponFires = [];
     private readonly List<PendingWeaponRepeat> m_pendingWeaponRepeats = [];
@@ -108,6 +111,8 @@ public partial class PlayerTargeting : Node
         m_hostileActors = hostileActors;
         m_enemyMechs = enemyMechs;
         m_objectiveRootsByActor = objectiveRootsByActor;
+        // Mission actor ownership is fixed; eligibility and positions remain live below.
+        m_objectiveRoots = actors.Select(GetObjectiveRoot).Distinct().ToArray();
         var actorsByObject = new Dictionary<(string SourcePath, int ObjectId), BattlefieldActor>();
         foreach (var actor in actors)
         {
@@ -289,6 +294,7 @@ public partial class PlayerTargeting : Node
 
     public override void _Process(double delta)
     {
+        using var cpuScope = QuestCpuTelemetry.Measure(QuestCpuTelemetry.Category.PlayerTargeting);
         m_heat.Advance(delta);
         EvaluateHeatState();
         for (var index = 0; index < m_weaponCooldowns.Length; index++)
@@ -790,6 +796,7 @@ public partial class PlayerTargeting : Node
                 throw new ArgumentOutOfRangeException();
         }
 
+        QuestCombatTelemetry.RecordWeaponLaunch();
         PlayWeaponSound(weapon.Specification.SoundResourceName);
         GD.Print(
             $"MechRewired: fired {weapon.Specification.Name} instance {weapon.SourceId} " +
@@ -801,56 +808,99 @@ public partial class PlayerTargeting : Node
 
     private void FireDirectWeapon(MechMountedWeapon weapon, float visualDelay)
     {
-        var aimOrigin = m_playerMech.CockpitCamera.GlobalPosition;
-        var direction = -m_playerMech.Torso.GlobalBasis.Z.Normalized();
+        var aimOrigin = m_playerMech.WeaponAimOrigin;
+        var direction = m_playerMech.WeaponAimDirection;
         var start = GetWeaponStart(weapon, 0);
         var end = aimOrigin + direction * (float)weapon.Specification.RangeMeters;
-        if (TryRaycast(
+        var telemetryActive = QuestCombatTelemetry.Active;
+        var raycastStarted = telemetryActive ? Stopwatch.GetTimestamp() : 0L;
+        BattlefieldActor actor = null;
+        EnemyMech enemyMech = null;
+        MechSectionHit enemyHit = null;
+        Vector3 hitPosition = default;
+        var hit = false;
+        try
+        {
+            hit = TryRaycast(
                 (float)weapon.Specification.RangeMeters,
-                out var actor,
-                out var enemyMech,
-                out var enemyHit,
+                out actor,
+                out enemyMech,
+                out enemyHit,
                 out _,
-                out var hitPosition))
+                out hitPosition,
+                profileDirect: true);
+        }
+        finally
+        {
+            if (telemetryActive)
+            {
+                QuestCombatTelemetry.RecordPlayerDirectRaycast(Stopwatch.GetTimestamp() - raycastStarted);
+            }
+        }
+
+        if (hit)
         {
             end = hitPosition;
-            ApplyDirectDamage(weapon.Specification.Damage, actor, enemyMech, enemyHit, hitPosition);
+            QuestCombatTelemetry.RecordImpact();
+            var damageStarted = telemetryActive ? Stopwatch.GetTimestamp() : 0L;
+            try
+            {
+                ApplyDirectDamage(weapon.Specification.Damage, actor, enemyMech, enemyHit, hitPosition);
+            }
+            finally
+            {
+                if (telemetryActive)
+                {
+                    QuestCombatTelemetry.RecordPlayerDirectDamage(Stopwatch.GetTimestamp() - damageStarted);
+                }
+            }
         }
         else
         {
             GD.Print($"MechRewired: {weapon.Specification.Name} fired; no target hit.");
         }
 
-        var color = ColorFromRgb(weapon.Specification.BeamColorRgb);
-        if (weapon.Specification.Kind == MechWeaponKind.Ballistic)
+        var visualStarted = telemetryActive ? Stopwatch.GetTimestamp() : 0L;
+        try
         {
-            const int tracerCount = 4;
-            var basis = m_playerMech.Torso.GlobalBasis.Orthonormalized();
-            for (var tracer = 0; tracer < tracerCount; tracer++)
+            var color = ColorFromRgb(weapon.Specification.BeamColorRgb);
+            if (weapon.Specification.Kind == MechWeaponKind.Ballistic)
             {
-                var spread = basis.X * ((m_missileLaunchRandom.NextSingle() - 0.5f) * 0.08f) +
-                             basis.Y * ((m_missileLaunchRandom.NextSingle() - 0.5f) * 0.08f);
-                GetParent().AddChild(new BallisticTracerEffect(
-                    start + spread,
-                    end + spread,
-                    tracer * 0.045f));
+                const int tracerCount = 4;
+                var basis = m_playerMech.Torso.GlobalBasis.Orthonormalized();
+                for (var tracer = 0; tracer < tracerCount; tracer++)
+                {
+                    var spread = basis.X * ((m_missileLaunchRandom.NextSingle() - 0.5f) * 0.08f) +
+                                 basis.Y * ((m_missileLaunchRandom.NextSingle() - 0.5f) * 0.08f);
+                    WeaponEffectPool.FireTracer(GetParent(),
+                        start + spread,
+                        end + spread,
+                        tracer * 0.045f);
+                }
+
+                return;
             }
 
-            return;
+            var pulseCount = weapon.Specification.Kind == MechWeaponKind.PulseLaser
+                ? weapon.Specification.ProjectilesPerShot
+                : 1;
+            for (var pulse = 0; pulse < pulseCount; pulse++)
+            {
+                var lateral = m_playerMech.Torso.GlobalBasis.X.Normalized() * ((pulse - (pulseCount - 1) * 0.5f) * 0.05f);
+                WeaponEffectPool.FireLaser(GetParent(),
+                    start + lateral,
+                    end + lateral,
+                    color,
+                    0.055f,
+                    visualDelay);
+            }
         }
-
-        var pulseCount = weapon.Specification.Kind == MechWeaponKind.PulseLaser
-            ? weapon.Specification.ProjectilesPerShot
-            : 1;
-        for (var pulse = 0; pulse < pulseCount; pulse++)
+        finally
         {
-            var lateral = m_playerMech.Torso.GlobalBasis.X.Normalized() * ((pulse - (pulseCount - 1) * 0.5f) * 0.05f);
-            GetParent().AddChild(new LaserEffect(
-                start + lateral,
-                end + lateral,
-                color,
-                0.055f,
-                visualDelay));
+            if (telemetryActive)
+            {
+                QuestCombatTelemetry.RecordPlayerWeaponVisualConstruction(Stopwatch.GetTimestamp() - visualStarted);
+            }
         }
     }
 
@@ -889,7 +939,7 @@ public partial class PlayerTargeting : Node
 
     private void QueueMissileSalvo(MechMountedWeapon weapon)
     {
-        var forward = -m_playerMech.Torso.GlobalBasis.Z.Normalized();
+        var forward = m_playerMech.WeaponAimDirection;
         var lockedTarget = MissileLocked && ReferenceEquals(SelectedEnemy, m_lockedEnemy)
             ? m_lockedEnemy
             : null;
@@ -909,28 +959,27 @@ public partial class PlayerTargeting : Node
             fixedAimPosition = aimPosition;
         }
 
+        Func<Vector3?> targetPosition = null;
+        Action<Vector3> impact = null;
+        if (lockedTarget != null)
+        {
+            targetPosition = () => lockedTarget.IsDestroyed ? null : lockedTarget.TargetPosition;
+            impact = position => ApplyMissileDamage(lockedTarget, weapon.Specification.Damage, position);
+        }
+        else if (fixedAimPosition.HasValue)
+        {
+            var aim = fixedAimPosition.Value;
+            targetPosition = () => aim;
+            impact = position => ApplyFixedAimMissileDamage(
+                aimedActor, aimedEnemy, aimedEnemyHit, weapon.Specification.Damage, position);
+        }
+        var guidance = targetPosition != null
+            ? new MissileSalvoGuidance(targetPosition, lockedTarget != null ? () => !lockedTarget.IsDestroyed : null)
+            : null;
+
         for (var missile = 0; missile < weapon.Specification.ProjectilesPerShot; missile++)
         {
             var start = GetWeaponStart(weapon, missile, weapon.Specification.ProjectilesPerShot);
-            Func<Vector3?> targetPosition = null;
-            Action<Vector3> impact = null;
-            if (lockedTarget != null)
-            {
-                targetPosition = () => lockedTarget.IsDestroyed ? null : lockedTarget.TargetPosition;
-                impact = position => ApplyMissileDamage(lockedTarget, weapon.Specification.Damage, position);
-            }
-            else if (fixedAimPosition.HasValue)
-            {
-                var aim = fixedAimPosition.Value;
-                targetPosition = () => aim;
-                impact = position => ApplyFixedAimMissileDamage(
-                    aimedActor,
-                    aimedEnemy,
-                    aimedEnemyHit,
-                    weapon.Specification.Damage,
-                    position);
-            }
-
             m_pendingMissiles.Add(new PendingMissile(
                 missile * 0.035f + m_missileLaunchRandom.NextSingle() * 0.015f,
                 start,
@@ -940,7 +989,7 @@ public partial class PlayerTargeting : Node
                         ? start.DirectionTo(fixedAimPosition.Value)
                         : forward,
                 (float)weapon.Specification.RangeMeters,
-                targetPosition,
+                guidance,
                 impact,
                 lockedTarget != null ? MissileGuidanceArmingDistance : 0.0f));
         }
@@ -1130,11 +1179,25 @@ public partial class PlayerTargeting : Node
         }
     }
 
-    private MechMountedWeapon GetSelectedMissile() => WeaponSelection
-        .GetFireIndices()
-        .Select(index => WeaponSelection.Weapons[index])
-        .FirstOrDefault(weapon =>
-            weapon.Specification.Kind == MechWeaponKind.Missile && IsWeaponOperational(weapon));
+    private MechMountedWeapon GetSelectedMissile()
+    {
+        if (!WeaponSelection.GroupFireEnabled)
+        {
+            var weapon = WeaponSelection.SelectedWeapon;
+            return weapon.Specification.Kind == MechWeaponKind.Missile && IsWeaponOperational(weapon)
+                ? weapon : null;
+        }
+
+        // Match GetFireIndices ordering without materializing the selected group.
+        for (var index = 0; index < WeaponSelection.Weapons.Count; index++)
+        {
+            if (WeaponSelection.GetGroup(index) != WeaponSelection.SelectedGroup) continue;
+            var weapon = WeaponSelection.Weapons[index];
+            if (weapon.Specification.Kind == MechWeaponKind.Missile && IsWeaponOperational(weapon))
+                return weapon;
+        }
+        return null;
+    }
 
     private bool SelectedFireSetContainsMissile() => GetSelectedMissile() != null;
 
@@ -1147,7 +1210,7 @@ public partial class PlayerTargeting : Node
             return false;
         }
 
-        var origin = m_playerMech.CockpitCamera.GlobalPosition;
+        var origin = m_playerMech.WeaponAimOrigin;
         var toTarget = enemy.TargetPosition - origin;
         if (toTarget.LengthSquared() > missile.Specification.RangeMeters * missile.Specification.RangeMeters)
         {
@@ -1157,19 +1220,20 @@ public partial class PlayerTargeting : Node
         var bounds = enemy.WorldBounds;
         var center = bounds.GetCenter();
         var top = bounds.Position.Y + bounds.Size.Y;
-        Vector3[] aimPoints =
-        [
+        ReadOnlySpan<Vector3> aimPoints = stackalloc Vector3[]
+        {
             center,
             new Vector3(center.X, Mathf.Lerp(center.Y, top, 0.65f), center.Z),
             new Vector3(center.X, Mathf.Lerp(center.Y, top, 0.9f), center.Z)
-        ];
-        var forward = -m_playerMech.Torso.GlobalBasis.Z.Normalized();
-        return aimPoints.Any(point =>
+        };
+        var forward = m_playerMech.WeaponAimDirection;
+        foreach (var point in aimPoints)
         {
             var direction = origin.DirectionTo(point);
             var angle = Mathf.RadToDeg(forward.AngleTo(direction));
-            return angle <= MissileLockConeDegrees && HasLineOfSight(origin, point);
-        });
+            if (angle <= MissileLockConeDegrees && HasLineOfSight(origin, point)) return true;
+        }
+        return false;
     }
 
     private bool HasLineOfSight(Vector3 origin, Vector3 target)
@@ -1180,17 +1244,14 @@ public partial class PlayerTargeting : Node
             return true;
         }
 
-        var candidates = m_sceneTriangles.Where(triangle =>
-            !m_actorsByObject.TryGetValue(
-                (triangle.SourceResourcePath, triangle.ObjectId),
-                out var actor) ||
-            !actor.IsDestroyed);
         return !DebugTriangleRaycaster.TryFindNearest(
-                   candidates,
+                   m_sceneTriangles,
                    origin,
                    origin.DirectionTo(target),
                    out _,
-                   out var obstructionDistance) ||
+                   out var obstructionDistance,
+                   IsLiveSceneTriangle,
+                   Math.Max(0, distance - 2.0f)) ||
                obstructionDistance >= distance - 2.0f;
     }
 
@@ -1215,14 +1276,18 @@ public partial class PlayerTargeting : Node
 
             var missile = m_missilePool.FirstOrDefault(candidate => !candidate.IsActive) ??
                           m_missilePool.MaxBy(candidate => candidate.Age);
+            var visuals = QuestVrRuntime.Active ? m_missileVisualCadence.Next() : (Smoke: true, Light: false);
             missile.Launch(
                 pending.Start,
                 pending.Direction,
                 pending.Range,
-                pending.TargetPosition,
+                null,
                 pending.Impact,
                 pending.GuidanceArmingDistance,
-                m_battlefieldEffects.SpawnWeaponImpact);
+                m_battlefieldEffects.SpawnWeaponImpact,
+                pending.Guidance,
+                carriesSmoke: visuals.Smoke,
+                carriesLight: QuestVrRuntime.Active ? visuals.Light : null);
             TryBeginWeaponView(missile);
             m_pendingMissiles.RemoveAt(index);
         }
@@ -1364,41 +1429,64 @@ public partial class PlayerTargeting : Node
         }
     }
 
+    private bool IsLiveSceneTriangle(DebugTriangle triangle) =>
+        !m_actorsByObject.TryGetValue((triangle.SourceResourcePath, triangle.ObjectId), out var actor) ||
+        !actor.IsDestroyed;
+
     private bool TryRaycast(
         float maximumRange,
         out BattlefieldActor actor,
         out EnemyMech enemyMech,
         out MechSectionHit enemyHit,
         out float distance,
-        out Vector3 hitPosition)
+        out Vector3 hitPosition,
+        bool profileDirect = false)
     {
-        var origin = m_playerMech.CockpitCamera.GlobalPosition;
-        var direction = -m_playerMech.Torso.GlobalBasis.Z.Normalized();
-        var candidates = m_sceneTriangles.Where(triangle =>
-            !m_actorsByObject.TryGetValue(
-                (triangle.SourceResourcePath, triangle.ObjectId),
-                out var candidate) ||
-            !candidate.IsDestroyed);
-        var hitStatic = DebugTriangleRaycaster.TryFindNearest(
-                candidates,
-                origin,
-                direction,
-                out var triangle,
-                out var staticDistance) &&
-            staticDistance <= maximumRange;
+        var origin = m_playerMech.WeaponAimOrigin;
+        var direction = m_playerMech.WeaponAimDirection;
+        var telemetryActive = profileDirect && QuestCombatTelemetry.Active;
+        var worldStarted = telemetryActive ? Stopwatch.GetTimestamp() : 0L;
+        DebugTriangle triangle;
+        float staticDistance;
+        bool hitStatic;
+        try
+        {
+            hitStatic = DebugTriangleRaycaster.TryFindNearest(
+                    m_sceneTriangles,
+                    origin,
+                    direction,
+                    out triangle,
+                    out staticDistance,
+                    IsLiveSceneTriangle,
+                    maximumRange);
+        }
+        finally
+        {
+            if (telemetryActive) QuestCombatTelemetry.RecordPlayerWorldRaycast(Stopwatch.GetTimestamp() - worldStarted);
+        }
         enemyMech = null;
         enemyHit = null;
         var enemyDistance = float.PositiveInfinity;
-        foreach (var candidate in m_enemyMechs.Where(candidate => !candidate.IsDestroyed))
+        var mechStarted = telemetryActive ? Stopwatch.GetTimestamp() : 0L;
+        try
         {
-            if (candidate.TryRaycastSections(origin, direction, out var candidateHit) &&
-                candidateHit.Distance <= maximumRange &&
-                candidateHit.Distance < enemyDistance)
+            foreach (var candidate in m_enemyMechs)
             {
-                enemyMech = candidate;
-                enemyHit = candidateHit;
-                enemyDistance = candidateHit.Distance;
+                if (candidate.IsDestroyed)
+                    continue;
+                if (candidate.TryRaycastSections(origin, direction, out var candidateHit) &&
+                    candidateHit.Distance <= maximumRange &&
+                    candidateHit.Distance < enemyDistance)
+                {
+                    enemyMech = candidate;
+                    enemyHit = candidateHit;
+                    enemyDistance = candidateHit.Distance;
+                }
             }
+        }
+        finally
+        {
+            if (telemetryActive) QuestCombatTelemetry.RecordPlayerMechRaycast(Stopwatch.GetTimestamp() - mechStarted);
         }
 
         if (enemyMech != null && (!hitStatic || enemyDistance < staticDistance))
@@ -1574,20 +1662,23 @@ public partial class PlayerTargeting : Node
             return;
         }
 
-        ObjectiveActor = m_actors
-            .Select(GetObjectiveRoot)
-            .Distinct()
-            .Where(m_playerMission.IsActiveObjectiveTarget)
-            .Select(actor => new
+        BattlefieldActor nearest = null;
+        var nearestDistance = float.PositiveInfinity;
+        var playerPosition = m_playerMech.GlobalPosition;
+        foreach (var actor in m_objectiveRoots)
+        {
+            if (!m_playerMission.IsActiveObjectiveTarget(actor)) continue;
+            var distance = actor.TargetPosition.DistanceTo(playerPosition);
+            if (!(distance <= ObjectiveHighlightRange)) continue;
+            // Preserve distance, object-ID and stable source-order ties from the old sort.
+            if (nearest == null || distance < nearestDistance ||
+                (distance == nearestDistance && actor.Definition.ObjectId < nearest.Definition.ObjectId))
             {
-                Actor = actor,
-                Distance = actor.TargetPosition.DistanceTo(m_playerMech.GlobalPosition)
-            })
-            .Where(candidate => candidate.Distance <= ObjectiveHighlightRange)
-            .OrderBy(candidate => candidate.Distance)
-            .ThenBy(candidate => candidate.Actor.Definition.ObjectId)
-            .Select(candidate => candidate.Actor)
-            .FirstOrDefault();
+                nearest = actor;
+                nearestDistance = distance;
+            }
+        }
+        ObjectiveActor = nearest;
         if (ObjectiveActor != null)
         {
             ObjectiveAimPosition = GetPolygonCentroidAnchor(ObjectiveActor);
@@ -1651,7 +1742,7 @@ public partial class PlayerTargeting : Node
         Vector3 start,
         Vector3 direction,
         float range,
-        Func<Vector3?> targetPosition,
+        MissileSalvoGuidance guidance,
         Action<Vector3> impact,
         float guidanceArmingDistance)
     {
@@ -1663,7 +1754,7 @@ public partial class PlayerTargeting : Node
 
         public float Range { get; } = range;
 
-        public Func<Vector3?> TargetPosition { get; } = targetPosition;
+        public MissileSalvoGuidance Guidance { get; } = guidance;
 
         public Action<Vector3> Impact { get; } = impact;
 

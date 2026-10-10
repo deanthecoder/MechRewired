@@ -11,6 +11,7 @@
 using Godot;
 using MechRewired.Resources;
 using MechRewired.Simulation;
+using System.Diagnostics;
 
 namespace MechRewired;
 
@@ -28,7 +29,7 @@ public partial class EnemyMech : Node3D
     private const float TorsoTurnDegreesPerSecond = 58.0f;
     private const float MaximumTorsoYawRadians = Mathf.Pi / 2.0f;
     private const float MaximumTorsoPitchRadians = Mathf.Pi / 5.0f;
-    private const float SensorIntervalSeconds = 0.2f;
+    private static float SensorIntervalSeconds => QuestVrRuntime.Active ? 0.25f : 0.2f;
     private const float TargetMemorySeconds = 4.0f;
     private const float MaximumSustainedHeatFraction = 0.75f;
     private const int MissilePoolSize = 24;
@@ -53,6 +54,7 @@ public partial class EnemyMech : Node3D
     private readonly Random m_random;
     private readonly List<EnemyWeapon> m_weapons = new();
     private readonly List<MissileEffect> m_missilePool = new();
+    private readonly MissileVisualCadence m_missileVisualCadence = new();
     private readonly List<PendingMissile> m_pendingMissiles = new();
     private readonly List<(MeshInstance3D Mesh, string PartName)> m_destructibleParts = new();
     private Aabb m_localBounds;
@@ -114,6 +116,12 @@ public partial class EnemyMech : Node3D
             MechHeat.GetCriticalHeatThreshold(effectiveHeatSinks),
             effectiveHeatSinks / 10.0);
         m_random = new Random(HashCode.Combine(definition.Specification.GroupId, definition.Specification.MechResourceIndex));
+        // Spread initial sensor work over the interval without consuming combat random samples.
+        if (QuestVrRuntime.Active)
+        {
+            var sensorPhase = unchecked((uint)definition.Specification.GroupId * 2654435761u);
+            m_sensorCooldown = sensorPhase % 1000 / 1000.0f * SensorIntervalSeconds;
+        }
         // Combat manoeuvres use the authored walking/cruising speed. Running is reserved for later pursuit states.
         m_maximumSpeedMetersPerSecond = (float)(mechDefinition.CruisingSpeedKph / 3.6);
         m_weaponRange = Math.Max(definition.Specification.TargetRange, 120);
@@ -194,18 +202,32 @@ public partial class EnemyMech : Node3D
 
     public Vector3 TargetPosition => WorldBounds.GetCenter();
 
+    public bool HasMissileWeapons => MechDefinition.Weapons.Any(
+        weapon => weapon.Specification.Kind == MechWeaponKind.Missile);
+
+    public bool MissilePoolReady => m_missilePool.Count == MissilePoolSize;
+
+    public int MissilePoolCount => m_missilePool.Count;
+
     public event Action<EnemyMech> Destroyed;
 
     /// <summary>Raised once when this hostile activates its reactor/sensors.</summary>
     public event Action<EnemyMech> PoweredUp;
 
-    public override void _Ready()
+    /// <summary>Creates this missile-armed hostile's fixed pool before Quest gameplay starts.</summary>
+    /// <remarks>
+    /// This deliberately shifts the fixed 24-instance allocation for every missile-armed hostile to mission
+    /// loading on Quest. Non-missile loadouts keep no pool, and desktop retains lazy allocation on first launch.
+    /// </remarks>
+    public void PrewarmMissiles()
     {
-        if (MechDefinition.Weapons.Any(weapon => weapon.Specification.Kind == MechWeaponKind.Missile))
+        if (QuestVrRuntime.Active && HasMissileWeapons)
         {
             CreateMissilePool();
         }
     }
+
+    internal bool HasClearSightTo(Vector3 point) => HasLineOfSight(TargetPosition, point);
 
     public bool RegisterGaitPart(Node3D node, string partName) =>
         m_mechRig.RegisterPart(node, partName);
@@ -214,6 +236,7 @@ public partial class EnemyMech : Node3D
     {
         ArgumentNullException.ThrowIfNull(mesh);
         ArgumentException.ThrowIfNullOrWhiteSpace(partName);
+        MechSectionHitTester.PrepareMesh(mesh.Mesh);
         m_destructibleParts.Add((mesh, partName));
     }
 
@@ -230,7 +253,7 @@ public partial class EnemyMech : Node3D
         out MechSectionHit hit) =>
         MechSectionHitTester.TryFindNearest(
             this,
-            m_destructibleParts.Where(part => IsAncestorOf(part.Mesh)),
+            m_destructibleParts,
             origin,
             direction,
             out hit);
@@ -328,7 +351,36 @@ public partial class EnemyMech : Node3D
         }
     }
 
+    private double m_benchmarkAccumulatedDelta;
+    private bool m_benchmarkAlternateTick;
+
     public override void _PhysicsProcess(double delta)
+    {
+        if (QuestCombatTelemetry.Active && QuestCombatDiagnostics.EnemyHalfRate)
+        {
+            m_benchmarkAccumulatedDelta += delta;
+            m_benchmarkAlternateTick = !m_benchmarkAlternateTick;
+            if (m_benchmarkAlternateTick) return;
+            delta = m_benchmarkAccumulatedDelta;
+            m_benchmarkAccumulatedDelta = 0;
+        }
+        else
+        {
+            m_benchmarkAccumulatedDelta = 0;
+            m_benchmarkAlternateTick = false;
+        }
+        using var cpuScope = QuestCpuTelemetry.Measure(QuestCpuTelemetry.Category.EnemyPhysics);
+        if (!QuestCombatTelemetry.Active)
+        {
+            ProcessCombat(delta);
+            return;
+        }
+        var started = Stopwatch.GetTimestamp();
+        try { ProcessCombat(delta); }
+        finally { QuestCombatTelemetry.RecordEnemyAi(Stopwatch.GetTimestamp() - started); }
+    }
+
+    private void ProcessCombat(double delta)
     {
         if (IsDestroyed || m_playerMech.IsDestroyed || m_localBounds.Size == Vector3.Zero)
         {
@@ -368,10 +420,8 @@ public partial class EnemyMech : Node3D
             }
 
             PowerUp();
-            m_hasLineOfSight = EnemyAwareness.CanObserve(
-                playerDistance,
-                m_observationRange,
-                HasLineOfSight(TargetPosition, playerTargetPosition));
+            m_hasLineOfSight = playerDistance <= m_observationRange &&
+                               HasLineOfSight(TargetPosition, playerTargetPosition);
             if (m_hasLineOfSight)
             {
                 m_targetMemoryRemaining = TargetMemorySeconds;
@@ -394,10 +444,8 @@ public partial class EnemyMech : Node3D
             if (m_sensorCooldown <= 0.0f)
             {
                 m_sensorCooldown = SensorIntervalSeconds;
-                m_hasLineOfSight = EnemyAwareness.CanObserve(
-                    playerDistance,
-                    m_observationRange,
-                    HasLineOfSight(TargetPosition, playerTargetPosition));
+                m_hasLineOfSight = playerDistance <= m_observationRange &&
+                                   HasLineOfSight(TargetPosition, playerTargetPosition);
                 if (m_hasLineOfSight)
                 {
                     m_targetMemoryRemaining = TargetMemorySeconds;
@@ -615,11 +663,13 @@ public partial class EnemyMech : Node3D
         }
 
         m_heat.Add(weapon.Definition.Specification.Heat);
+        QuestCombatTelemetry.RecordEnemyWeaponLaunch();
 
         if (weapon.Definition.Specification.Kind != MechWeaponKind.Missile)
         {
             if (playerHit != null)
             {
+                QuestCombatTelemetry.RecordImpact();
                 ApplyWeaponDamage(weapon.Definition, end, playerHit);
             }
         }
@@ -643,7 +693,7 @@ public partial class EnemyMech : Node3D
         for (var pulse = 0; pulse < pulseCount; pulse++)
         {
             var lateral = basis.X * ((pulse - (pulseCount - 1) * 0.5f) * 0.05f);
-            GetParent().AddChild(new LaserEffect(start + lateral, end + lateral, color, 0.055f));
+            WeaponEffectPool.FireLaser(GetParent(), start + lateral, end + lateral, color, 0.055f);
         }
     }
 
@@ -654,17 +704,20 @@ public partial class EnemyMech : Node3D
         {
             var spread = basis.X * ((float)Random.Shared.NextDouble() - 0.5f) * 0.08f +
                          basis.Y * ((float)Random.Shared.NextDouble() - 0.5f) * 0.08f;
-            GetParent().AddChild(new BallisticTracerEffect(start + spread, end + spread, tracer * 0.045f));
+            WeaponEffectPool.FireTracer(GetParent(), start + spread, end + spread, tracer * 0.045f);
         }
     }
 
     private void QueueMissileSalvo(EnemyWeapon weapon, Vector3 start)
     {
         var specification = weapon.Definition.Specification;
+        var guidance = new MissileSalvoGuidance(
+            () => m_playerMech.TargetPosition, () => !m_playerMech.IsDestroyed);
+        Action<Vector3> impact = position => ApplyWeaponDamage(weapon.Definition, position, null);
+        var basis = Torso.GlobalBasis.Orthonormalized();
         for (var index = 0; index < specification.ProjectilesPerShot; index++)
         {
             var angle = Mathf.Tau * index / specification.ProjectilesPerShot;
-            var basis = Torso.GlobalBasis.Orthonormalized();
             var offset = basis.X * Mathf.Cos(angle) * 0.4f + basis.Y * Mathf.Sin(angle) * 0.4f;
             var missileStart = start + offset;
             var direction = ApplyGunneryError(
@@ -677,8 +730,8 @@ public partial class EnemyMech : Node3D
                 missileStart,
                 direction,
                 (float)specification.RangeMeters,
-                weapon.Definition,
-                willTrackPlayer));
+                willTrackPlayer ? guidance : null,
+                impact));
         }
     }
 
@@ -694,15 +747,17 @@ public partial class EnemyMech : Node3D
             }
 
             var missile = AcquireMissile();
+            var visuals = QuestVrRuntime.Active ? m_missileVisualCadence.Next() : (Smoke: true, Light: false);
             missile.Launch(
                 pending.Start,
                 pending.Direction,
                 pending.Range,
-                () => pending.WillTrackPlayer && !m_playerMech.IsDestroyed
-                    ? m_playerMech.TargetPosition
-                    : null,
-                impact => ApplyWeaponDamage(pending.Weapon, impact, null),
-                terrainImpact: m_battlefieldEffects.SpawnWeaponImpact);
+                null,
+                pending.Impact,
+                terrainImpact: m_battlefieldEffects.SpawnWeaponImpact,
+                guidance: pending.Guidance,
+                carriesSmoke: visuals.Smoke && !(QuestVrRuntime.Active && QuestCombatTelemetry.ReducedMissileSmoke),
+                carriesLight: QuestVrRuntime.Active ? visuals.Light : null);
             m_pendingMissiles.RemoveAt(index);
         }
     }
@@ -722,14 +777,26 @@ public partial class EnemyMech : Node3D
             return;
         }
 
-        for (var index = 0; index < MissilePoolSize; index++)
+        var telemetryActive = QuestCombatTelemetry.Active;
+        var telemetryStart = telemetryActive ? Stopwatch.GetTimestamp() : 0L;
+        try
         {
-            var missile = new MissileEffect(index % 4 == 0)
+            for (var index = 0; index < MissilePoolSize; index++)
             {
-                Name = $"{Name}-Missile{index + 1}"
-            };
-            GetParent().AddChild(missile);
-            m_missilePool.Add(missile);
+                var missile = new MissileEffect(index % 4 == 0)
+                {
+                    Name = $"{Name}-Missile{index + 1}"
+                };
+                GetParent().AddChild(missile);
+                m_missilePool.Add(missile);
+            }
+        }
+        finally
+        {
+            if (telemetryActive)
+            {
+                QuestCombatTelemetry.RecordMissilePoolCreation(Stopwatch.GetTimestamp() - telemetryStart);
+            }
         }
     }
 
@@ -1008,19 +1075,21 @@ public partial class EnemyMech : Node3D
 
     private bool HasLineOfSight(Vector3 start, Vector3 end)
     {
-        var distance = start.DistanceTo(end);
-        if (distance <= 0.01f)
+        var telemetryActive = QuestCombatTelemetry.Active;
+        var telemetryStart = telemetryActive ? Stopwatch.GetTimestamp() : 0L;
+        try
         {
-            return true;
+            // Awareness is throttled, but weapon muzzle checks still use the current geometry
+            // immediately before firing. Ignore the final metre as in the original query.
+            return !DebugTriangleRaycaster.IsSegmentBlocked(m_sceneTriangles, start, end, 1.0f);
         }
-
-        return !DebugTriangleRaycaster.TryFindNearest(
-                   m_sceneTriangles,
-                   start,
-                   start.DirectionTo(end),
-                   out _,
-                   out var hitDistance) ||
-               hitDistance >= distance - 1.0f;
+        finally
+        {
+            if (telemetryActive)
+            {
+                QuestCombatTelemetry.RecordLineOfSight(Stopwatch.GetTimestamp() - telemetryStart);
+            }
+        }
     }
 
     private static float MoveTowardAngle(float current, float target, float maximumDelta) =>
@@ -1046,8 +1115,8 @@ public partial class EnemyMech : Node3D
         Vector3 start,
         Vector3 direction,
         float range,
-        MechMountedWeapon weapon,
-        bool willTrackPlayer)
+        MissileSalvoGuidance guidance,
+        Action<Vector3> impact)
     {
         public float Delay { get; set; } = delay;
 
@@ -1057,8 +1126,8 @@ public partial class EnemyMech : Node3D
 
         public float Range { get; } = range;
 
-        public MechMountedWeapon Weapon { get; } = weapon;
+        public MissileSalvoGuidance Guidance { get; } = guidance;
 
-        public bool WillTrackPlayer { get; } = willTrackPlayer;
+        public Action<Vector3> Impact { get; } = impact;
     }
 }

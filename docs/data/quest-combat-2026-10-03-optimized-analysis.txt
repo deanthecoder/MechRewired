@@ -1,0 +1,29 @@
+Run 20261003-173451-df5b18
+  Trial 1 baseline [complete]: mean 18.93 ms, p95 26.97 ms, GPU 17.47 ms, enemy shots 8.00, missile pool builds 0.00 / 0.00 ms; weapon effect pools 0.00 builds / 0.00 fallbacks
+    player raycast: 15.19 ms / 6.00 calls; 2.53 ms/call
+    player world raycast: 6.71 ms
+    player mech raycast: 7.47 ms
+    player damage/impact: 0.77 ms / 6.00 calls; 0.13 ms/call
+    player beam/tracer creation: 2.21 ms / 6.00 calls; 0.37 ms/call
+  WARNING 20261003-173451-df5b18/trial 1/baseline: head movement 5.3 deg exceeds 5 deg
+  Trial 4 baseline [complete]: mean 19.82 ms, p95 27.37 ms, GPU 18.46 ms, enemy shots 8.00, missile pool builds 0.00 / 0.00 ms; weapon effect pools 0.00 builds / 0.00 fallbacks
+    player raycast: 7.72 ms / 6.00 calls; 1.29 ms/call
+    player world raycast: 4.54 ms
+    player mech raycast: 3.16 ms
+    player damage/impact: 0.62 ms / 6.00 calls; 0.10 ms/call
+    player beam/tracer creation: 0.91 ms / 6.00 calls; 0.15 ms/call
+  Trial 2 smoke-off [complete]: mean 17.92 ms, p95 22.01 ms, GPU 17.27 ms, enemy shots 8.00, missile pool builds 0.00 / 0.00 ms; weapon effect pools 0.00 builds / 0.00 fallbacks
+    player raycast: 7.84 ms / 6.00 calls; 1.31 ms/call
+    player world raycast: 4.59 ms
+    player mech raycast: 3.23 ms
+    player damage/impact: 0.51 ms / 6.00 calls; 0.08 ms/call
+    player beam/tracer creation: 0.79 ms / 6.00 calls; 0.13 ms/call
+  Trial 3 weapon-lights-off [complete]: mean 17.77 ms, p95 23.17 ms, GPU 16.46 ms, enemy shots 8.00, missile pool builds 0.00 / 0.00 ms; weapon effect pools 0.00 builds / 0.00 fallbacks
+    player raycast: 8.10 ms / 6.00 calls; 1.35 ms/call
+    player world raycast: 4.70 ms
+    player mech raycast: 3.36 ms
+    player damage/impact: 0.92 ms / 6.00 calls; 0.15 ms/call
+    player beam/tracer creation: 0.85 ms / 6.00 calls; 0.14 ms/call
+  Enemy-Falcon Nova-1: variant deltas skipped (need 2 valid combat baselines for matching target; found 1)
+  Current Quest pools are prepared during mission setup; pool creation in measured combat indicates a fallback. Shader/driver caches can remain warm across reloads.
+  Actual fighting can vary between trials; these summaries show sensitivity and do not establish a unique bottleneck.

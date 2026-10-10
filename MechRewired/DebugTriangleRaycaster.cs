@@ -9,6 +9,7 @@
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
 using Godot;
+using MechRewired.Simulation;
 
 namespace MechRewired;
 
@@ -17,18 +18,76 @@ namespace MechRewired;
 /// </summary>
 public static class DebugTriangleRaycaster
 {
+    /// <summary>
+    /// Returns on the first blocker before the target margin, using current triangle positions.
+    /// </summary>
+    public static bool IsSegmentBlocked(
+        IReadOnlyList<DebugTriangle> triangles,
+        Vector3 start,
+        Vector3 end,
+        float targetMargin)
+    {
+        var segment = new TriangleSightSegment(ToNumerics(start), ToNumerics(end), targetMargin);
+        if (!segment.HasLength)
+        {
+            return false;
+        }
+
+        if (triangles is TerrainRayIndex indexed)
+        {
+            var direction = (end - start).Normalized();
+            return indexed.VisitCandidates(start, direction, start.DistanceTo(end), triangle =>
+                segment.IsBlockedBy(ToNumerics(triangle.A), ToNumerics(triangle.B), ToNumerics(triangle.C)));
+        }
+
+        // The scene list is updated in place by moving aircraft and authored paths.
+        // Do not retain triangle bounds or a spatial index without tracking those updates.
+        for (var i = 0; i < triangles.Count; i++)
+        {
+            var triangle = triangles[i];
+            if (segment.IsBlockedBy(ToNumerics(triangle.A), ToNumerics(triangle.B), ToNumerics(triangle.C)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static System.Numerics.Vector3 ToNumerics(Vector3 value) => new(value.X, value.Y, value.Z);
+
     public static bool TryFindNearest(
         IEnumerable<DebugTriangle> triangles,
         Vector3 origin,
         Vector3 direction,
         out DebugTriangle nearestTriangle,
-        out float nearestDistance)
+        out float nearestDistance,
+        Func<DebugTriangle, bool> predicate = null,
+        float maximumDistance = float.PositiveInfinity)
     {
         nearestTriangle = null;
         nearestDistance = float.PositiveInfinity;
+        if (triangles is TerrainRayIndex indexed)
+        {
+            DebugTriangle found = null;
+            var foundDistance = float.PositiveInfinity;
+            indexed.VisitCandidates(origin, direction, maximumDistance, triangle =>
+            {
+                if ((predicate == null || predicate(triangle)) &&
+                    TryIntersectRay(origin, direction, triangle, out var distance) && distance < foundDistance && distance <= maximumDistance)
+                {
+                    found = triangle;
+                    foundDistance = distance;
+                }
+                return false;
+            });
+            nearestTriangle = found;
+            nearestDistance = foundDistance;
+            return found != null;
+        }
         foreach (var triangle in triangles)
         {
-            if (TryIntersectRay(origin, direction, triangle, out var distance) && distance < nearestDistance)
+            if ((predicate == null || predicate(triangle)) && TryIntersectRay(origin, direction, triangle, out var distance) && distance < nearestDistance && distance <= maximumDistance)
             {
                 nearestTriangle = triangle;
                 nearestDistance = distance;

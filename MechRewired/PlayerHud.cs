@@ -45,14 +45,16 @@ public partial class PlayerHud : Control
     private const float MaximumTargetFrameSize = 160.0f;
     private const float ObjectiveTargetFrameSize = 48.0f;
     private const float TargetFrameResponsePerSecond = 18.0f;
-    // The VR HUD is rendered into a transparent 1280x720 texture for both eyes.  Keeping the
-    // fixed instruments at 30 Hz avoids rebuilding their glow-heavy canvas command lists every
-    // headset frame; aiming and navigation guidance remain on a separate full-rate layer below.
     private const float VrInstrumentRefreshSeconds = 1.0f / 30.0f;
     private const float PlayerDamageRight = 1225.0f;
     private const float PlayerDamageSize = 130.5f;
     private const float PlayerDamageCenterX = PlayerDamageRight - PlayerDamageSize * 0.5f;
+    private const float VrPlayerDamageLeft = 890.0f;
+    private const float VrNavigationPanelLeft = 190.0f;
+    private const float VrTargetDescriptionBaseline = 666.0f;
+    private const float VrTargetDistanceBaseline = 697.0f;
     private static readonly float[] RadarRanges = [500.0f, 1000.0f, 2000.0f, 4000.0f];
+    private static readonly MechDamageSection[] DamageSections = Enum.GetValues<MechDamageSection>();
     private static readonly Color HudGreen = Color.FromHtml("00f000");
     private static readonly Color RadarAmber = Color.FromHtml("d7a900");
     private static readonly Color InstrumentBackground = new(0.0f, 0.0f, 0.0f, 0.4f);
@@ -82,7 +84,11 @@ public partial class PlayerHud : Control
     private Rect2 m_smoothedTargetRect;
     private Font m_hudFont;
     private VrTargetLayer m_vrTargetLayer;
-    private float m_vrInstrumentRefreshElapsed;
+    private float m_vrInstrumentCheckElapsed;
+    private int m_vrInstrumentFingerprint;
+    private readonly IReadOnlyList<IReadOnlyList<int>> m_weaponColumns;
+    public long VrInstrumentDrawCount { get; private set; }
+    private bool m_hasVrInstrumentFingerprint;
     private Control m_drawCanvas;
 
     public bool ShowRadar { get; set; } = true;
@@ -93,6 +99,7 @@ public partial class PlayerHud : Control
 
     /// <summary>The cockpit glass carrying the existing instruments when drawn into a VR viewport.</summary>
     public MeshInstance3D VrSurface { get; set; }
+    public QuestHudCoverage VrCoverage { get; set; }
     /// <summary>
     /// Controls the soft halo drawn behind bright HUD elements, including the
     /// colored phosphor gauge spines. This is exposed to the debug console as <c>hud.glow</c>.
@@ -141,6 +148,7 @@ public partial class PlayerHud : Control
         m_playerDamageSilhouette = playerDamageSilhouette;
         m_navigation = navigation;
         m_targeting = targeting;
+        m_weaponColumns = PlayerWeaponSelection.BuildColumns(targeting.WeaponSelection.Weapons);
         m_mission = mission;
     }
 
@@ -153,7 +161,7 @@ public partial class PlayerHud : Control
 
     /// <summary>
     /// Moves the head-dependent reticle and target frames onto their own CanvasItem. The remaining
-    /// instrument canvas can then retain its draw commands between 30 Hz refreshes in VR.
+    /// instrument canvas can then retain its draw commands until visible instrument state changes.
     /// </summary>
     public void EnableVrRenderCaching()
     {
@@ -188,10 +196,15 @@ public partial class PlayerHud : Control
 
     public override void _Process(double delta)
     {
+        using var cpuScope = QuestCpuTelemetry.Measure(QuestCpuTelemetry.Category.HudProcess);
         var shouldBeVisible = m_playerMech.IsVr || m_playerMech.CockpitCamera?.Current == true;
         if (Visible != shouldBeVisible)
         {
             Visible = shouldBeVisible;
+            if (Visible)
+            {
+                RedrawAllVrLayers();
+            }
         }
 
         var radarTarget = m_targeting.IsShutdown ? 0.0f : 1.0f;
@@ -240,10 +253,14 @@ public partial class PlayerHud : Control
         // SelfModulate is local to a CanvasItem and is therefore copied across the layer boundary.
         m_vrTargetLayer.SelfModulate = SelfModulate;
         m_vrTargetLayer.QueueRedraw();
-        m_vrInstrumentRefreshElapsed += (float)delta;
-        if (m_vrInstrumentRefreshElapsed >= VrInstrumentRefreshSeconds)
+        // Keep the previous 30 Hz ceiling: moving radar contacts must not make the
+        // entire instrument canvas rebuild at headset frequency.
+        m_vrInstrumentCheckElapsed += (float)delta;
+        if (m_hasVrInstrumentFingerprint && m_vrInstrumentCheckElapsed < VrInstrumentRefreshSeconds) return;
+        m_vrInstrumentCheckElapsed %= VrInstrumentRefreshSeconds;
+        var instrumentFingerprint = GetVrInstrumentFingerprint();
+        if (!m_hasVrInstrumentFingerprint || instrumentFingerprint != m_vrInstrumentFingerprint)
         {
-            m_vrInstrumentRefreshElapsed %= VrInstrumentRefreshSeconds;
             QueueRedraw();
         }
     }
@@ -296,6 +313,9 @@ public partial class PlayerHud : Control
 
     public override void _Draw()
     {
+        using var cpuScope = QuestCpuTelemetry.Measure(QuestCpuTelemetry.Category.HudDraw);
+        VrCoverage?.Begin(targeting: false);
+        if (m_vrTargetLayer != null) VrInstrumentDrawCount++;
         UpdateLayout();
 
         if (ShowRadar) DrawRadar();
@@ -321,6 +341,13 @@ public partial class PlayerHud : Control
         {
             DrawTargeting();
         }
+        if (m_vrTargetLayer != null)
+        {
+            // Other nodes may update between _Process and _Draw. Cache the state actually drawn.
+            m_vrInstrumentFingerprint = GetVrInstrumentFingerprint();
+            m_hasVrInstrumentFingerprint = true;
+        }
+        VrCoverage?.End();
     }
 
     private void DrawTargeting()
@@ -332,6 +359,8 @@ public partial class PlayerHud : Control
 
     private void DrawVrTargeting(Control targetLayer)
     {
+        using var cpuScope = QuestCpuTelemetry.Measure(QuestCpuTelemetry.Category.HudDraw);
+        VrCoverage?.Begin(targeting: true);
         UpdateLayout();
         m_drawCanvas = targetLayer;
         try
@@ -351,6 +380,7 @@ public partial class PlayerHud : Control
         finally
         {
             m_drawCanvas = null;
+            VrCoverage?.End();
         }
     }
 
@@ -364,16 +394,104 @@ public partial class PlayerHud : Control
 
     private void RedrawAllVrLayers()
     {
-        m_vrInstrumentRefreshElapsed = 0.0f;
+        m_hasVrInstrumentFingerprint = false;
         QueueRedraw();
         m_vrTargetLayer?.QueueRedraw();
+    }
+
+    // Compare instrument inputs without allocating draw commands or strings. Continuous
+    // coordinates remain exact: metre-sized buckets can hide large bearing changes near a waypoint.
+    // The 30 Hz ceiling bounds both this check and redraw work during movement/combat.
+    private int GetVrInstrumentFingerprint()
+    {
+        var hash = new HashCode();
+        hash.Add(ShowRadar); hash.Add(ShowWeapons); hash.Add(ShowStatus); hash.Add(ShowNavigation);
+        hash.Add(Size);
+        if (ShowRadar)
+        {
+            hash.Add(m_radarDisplayMode); hash.Add(m_radarRangeIndex); hash.Add(m_radarPower);
+            hash.Add(m_targeting.IsShutdown);
+            hash.Add(m_playerMech.GlobalTransform); hash.Add(m_playerMech.TorsoYawRadians);
+            hash.Add(m_navigation.SelectedIndex);
+            for (var i = 0; i < m_navigation.NavigationPoints.Count; i++) hash.Add(m_navigation.IsReached(i));
+            foreach (var enemy in m_targeting.EnemyMechs)
+            {
+                if (enemy.IsDestroyed || enemy.IsPoweredDown) continue;
+                var position = enemy.TargetPosition;
+                if (!RadarContains(position)) continue;
+                hash.Add(enemy.GetInstanceId()); hash.Add(position);
+                hash.Add(ReferenceEquals(enemy, m_targeting.SelectedEnemy));
+            }
+            foreach (var actor in m_targeting.HostileActors)
+            {
+                if (actor.IsDestroyed) continue;
+                var position = actor.TargetPosition;
+                if (!RadarContains(position)) continue;
+                hash.Add(actor.GetInstanceId()); hash.Add(position);
+                hash.Add(ReferenceEquals(actor, m_targeting.SelectedActor));
+            }
+        }
+        if (ShowWeapons)
+        {
+            var selection = m_targeting.WeaponSelection;
+            hash.Add(selection.SelectedWeaponIndex); hash.Add(selection.SelectedGroup);
+            for (var i = 0; i < selection.Weapons.Count; i++)
+            {
+                hash.Add(selection.GetGroup(i)); hash.Add(m_targeting.IsWeaponOperational(i));
+                hash.Add(m_targeting.IsWeaponReady(i)); hash.Add(m_targeting.GetWeaponAmmo(i));
+            }
+        }
+        if (ShowStatus)
+        {
+            hash.Add((float)m_targeting.HeatFraction); hash.Add((float)m_targeting.HeatRate);
+            hash.Add(m_playerMech.JumpJetFuelFraction); hash.Add(m_playerMech.FeetElevation);
+            hash.Add(m_displayedTargetSpeedKph); hash.Add(Mathf.RoundToInt(m_playerMech.ActualSpeedKph));
+            hash.Add(m_playerMech.Drive.IsReversing); hash.Add(m_playerMech.IsDestroyed);
+            hash.Add(m_mission.StatusMessage);
+            AddDamageFingerprint(ref hash, m_playerMech.Damage);
+        }
+        if (ShowNavigation)
+        {
+            hash.Add(m_navigation.SelectedIndex); hash.Add(Mathf.RoundToInt(m_navigation.DistanceToSelectedMeters));
+            hash.Add(m_playerMech.GlobalPosition); hash.Add(m_playerMech.Torso.GlobalRotationDegrees.Y);
+            for (var i = 0; i < m_navigation.NavigationPoints.Count; i++) hash.Add(m_navigation.IsReached(i));
+            var enemy = m_targeting.SelectedEnemy;
+            var actor = m_targeting.SelectedActor;
+            hash.Add(enemy?.GetInstanceId() ?? 0UL); hash.Add(actor?.GetInstanceId() ?? 0UL);
+            if (enemy != null)
+            {
+                hash.Add(enemy.TargetPosition); hash.Add(enemy.Health); hash.Add(enemy.MaximumHealth);
+                AddDamageFingerprint(ref hash, enemy.Damage);
+            }
+            else if (actor != null)
+            {
+                hash.Add(m_targeting.IsHostile(actor)); hash.Add(actor.TargetPosition);
+                hash.Add(actor.Health); hash.Add(actor.MaximumHealth);
+            }
+        }
+        return hash.ToHashCode();
+    }
+
+    private bool RadarContains(Vector3 position)
+    {
+        var local = m_playerMech.ToLocal(position);
+        return new Vector2(local.X, local.Z).LengthSquared() <= RadarRanges[m_radarRangeIndex] * RadarRanges[m_radarRangeIndex];
+    }
+
+    private static void AddDamageFingerprint(ref HashCode hash, MechDamageModel damage)
+    {
+        foreach (var section in DamageSections)
+        {
+            var fraction = damage.GetHealthFraction(section);
+            hash.Add(fraction <= 0 ? 0 : fraction > 0.66f ? 3 : fraction > 0.33f ? 2 : 1);
+        }
     }
 
     private Vector2 ProjectToHud(Camera3D camera, Vector3 worldPosition)
     {
         if (VrSurface == null) return camera.UnprojectPosition(worldPosition);
-        // Intersect the head-to-target ray with the fixed HUD glass. This keeps aiming independent
-        // of looking, and accounts for leaning without using the desktop viewport's projection.
+        // Intersect the head-to-target ray with the fixed HUD glass, accounting for leaning
+        // without using the desktop viewport's projection.
         var eye = VrSurface.ToLocal(camera.GlobalPosition);
         var direction = VrSurface.ToLocal(worldPosition) - eye;
         var divisor = Math.Abs(direction.Z) < 0.0001f ? -0.0001f : direction.Z;
@@ -647,9 +765,9 @@ public partial class PlayerHud : Control
 
     private void DrawNavigationTarget()
     {
-        const float panelLeft = 40.0f;
+        var panelLeft = m_playerMech.IsVr ? VrNavigationPanelLeft : 40.0f;
         const float panelTop = 518.0f;
-        const float panelWidth = 215.0f;
+        var panelWidth = m_playerMech.IsVr ? 170.0f : 215.0f;
         const float panelHeight = 125.0f;
         var panel = new Rect2(
             Point(panelLeft, panelTop),
@@ -682,8 +800,57 @@ public partial class PlayerHud : Control
         var distanceText = distanceMeters >= 1000.0f
             ? $"{distanceMeters / 1000.0f:F2}Km"
             : $"{distanceMeters:F0}m";
-        DrawText(new Vector2(panelLeft, 675.0f), navigation.Description, navigationColor, 25);
-        DrawText(new Vector2(panelLeft, 706.0f), distanceText, HudGreen, 25);
+        var descriptionBaseline = m_playerMech.IsVr ? VrTargetDescriptionBaseline : 675.0f;
+        var distanceBaseline = m_playerMech.IsVr ? VrTargetDistanceBaseline : 706.0f;
+        var textFontSize = m_playerMech.IsVr ? 21 : 25;
+        var textWidth = m_playerMech.IsVr ? panelWidth - 16.0f : panelWidth;
+        DrawTargetPanelText(panelLeft, descriptionBaseline, navigation.Description, navigationColor, textFontSize, textWidth);
+        DrawTargetPanelText(panelLeft, distanceBaseline, distanceText, HudGreen, textFontSize, textWidth);
+    }
+
+    private void DrawTargetPanelText(float left, float baseline, string text, Color color, int fontSize, float width)
+    {
+        var displayText = m_playerMech.IsVr
+            ? FitTargetPanelText(text, width, fontSize)
+            : text;
+        DrawText(new Vector2(left, baseline), displayText, color, fontSize);
+    }
+
+    private string FitTargetPanelText(string text, float width, int fontSize)
+    {
+        const string Ellipsis = "...";
+        var scaledFontSize = Math.Max((int)(fontSize * m_scale), 1);
+        var availableWidth = width * m_scale;
+        float Measure(string candidate) => HudFont.GetStringSize(
+            candidate,
+            HorizontalAlignment.Left,
+            -1.0f,
+            scaledFontSize).X;
+
+        if (Measure(text) <= availableWidth)
+        {
+            return text;
+        }
+
+        var low = 0;
+        var high = text.Length;
+        var best = Ellipsis;
+        while (low <= high)
+        {
+            var length = low + (high - low) / 2;
+            var candidate = text[..length].TrimEnd() + Ellipsis;
+            if (Measure(candidate) <= availableWidth)
+            {
+                best = candidate;
+                low = length + 1;
+            }
+            else
+            {
+                high = length - 1;
+            }
+        }
+
+        return best;
     }
 
     private void DrawEnemyTargetPanel(
@@ -715,14 +882,20 @@ public partial class PlayerHud : Control
         var distanceText = distanceMeters >= 1000.0f
             ? $"{distanceMeters / 1000.0f:F2}Km"
             : $"{distanceMeters:F0}m";
-        DrawText(new Vector2(panelLeft, 675.0f), enemyMech.Description, RadarAmber, 25);
-        DrawText(
-            new Vector2(panelLeft, 706.0f),
+        var descriptionBaseline = m_playerMech.IsVr ? VrTargetDescriptionBaseline : 675.0f;
+        var distanceBaseline = m_playerMech.IsVr ? VrTargetDistanceBaseline : 706.0f;
+        var textFontSize = m_playerMech.IsVr ? 21 : 25;
+        var textWidth = m_playerMech.IsVr ? panelWidth - 16.0f : panelWidth;
+        DrawTargetPanelText(panelLeft, descriptionBaseline, enemyMech.Description, RadarAmber, textFontSize, textWidth);
+        DrawTargetPanelText(
+            panelLeft,
+            distanceBaseline,
             enemyMech.DamageSilhouette == null
                 ? $"{distanceText}  {enemyMech.Health}/{enemyMech.MaximumHealth}"
                 : distanceText,
             HudGreen,
-            25);
+            textFontSize,
+            textWidth);
     }
 
     private void DrawHostileActorTargetPanel(
@@ -740,12 +913,18 @@ public partial class PlayerHud : Control
         var distanceText = distanceMeters >= 1000.0f
             ? $"{distanceMeters / 1000.0f:F2}Km"
             : $"{distanceMeters:F0}m";
-        DrawText(new Vector2(panelLeft, 675.0f), actor.Description, RadarAmber, 25);
-        DrawText(
-            new Vector2(panelLeft, 706.0f),
+        var descriptionBaseline = m_playerMech.IsVr ? VrTargetDescriptionBaseline : 675.0f;
+        var distanceBaseline = m_playerMech.IsVr ? VrTargetDistanceBaseline : 706.0f;
+        var textFontSize = m_playerMech.IsVr ? 21 : 25;
+        var textWidth = m_playerMech.IsVr ? panelWidth - 16.0f : panelWidth;
+        DrawTargetPanelText(panelLeft, descriptionBaseline, actor.Description, RadarAmber, textFontSize, textWidth);
+        DrawTargetPanelText(
+            panelLeft,
+            distanceBaseline,
             $"{distanceText}  {actor.Health}/{actor.MaximumHealth}",
             HudGreen,
-            25);
+            textFontSize,
+            textWidth);
     }
 
     private void DrawDiamond(Vector2 center, float radius, float width, Color? color = null)
@@ -833,14 +1012,15 @@ public partial class PlayerHud : Control
 
     private void DrawCombatReticle()
     {
+        if (m_playerMech.IsVr && !m_playerMech.VrRig.BenchmarkActive && !m_playerMech.VrRig.HasHeadAim) return;
         var camera = m_playerMech.PilotCamera;
         if (camera == null)
         {
             return;
         }
 
-        var firingDirection = -m_playerMech.Torso.GlobalBasis.Z.Normalized();
-        var aimPosition = m_playerMech.CockpitCamera.GlobalPosition + firingDirection * ReticleProjectionDistance;
+        var firingDirection = m_playerMech.WeaponAimDirection;
+        var aimPosition = m_playerMech.WeaponAimOrigin + firingDirection * ReticleProjectionDistance;
         if (camera.IsPositionBehind(aimPosition))
         {
             return;
@@ -865,7 +1045,7 @@ public partial class PlayerHud : Control
         const float firstBaselineY = 57.0f;
         const float rowHeight = 27.0f;
         var selection = m_targeting.WeaponSelection;
-        var columns = PlayerWeaponSelection.BuildColumns(selection.Weapons);
+        var columns = m_weaponColumns;
         for (var column = 0; column < columns.Count; column++)
         {
             for (var row = 0; row < columns[column].Count; row++)
@@ -894,11 +1074,23 @@ public partial class PlayerHud : Control
                     19);
                 if (weapon.Specification.Kind == MechWeaponKind.Missile)
                 {
+                    var ammoText = $"{m_targeting.GetWeaponAmmo(index)}";
+                    var ammoFontSize = m_playerMech.IsVr ? 14 : 16;
+                    var ammoX = x + 105.0f;
+                    if (m_playerMech.IsVr)
+                    {
+                        float AmmoWidth() => HudFont.GetStringSize(ammoText, HorizontalAlignment.Left,
+                            -1, Math.Max((int)(ammoFontSize * m_scale), 1)).X / m_scale;
+                        while (ammoFontSize > 1 && AmmoWidth() > 34.0f) ammoFontSize--;
+                        // The selection box ends at x + 137. Leave an 8px right inset,
+                        // and keep even longer ammo counts within their own column.
+                        ammoX = x + 129.0f - AmmoWidth();
+                    }
                     DrawText(
-                        new Vector2(x + 105.0f, y),
-                        $"{m_targeting.GetWeaponAmmo(index)}",
+                        new Vector2(ammoX, y),
+                        ammoText,
                         weaponColor,
-                        16);
+                        ammoFontSize);
                 }
 
                 if (index == selection.SelectedWeaponIndex)
@@ -918,14 +1110,14 @@ public partial class PlayerHud : Control
 
     private void DrawHeat()
     {
-        const float heatGaugeLeft = 360.0f;
+        var heatGaugeLeft = m_playerMech.IsVr ? 380.0f : 360.0f;
         const float gaugeTop = 646.0f;
-        const float gaugeWidth = 190.0f;
+        var gaugeWidth = m_playerMech.IsVr ? 170.0f : 190.0f;
         const float gaugeHeight = 15.0f;
-        const float rateGaugeLeft = 585.0f;
-        const float rateGaugeWidth = 150.0f;
-        const float jetsGaugeLeft = 770.0f;
-        const float jetsGaugeWidth = 150.0f;
+        var rateGaugeLeft = m_playerMech.IsVr ? 570.0f : 585.0f;
+        var rateGaugeWidth = m_playerMech.IsVr ? 140.0f : 150.0f;
+        var jetsGaugeLeft = m_playerMech.IsVr ? 730.0f : 770.0f;
+        var jetsGaugeWidth = m_playerMech.IsVr ? 140.0f : 150.0f;
         DrawHorizontalGaugeFrame(heatGaugeLeft, gaugeTop, gaugeWidth, gaugeHeight, TerrainBlue);
         DrawThermalFillFromEdges(
             heatGaugeLeft + GaugeEndInset,
@@ -1234,7 +1426,7 @@ public partial class PlayerHud : Control
     {
         DrawDamageSilhouette(
             m_playerDamageSilhouette,
-            PlayerDamageRight - PlayerDamageSize,
+            m_playerMech.IsVr ? VrPlayerDamageLeft : PlayerDamageRight - PlayerDamageSize,
             525.25f,
             PlayerDamageSize,
             PlayerDamageSize,
@@ -1266,7 +1458,7 @@ public partial class PlayerHud : Control
                 left + (width - textureSize.X) * 0.5f,
                 top + (height - textureSize.Y) * 0.5f),
             textureSize * m_scale);
-        foreach (var section in Enum.GetValues<MechDamageSection>())
+        foreach (var section in DamageSections)
         {
             DrawTextureRect(
                 silhouette.SectionMasks[section],
@@ -1290,7 +1482,7 @@ public partial class PlayerHud : Control
 
     private void DrawSpeed()
     {
-        const float gaugeLeft = 1248.0f;
+        var gaugeLeft = m_playerMech.IsVr ? 1032.0f : 1248.0f;
         const float gaugeWidth = 16.0f;
         const float positiveTop = 510.0f;
         const float zeroY = 640.0f;
@@ -1338,7 +1530,7 @@ public partial class PlayerHud : Control
         }
 
         DrawCenteredText(
-            PlayerDamageCenterX,
+            m_playerMech.IsVr ? VrPlayerDamageLeft + PlayerDamageSize * 0.5f : PlayerDamageCenterX,
             687.0f,
             $"{m_playerMech.ActualSpeedKph:F0} kph",
             HudGreen,
@@ -1356,6 +1548,7 @@ public partial class PlayerHud : Control
         }
 
         var coreWidth = LineWidth(width);
+        CoverLine(from, to, coreWidth);
         if (HudGlow > 0.0f && HudGlowRadius > 0.0f)
         {
             for (var layer = 5; layer >= 1; layer--)
@@ -1383,6 +1576,34 @@ public partial class PlayerHud : Control
 
     private Control DrawCanvas => m_drawCanvas ?? this;
 
+    private void Cover(Rect2 bounds, float width = 0)
+    {
+        // Include antialiasing, font overhang and the optional phosphor halo.
+        VrCoverage?.Include(bounds.Abs().Grow(3 + Math.Max(width, 1) + (HudGlow > 0 ? HudGlowRadius * m_scale : 0)));
+    }
+
+    private void CoverLine(Vector2 from, Vector2 to, float width) => Cover(new Rect2(from, to - from), width);
+
+    private void CoverPoints(Vector2[] points, float width = 0)
+    {
+        if (VrCoverage == null || points.Length == 0) return;
+        var bounds = new Rect2(points[0], Vector2.Zero);
+        foreach (var point in points) bounds = bounds.Expand(point);
+        Cover(bounds, width);
+    }
+
+    private new void DrawCircle(Vector2 center, float radius, Color color)
+    {
+        Cover(new Rect2(center - Vector2.One * radius, Vector2.One * radius * 2));
+        DrawCanvas.DrawCircle(center, radius, color);
+    }
+
+    private void DrawColoredPolygon(Vector2[] points, Color color)
+    {
+        CoverPoints(points);
+        DrawCanvas.DrawColoredPolygon(points, color);
+    }
+
     private bool IsHudGreen(Color color) =>
         Mathf.IsEqualApprox(color.R, HudGreen.R) &&
         Mathf.IsEqualApprox(color.G, HudGreen.G) &&
@@ -1409,6 +1630,7 @@ public partial class PlayerHud : Control
         float width = -1.0f,
         bool antialiased = false)
     {
+        CoverLine(from, to, width);
         if (IsHudGreen(color) && HudGlow > 0.0f)
         {
             for (var layer = 5; layer >= 1; layer--)
@@ -1436,6 +1658,7 @@ public partial class PlayerHud : Control
         float width = -1.0f,
         bool antialiased = false)
     {
+        Cover(new Rect2(center - Vector2.One * radius, Vector2.One * radius * 2), width);
         if (IsHudGreen(color) && HudGlow > 0.0f)
         {
             for (var layer = 5; layer >= 1; layer--)
@@ -1462,6 +1685,7 @@ public partial class PlayerHud : Control
         float width = -1.0f,
         bool antialiased = false)
     {
+        CoverPoints(points, width);
         if (IsHudGreen(color) && HudGlow > 0.0f)
         {
             for (var layer = 5; layer >= 1; layer--)
@@ -1485,6 +1709,7 @@ public partial class PlayerHud : Control
         float width = -1.0f,
         bool antialiased = false)
     {
+        Cover(rect, width);
         if (IsHudGreen(color) && HudGlow > 0.0f)
         {
             for (var layer = 5; layer >= 1; layer--)
@@ -1511,6 +1736,12 @@ public partial class PlayerHud : Control
         int fontSize,
         Color modulate)
     {
+        if (VrCoverage != null)
+        {
+            var extent = font.GetStringSize(text, alignment, width, fontSize);
+            Cover(new Rect2(pos - new Vector2(0, font.GetAscent(fontSize)),
+                new Vector2(extent.X, font.GetHeight(fontSize))));
+        }
         if (IsHudGreen(modulate) && HudGlow > 0.0f)
         {
             // Draw a series of faint, circularly offset copies. This gives the
@@ -1547,6 +1778,7 @@ public partial class PlayerHud : Control
         Color modulate = default,
         bool transpose = false)
     {
+        Cover(rect);
         if (IsHudGreen(modulate) && HudGlow > 0.0f)
         {
             for (var layer = 5; layer >= 1; layer--)

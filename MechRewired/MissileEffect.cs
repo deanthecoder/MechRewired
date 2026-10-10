@@ -8,6 +8,7 @@
 //
 // THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.
 
+using System.Diagnostics;
 using Godot;
 
 namespace MechRewired;
@@ -26,10 +27,17 @@ public partial class MissileEffect : Node3D
     private const float SmokeLifetimeSeconds = 1.35f;
     private const int SmokeParticleCount = 144;
     // Every pooled missile keeps its own simulation state, while immutable GPU resources are shared.
+    private static readonly StandardMaterial3D s_bodyMaterial = CreateBodyMaterial();
+    private static readonly CylinderMesh s_bodyMesh = CreateBodyMesh();
+    private static readonly StandardMaterial3D s_exhaustMaterial = CreateExhaustMaterial();
+    private static readonly CylinderMesh s_exhaustMesh = CreateExhaustMesh();
     private static readonly ParticleProcessMaterial s_smokeProcessMaterial = CreateSmokeProcessMaterial();
+    private static readonly ParticleProcessMaterial s_smallSmokeProcessMaterial = CreateSmokeProcessMaterial(0.75f);
     private static readonly QuadMesh s_smokeMesh = CreateSmokeMesh();
     private static readonly ShaderMaterial s_smokeVisualMaterial = CreateSmokeVisualMaterial();
-    private readonly bool m_carriesLight;
+    private readonly bool m_defaultCarriesLight;
+    private bool m_carriesLight;
+    private bool m_carriesSmoke;
     private readonly MeshInstance3D m_body;
     private readonly MeshInstance3D m_exhaust;
     private readonly OmniLight3D m_light;
@@ -41,59 +49,42 @@ public partial class MissileEffect : Node3D
     private float m_smokeFadeRemaining;
     private bool m_isFlying;
     private bool m_isPowered;
+    private bool m_telemetryTracked;
+    private bool m_appliedLightsDisabled;
+    private bool m_appliedSmokeDisabled;
     private Vector3? m_previousTargetPosition;
     private Vector3 m_targetVelocity;
     private Func<Vector3?> m_targetPosition;
+    private MissileSalvoGuidance m_guidance;
     private Action<Vector3> m_impact;
     private Action<Vector3> m_terrainImpact;
     private float m_guidanceArmingDistance;
+    // Each missile is pooled; keep its query parameters for the same lifetime as the pool slot.
+    private readonly PhysicsRayQueryParameters3D m_terrainQuery = new()
+    {
+        CollisionMask = BattlefieldPhysics.TerrainLayer,
+        HitBackFaces = true
+    };
+    private PhysicsDirectSpaceState3D m_terrainSpaceState;
 
     public MissileEffect(bool carriesLight)
     {
         Name = "PooledMissile";
+        m_defaultCarriesLight = carriesLight;
         m_carriesLight = carriesLight;
-        var bodyMaterial = new StandardMaterial3D
-        {
-            AlbedoColor = Color.FromHtml("565d63"),
-            Metallic = 0.7f,
-            Roughness = 0.35f
-        };
         m_body = new MeshInstance3D
         {
-            Mesh = new CylinderMesh
-            {
-                TopRadius = 0.055f,
-                BottomRadius = 0.07f,
-                Height = 0.75f,
-                RadialSegments = 8,
-                Rings = 1
-            },
-            MaterialOverride = bodyMaterial,
+            Mesh = s_bodyMesh,
+            MaterialOverride = s_bodyMaterial,
             CastShadow = GeometryInstance3D.ShadowCastingSetting.Off
         };
         AddChild(m_body);
 
-        var exhaustMaterial = new StandardMaterial3D
-        {
-            AlbedoColor = Color.FromHtml("fff070"),
-            EmissionEnabled = true,
-            Emission = Color.FromHtml("ffb020"),
-            EmissionEnergyMultiplier = 10.0f,
-            ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
-            CullMode = BaseMaterial3D.CullModeEnum.Disabled
-        };
         m_exhaust = new MeshInstance3D
         {
             Position = Vector3.Down * 0.52f,
-            Mesh = new CylinderMesh
-            {
-                TopRadius = 0.025f,
-                BottomRadius = 0.14f,
-                Height = 0.4f,
-                RadialSegments = 8,
-                Rings = 1
-            },
-            MaterialOverride = exhaustMaterial,
+            Mesh = s_exhaustMesh,
+            MaterialOverride = s_exhaustMaterial,
             CastShadow = GeometryInstance3D.ShadowCastingSetting.Off
         };
         AddChild(m_exhaust);
@@ -148,8 +139,16 @@ public partial class MissileEffect : Node3D
         Func<Vector3?> targetPosition,
         Action<Vector3> impact,
         float guidanceArmingDistance = 0.0f,
-        Action<Vector3> terrainImpact = null)
+        Action<Vector3> terrainImpact = null,
+        MissileSalvoGuidance guidance = null,
+        bool carriesSmoke = true,
+        bool? carriesLight = null)
     {
+        m_carriesSmoke = carriesSmoke;
+        m_carriesLight = carriesLight ?? m_defaultCarriesLight;
+        m_light.OmniRange = QuestVrRuntime.Active && QuestCombatTelemetry.SmallProjectileLights ? 3.0f : 6.0f;
+        m_smokeTrail.ProcessMaterial = QuestVrRuntime.Active && QuestCombatTelemetry.ReducedMissileSmoke
+            ? s_smallSmokeProcessMaterial : s_smokeProcessMaterial;
         GlobalPosition = position;
         m_direction = direction.Normalized();
         m_velocity = m_direction * SpeedMetersPerSecond;
@@ -158,26 +157,31 @@ public partial class MissileEffect : Node3D
         m_previousTargetPosition = null;
         m_targetVelocity = Vector3.Zero;
         m_targetPosition = targetPosition;
+        m_guidance = guidance;
         m_impact = impact;
         m_guidanceArmingDistance = Math.Max(guidanceArmingDistance, 0.0f);
         m_terrainImpact = terrainImpact;
         Age = 0.0f;
         IsActive = true;
+        QuestCombatTelemetry.RecordMissileLaunch();
+        if (!m_telemetryTracked)
+        {
+            m_telemetryTracked = QuestCombatTelemetry.TrackMissileLaunched();
+        }
         m_isFlying = true;
         m_isPowered = true;
         Visible = true;
         m_body.Visible = true;
         m_exhaust.Visible = true;
-        m_light.Visible = m_carriesLight;
-        m_smokeTrail.Visible = true;
-        m_smokeTrail.Emitting = true;
+        UpdateVisualAblation();
         SetProcess(true);
         OrientToDirection();
-        m_smokeTrail.Restart();
+        if (m_carriesSmoke && !QuestCombatTelemetry.SmokeDisabled) m_smokeTrail.Restart();
     }
 
     public override void _Process(double delta)
     {
+        using var cpuScope = QuestCpuTelemetry.Measure(QuestCpuTelemetry.Category.Missiles);
         if (!m_isFlying)
         {
             Age += (float)delta;
@@ -186,20 +190,29 @@ public partial class MissileEffect : Node3D
             {
                 IsActive = false;
                 m_smokeTrail.Visible = false;
+                StopTelemetryTracking();
                 SetProcess(false);
             }
+
+            RefreshVisualAblation();
 
             return;
         }
 
+        RefreshVisualAblation();
+
         var elapsed = (float)delta;
         Age += elapsed;
         var target = m_distanceTravelled >= m_guidanceArmingDistance
-            ? m_targetPosition?.Invoke()
+            ? m_guidance != null
+                ? m_guidance.Sample(Engine.GetProcessFrames(), elapsed)
+                : m_targetPosition?.Invoke()
             : null;
         if (m_isPowered && target.HasValue)
         {
-            if (m_previousTargetPosition.HasValue && elapsed > 0.0001f)
+            if (m_guidance != null)
+                m_targetVelocity = m_guidance.TargetVelocity;
+            else if (m_previousTargetPosition.HasValue && elapsed > 0.0001f)
             {
                 var measuredVelocity = (target.Value - m_previousTargetPosition.Value) / elapsed;
                 m_targetVelocity = m_targetVelocity.Lerp(
@@ -241,6 +254,7 @@ public partial class MissileEffect : Node3D
         var nextPosition = GlobalPosition + movement;
         if (TryFindTerrainImpact(GlobalPosition, nextPosition, out var terrainImpact))
         {
+            QuestCombatTelemetry.RecordImpact();
             m_terrainImpact?.Invoke(terrainImpact);
             Deactivate();
             return;
@@ -249,6 +263,7 @@ public partial class MissileEffect : Node3D
         if (target.HasValue && DistanceToSegment(target.Value, GlobalPosition, nextPosition) <= ImpactRadius)
         {
             var impact = target.Value;
+            QuestCombatTelemetry.RecordImpact();
             m_impact?.Invoke(impact);
             Deactivate();
             return;
@@ -271,8 +286,7 @@ public partial class MissileEffect : Node3D
     {
         m_isPowered = false;
         m_exhaust.Visible = false;
-        m_light.Visible = false;
-        m_smokeTrail.Emitting = false;
+        UpdateVisualAblation();
     }
 
     private void OrientToDirection()
@@ -287,15 +301,22 @@ public partial class MissileEffect : Node3D
     {
         m_isFlying = false;
         m_isPowered = false;
-        m_smokeFadeRemaining = SmokeLifetimeSeconds;
+        m_smokeFadeRemaining = m_carriesSmoke && !QuestCombatTelemetry.SmokeDisabled ? SmokeLifetimeSeconds : 0.0f;
         m_body.Visible = false;
         m_exhaust.Visible = false;
-        m_light.Visible = false;
-        m_smokeTrail.Emitting = false;
+        UpdateVisualAblation();
         m_targetPosition = null;
+        m_guidance = null;
         m_impact = null;
         m_terrainImpact = null;
         m_guidanceArmingDistance = 0.0f;
+        if (m_smokeFadeRemaining <= 0.0f)
+        {
+            IsActive = false;
+            m_smokeTrail.Visible = false;
+            StopTelemetryTracking();
+            SetProcess(false);
+        }
     }
 
     private void ResetImmediately()
@@ -307,10 +328,89 @@ public partial class MissileEffect : Node3D
         m_exhaust.Visible = false;
         m_light.Visible = false;
         m_smokeTrail.Visible = false;
+        StopTelemetryTracking();
         SetProcess(false);
     }
 
-    private static ParticleProcessMaterial CreateSmokeProcessMaterial() =>
+    public override void _Notification(int what)
+    {
+        if (what == NotificationEnterWorld || what == NotificationExitWorld)
+        {
+            // A pool can be reparented to another viewport/world. Borrow that world's state
+            // lazily on the next query, and never retain the previous world's native object.
+            m_terrainSpaceState = null;
+        }
+    }
+
+    public override void _ExitTree()
+    {
+        StopTelemetryTracking();
+        m_terrainSpaceState = null;
+    }
+
+    private void RefreshVisualAblation()
+    {
+        if (m_appliedLightsDisabled != QuestCombatTelemetry.WeaponLightsDisabled ||
+            m_appliedSmokeDisabled != QuestCombatTelemetry.SmokeDisabled)
+            UpdateVisualAblation();
+    }
+
+    private void UpdateVisualAblation()
+    {
+        m_appliedLightsDisabled = QuestCombatTelemetry.WeaponLightsDisabled;
+        m_appliedSmokeDisabled = QuestCombatTelemetry.SmokeDisabled;
+        m_light.Visible = m_isFlying && m_carriesLight && m_isPowered && !QuestCombatTelemetry.WeaponLightsDisabled;
+        m_smokeTrail.Visible = IsActive && m_carriesSmoke && !QuestCombatTelemetry.SmokeDisabled;
+        m_smokeTrail.Emitting = m_isFlying && m_isPowered && m_carriesSmoke && !QuestCombatTelemetry.SmokeDisabled;
+    }
+
+    private void StopTelemetryTracking()
+    {
+        if (!m_telemetryTracked)
+        {
+            return;
+        }
+
+        m_telemetryTracked = false;
+        QuestCombatTelemetry.TrackMissileStopped();
+    }
+
+    private static StandardMaterial3D CreateBodyMaterial() => new()
+    {
+        AlbedoColor = Color.FromHtml("565d63"),
+        Metallic = 0.7f,
+        Roughness = 0.35f
+    };
+
+    private static CylinderMesh CreateBodyMesh() => new()
+    {
+        TopRadius = 0.055f,
+        BottomRadius = 0.07f,
+        Height = 0.75f,
+        RadialSegments = 8,
+        Rings = 1
+    };
+
+    private static StandardMaterial3D CreateExhaustMaterial() => new()
+    {
+        AlbedoColor = Color.FromHtml("fff070"),
+        EmissionEnabled = true,
+        Emission = Color.FromHtml("ffb020"),
+        EmissionEnergyMultiplier = 10.0f,
+        ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+        CullMode = BaseMaterial3D.CullModeEnum.Disabled
+    };
+
+    private static CylinderMesh CreateExhaustMesh() => new()
+    {
+        TopRadius = 0.025f,
+        BottomRadius = 0.14f,
+        Height = 0.4f,
+        RadialSegments = 8,
+        Rings = 1
+    };
+
+    private static ParticleProcessMaterial CreateSmokeProcessMaterial(float sizeScale = 1.0f) =>
         new()
         {
             Direction = Vector3.Down,
@@ -320,8 +420,8 @@ public partial class MissileEffect : Node3D
             Gravity = new Vector3(0.08f, 0.42f, 0.04f),
             DampingMin = 0.65f,
             DampingMax = 1.25f,
-            ScaleMin = 0.82f,
-            ScaleMax = 1.28f,
+            ScaleMin = 0.82f * sizeScale,
+            ScaleMax = 1.28f * sizeScale,
             ColorRamp = new GradientTexture1D
             {
                 Gradient = new Gradient
@@ -406,16 +506,27 @@ public partial class MissileEffect : Node3D
             return false;
         }
 
-        var query = PhysicsRayQueryParameters3D.Create(start, end, BattlefieldPhysics.TerrainLayer);
-        query.HitBackFaces = true;
-        var result = GetWorld3D().DirectSpaceState.IntersectRay(query);
-        if (result.Count == 0)
+        var measure = QuestCombatTelemetry.Active;
+        var queryStarted = measure ? Stopwatch.GetTimestamp() : 0;
+        try
         {
-            return false;
-        }
+            m_terrainQuery.From = start;
+            m_terrainQuery.To = end;
+            m_terrainSpaceState ??= GetWorld3D().DirectSpaceState;
+            using var result = m_terrainSpaceState.IntersectRay(m_terrainQuery);
+            if (result.Count == 0)
+            {
+                return false;
+            }
 
-        impactPosition = result["position"].AsVector3();
-        return true;
+            impactPosition = result["position"].AsVector3();
+            return true;
+        }
+        finally
+        {
+            if (measure)
+                QuestCombatTelemetry.RecordMissileTerrainQuery(Stopwatch.GetTimestamp() - queryStarted);
+        }
     }
 
     private static float DistanceToSegment(Vector3 point, Vector3 start, Vector3 end)

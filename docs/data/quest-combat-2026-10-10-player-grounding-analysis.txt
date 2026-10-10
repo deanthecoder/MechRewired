@@ -1,0 +1,172 @@
+Run 20261010-154740-d54e48
+  Trial 1 baseline [complete]: mean 14.29 ms, p95 18.37 ms, GPU 11.83 ms, enemy shots 6.00, missile pool builds 0.00 / 0.00 ms; weapon effect pools 0.00 builds / 0.00 fallbacks
+    Building smoke: material simple-unshaded; emitters 2.00
+    Terrain: chunked=False, vertexLighting=True, specularDisabled=True; chunk size=0.00 m; chunks=0.00, source triangles=197386.00, chunk triangles=0.00
+    Render counts (all viewports): draw calls/frame 167.27 mean / 251.00 peak; primitives/frame 258186.97 mean / 274143.00 peak
+    missile terrain query: 153.44 ms / 11075.00 calls; 0.01 ms/call
+    player raycast: 5.38 ms / 4.00 calls; 1.35 ms/call
+    player world raycast: 3.37 ms
+    player mech raycast: 1.99 ms
+    player damage/impact: 0.41 ms / 4.00 calls; 0.10 ms/call
+    player beam/tracer creation: 0.61 ms / 4.00 calls; 0.15 ms/call
+    Player grounding: legacy-foot-vertices
+    Physics steps/frame: 0.86 mean / 1.00 peak; slow frames 476.00; GC frames 1.00
+    CPU scopes are inclusive; overlapping scopes must not be summed.
+      EnemyPhysics: 272.48 ms / 2884.00 calls / 627992 B allocated
+      HudCoverage: 31.72 ms / 1200.00 calls / 448728 B allocated
+      HudDraw: 887.55 ms / 1200.00 calls / 961368 B allocated
+      HudProcess: 38.36 ms / 840.00 calls / 43200 B allocated
+      Missiles: 299.36 ms / 12819.00 calls / 1076208 B allocated
+      PlayerGait: 1513.49 ms / 721.00 calls / 92288 B allocated
+      PlayerGroundClearance: 1476.69 ms / 721.00 calls / 92288 B allocated
+      PlayerJumpJets: 34.03 ms / 721.00 calls / 0 B allocated
+      PlayerPhysics: 1598.41 ms / 721.00 calls / 92288 B allocated
+      PlayerSurface: 21.24 ms / 721.00 calls / 0 B allocated
+      PlayerSurfaceQuery: 20.20 ms / 721.00 calls / 0 B allocated
+      PlayerTargeting: 46.20 ms / 840.00 calls / 6848 B allocated
+      TerrainRocks: 2.64 ms / 840.00 calls / 33600 B allocated
+      VrProcess: 53.64 ms / 840.00 calls / 241920 B allocated
+  Trial 3 baseline [complete]: mean 14.16 ms, p95 17.99 ms, GPU 11.43 ms, enemy shots 6.00, missile pool builds 0.00 / 0.00 ms; weapon effect pools 0.00 builds / 0.00 fallbacks
+    Building smoke: material simple-unshaded; emitters 2.00
+    Terrain: chunked=False, vertexLighting=True, specularDisabled=True; chunk size=0.00 m; chunks=0.00, source triangles=197386.00, chunk triangles=0.00
+    Render counts (all viewports): draw calls/frame 167.64 mean / 250.00 peak; primitives/frame 258219.77 mean / 274178.00 peak
+    missile terrain query: 134.81 ms / 11194.00 calls; 0.01 ms/call
+    player raycast: 5.30 ms / 4.00 calls; 1.32 ms/call
+    player world raycast: 3.37 ms
+    player mech raycast: 1.91 ms
+    player damage/impact: 0.43 ms / 4.00 calls; 0.11 ms/call
+    player beam/tracer creation: 0.61 ms / 4.00 calls; 0.15 ms/call
+    Player grounding: legacy-foot-vertices
+    Physics steps/frame: 0.85 mean / 2.00 peak; slow frames 435.00; GC frames 1.00
+    CPU scopes are inclusive; overlapping scopes must not be summed.
+      EnemyPhysics: 274.23 ms / 2880.00 calls / 625480 B allocated
+      HudCoverage: 33.88 ms / 1208.00 calls / 459928 B allocated
+      HudDraw: 890.71 ms / 1208.00 calls / 973144 B allocated
+      HudProcess: 37.20 ms / 848.00 calls / 43200 B allocated
+      Missiles: 271.81 ms / 12982.00 calls / 1087328 B allocated
+      PlayerGait: 1510.58 ms / 720.00 calls / 92160 B allocated
+      PlayerGroundClearance: 1472.78 ms / 720.00 calls / 92160 B allocated
+      PlayerJumpJets: 34.32 ms / 720.00 calls / 0 B allocated
+      PlayerPhysics: 1597.91 ms / 720.00 calls / 92160 B allocated
+      PlayerSurface: 21.22 ms / 720.00 calls / 0 B allocated
+      PlayerSurfaceQuery: 20.17 ms / 720.00 calls / 0 B allocated
+      PlayerTargeting: 42.76 ms / 848.00 calls / 6720 B allocated
+      TerrainRocks: 2.72 ms / 848.00 calls / 33920 B allocated
+      VrProcess: 53.16 ms / 848.00 calls / 244224 B allocated
+  Trial 2 player-ground-fast [complete]: mean 14.22 ms, p95 16.42 ms, GPU 11.79 ms, enemy shots 6.00, missile pool builds 0.00 / 0.00 ms; weapon effect pools 0.00 builds / 0.00 fallbacks
+    Building smoke: material simple-unshaded; emitters 2.00
+    Terrain: chunked=False, vertexLighting=True, specularDisabled=True; chunk size=0.00 m; chunks=0.00, source triangles=197386.00, chunk triangles=0.00
+    Render counts (all viewports): draw calls/frame 167.62 mean / 251.00 peak; primitives/frame 258223.85 mean / 274275.00 peak
+    missile terrain query: 159.12 ms / 11220.00 calls; 0.01 ms/call
+    player raycast: 5.74 ms / 4.00 calls; 1.44 ms/call
+    player world raycast: 3.53 ms
+    player mech raycast: 2.19 ms
+    player damage/impact: 0.43 ms / 4.00 calls; 0.11 ms/call
+    player beam/tracer creation: 0.60 ms / 4.00 calls; 0.15 ms/call
+    Player grounding: quest-hidden-rig-cached-surface-v1
+    Physics steps/frame: 0.85 mean / 2.00 peak; slow frames 484.00; GC frames 1.00
+    CPU scopes are inclusive; overlapping scopes must not be summed.
+      EnemyPhysics: 274.80 ms / 2884.00 calls / 625608 B allocated
+      HudCoverage: 36.41 ms / 1205.00 calls / 492544 B allocated
+      HudDraw: 910.69 ms / 1205.00 calls / 1005544 B allocated
+      HudProcess: 38.01 ms / 845.00 calls / 43200 B allocated
+      Missiles: 307.78 ms / 12970.00 calls / 1089824 B allocated
+      PlayerGait: 10.07 ms / 721.00 calls / 0 B allocated
+      PlayerGroundClearance: 0.49 ms / 721.00 calls / 0 B allocated
+      PlayerJumpJets: 11.49 ms / 721.00 calls / 0 B allocated
+      PlayerPhysics: 73.38 ms / 721.00 calls / 0 B allocated
+      PlayerSurface: 1.04 ms / 721.00 calls / 0 B allocated
+      PlayerSurfaceQuery: 0.00 ms / 0.00 calls / 0 B allocated
+      PlayerTargeting: 44.45 ms / 845.00 calls / 6720 B allocated
+      TerrainRocks: 2.80 ms / 845.00 calls / 33800 B allocated
+      VrProcess: 54.11 ms / 845.00 calls / 243360 B allocated
+  Enemy-Falcon Nova-1: average of 2 complete baselines
+    baseline mean physics steps/frame: 0.85
+    baseline peak physics steps/frame: 1.50
+    baseline frames over refresh budget: 455.50
+    baseline frames with GC: 1.00
+    baseline HUD instrument redraws: 360.00
+    baseline mean frame: 14.22 ms
+    baseline p95 frame: 18.18 ms
+    baseline p99 frame: 20.55 ms
+    baseline average FPS: 70.30
+    baseline 1% low FPS: 42.10
+    baseline GPU: 11.63 ms
+    baseline renderer CPU: 0.57 ms
+    baseline mean draw calls/frame (all viewports): 167.45
+    baseline peak draw calls/frame (all viewports): 250.50
+    baseline mean primitives/frame (all viewports): 258203.37
+    baseline peak primitives/frame (all viewports): 274160.50
+    baseline physics: 5.14 ms
+    baseline process: 12.13 ms
+    baseline allocated: 8051196 B
+    baseline GC0: 1.00
+    baseline GC1: 0.00
+    baseline GC2: 0.00
+    baseline enemy AI total: 271.79 ms
+    baseline LOS total: 11.13 ms
+    baseline LOS calls: 58.00
+    baseline pool builds: 0.00
+    baseline pool build total: 0.00 ms
+    baseline missile terrain queries: 11134.50
+    baseline missile terrain query total: 144.13 ms
+    baseline player world raycast: 3.37 ms
+    baseline player mech raycast: 1.95 ms
+    baseline weapon effect pool builds: 0.00
+    baseline weapon effect pool fallbacks: 0.00
+    baseline weapon shots: 12.00
+    baseline enemy weapon shots: 6.00
+    baseline missile launches: 52.00
+    baseline impacts: 59.00
+    baseline head translation: 0.00 m
+    baseline head angle: 0.49 deg
+    baseline first-volley mean frame: 14.11 ms
+    baseline first-volley worst frame: 25.25 ms
+    baseline later-volley mean frame: 14.26 ms
+    baseline first-impact frame: 17.80 ms
+    player-ground-fast (1 complete trial(s)):
+      mean physics steps/frame: 0.85 (-0.1% vs baseline)
+      peak physics steps/frame: 2.00 (+33.3% vs baseline)
+      frames over refresh budget: 484.00 (+6.3% vs baseline)
+      frames with GC: 1.00 (+0.0% vs baseline)
+      HUD instrument redraws: 360.00 (+0.0% vs baseline)
+      mean frame: 14.22 ms (-0.1% vs baseline)
+      p95 frame: 16.42 ms (-9.7% vs baseline)
+      p99 frame: 18.17 ms (-11.6% vs baseline)
+      average FPS: 70.35 (+0.1% vs baseline)
+      1% low FPS: 46.05 (+9.4% vs baseline)
+      GPU: 11.79 ms (+1.4% vs baseline)
+      renderer CPU: 0.59 ms (+4.0% vs baseline)
+      mean draw calls/frame (all viewports): 167.62 (+0.1% vs baseline)
+      peak draw calls/frame (all viewports): 251.00 (+0.2% vs baseline)
+      mean primitives/frame (all viewports): 258223.85 (+0.0% vs baseline)
+      peak primitives/frame (all viewports): 274275.00 (+0.0% vs baseline)
+      physics: 1.76 ms (-65.8% vs baseline)
+      process: 12.57 ms (+3.6% vs baseline)
+      allocated: 8045728 B (-0.1% vs baseline)
+      GC0: 1.00 (+0.0% vs baseline)
+      GC1: 0.00 (n/a vs baseline)
+      GC2: 0.00 (n/a vs baseline)
+      enemy AI total: 272.97 ms (+0.4% vs baseline)
+      LOS total: 11.81 ms (+6.2% vs baseline)
+      LOS calls: 58.00 (+0.0% vs baseline)
+      pool builds: 0.00 (n/a vs baseline)
+      pool build total: 0.00 ms (n/a vs baseline)
+      missile terrain queries: 11220.00 (+0.8% vs baseline)
+      missile terrain query total: 159.12 ms (+10.4% vs baseline)
+      player world raycast: 3.53 ms (+4.7% vs baseline)
+      player mech raycast: 2.19 ms (+12.6% vs baseline)
+      weapon effect pool builds: 0.00 (n/a vs baseline)
+      weapon effect pool fallbacks: 0.00 (n/a vs baseline)
+      weapon shots: 12.00 (+0.0% vs baseline)
+      enemy weapon shots: 6.00 (+0.0% vs baseline)
+      missile launches: 52.00 (+0.0% vs baseline)
+      impacts: 59.00 (+0.0% vs baseline)
+      head translation: 0.00 m (+22.3% vs baseline)
+      head angle: 0.58 deg (+18.0% vs baseline)
+      first-volley mean frame: 14.09 ms (-0.1% vs baseline)
+      first-volley worst frame: 20.57 ms (-18.5% vs baseline)
+      later-volley mean frame: 14.25 ms (-0.1% vs baseline)
+      first-impact frame: 13.92 ms (-21.8% vs baseline)
+  Current Quest pools are prepared during mission setup; pool creation in measured combat indicates a fallback. Shader/driver caches can remain warm across reloads.
+  Actual fighting can vary between trials; these summaries show sensitivity and do not establish a unique bottleneck.

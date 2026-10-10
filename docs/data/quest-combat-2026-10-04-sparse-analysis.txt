@@ -1,0 +1,139 @@
+Run 20261004-194054-2fcd2a
+  Trial 1 baseline [complete]: mean 15.22 ms, p95 18.53 ms, GPU 14.38 ms, enemy shots 8.00, missile pool builds 0.00 / 0.00 ms; weapon effect pools 0.00 builds / 0.00 fallbacks
+    missile terrain query: 115.53 ms / 10941.00 calls; 0.01 ms/call
+    player raycast: 7.76 ms / 6.00 calls; 1.29 ms/call
+    player world raycast: 4.81 ms
+    player mech raycast: 2.68 ms
+    player damage/impact: 0.59 ms / 6.00 calls; 0.10 ms/call
+    player beam/tracer creation: 0.86 ms / 6.00 calls; 0.14 ms/call
+  Trial 4 baseline [complete]: mean 15.05 ms, p95 18.28 ms, GPU 14.21 ms, enemy shots 8.00, missile pool builds 0.00 / 0.00 ms; weapon effect pools 0.00 builds / 0.00 fallbacks
+    missile terrain query: 149.93 ms / 11135.00 calls; 0.01 ms/call
+    player raycast: 8.36 ms / 6.00 calls; 1.39 ms/call
+    player world raycast: 5.51 ms
+    player mech raycast: 2.82 ms
+    player damage/impact: 0.58 ms / 6.00 calls; 0.10 ms/call
+    player beam/tracer creation: 0.95 ms / 6.00 calls; 0.16 ms/call
+  Trial 2 smoke-off [complete]: mean 14.71 ms, p95 17.79 ms, GPU 14.18 ms, enemy shots 8.00, missile pool builds 0.00 / 0.00 ms; weapon effect pools 0.00 builds / 0.00 fallbacks
+    missile terrain query: 133.44 ms / 11702.00 calls; 0.01 ms/call
+    player raycast: 7.75 ms / 6.00 calls; 1.29 ms/call
+    player world raycast: 5.10 ms
+    player mech raycast: 2.62 ms
+    player damage/impact: 0.69 ms / 6.00 calls; 0.11 ms/call
+    player beam/tracer creation: 1.22 ms / 6.00 calls; 0.20 ms/call
+  Trial 3 weapon-lights-off [complete]: mean 15.76 ms, p95 18.60 ms, GPU 15.00 ms, enemy shots 8.00, missile pool builds 0.00 / 0.00 ms; weapon effect pools 0.00 builds / 0.00 fallbacks
+    missile terrain query: 120.43 ms / 10737.00 calls; 0.01 ms/call
+    player raycast: 7.51 ms / 6.00 calls; 1.25 ms/call
+    player world raycast: 4.93 ms
+    player mech raycast: 2.56 ms
+    player damage/impact: 0.54 ms / 6.00 calls; 0.09 ms/call
+    player beam/tracer creation: 0.84 ms / 6.00 calls; 0.14 ms/call
+  Enemy-Falcon Nova-1: average of 2 complete baselines
+    baseline HUD instrument redraws: 448.50
+    baseline mean frame: 15.13 ms
+    baseline p95 frame: 18.40 ms
+    baseline p99 frame: 21.60 ms
+    baseline average FPS: 66.08
+    baseline 1% low FPS: 32.79
+    baseline GPU: 14.30 ms
+    baseline renderer CPU: 0.50 ms
+    baseline physics: 5.83 ms
+    baseline process: 20.00 ms
+    baseline allocated: 16247840 B
+    baseline GC0: 2.50
+    baseline GC1: 0.50
+    baseline GC2: 0.50
+    baseline enemy AI total: 389.04 ms
+    baseline LOS total: 13.68 ms
+    baseline LOS calls: 73.00
+    baseline pool builds: 0.00
+    baseline pool build total: 0.00 ms
+    baseline missile terrain queries: 11038.00
+    baseline missile terrain query total: 132.73 ms
+    baseline player world raycast: 5.16 ms
+    baseline player mech raycast: 2.75 ms
+    baseline weapon effect pool builds: 0.00
+    baseline weapon effect pool fallbacks: 0.00
+    baseline weapon shots: 16.00
+    baseline enemy weapon shots: 8.00
+    baseline missile launches: 56.00
+    baseline impacts: 58.00
+    baseline head translation: 0.00 m
+    baseline head angle: 0.48 deg
+    baseline first-volley mean frame: 14.56 ms
+    baseline first-volley worst frame: 21.51 ms
+    baseline later-volley mean frame: 15.11 ms
+    baseline first-impact frame: 18.94 ms
+    smoke-off (1 complete trial(s)):
+      HUD instrument redraws: 448.00 (-0.1% vs baseline)
+      mean frame: 14.71 ms (-2.8% vs baseline)
+      p95 frame: 17.79 ms (-3.3% vs baseline)
+      p99 frame: 19.48 ms (-9.8% vs baseline)
+      average FPS: 67.97 (+2.9% vs baseline)
+      1% low FPS: 34.66 (+5.7% vs baseline)
+      GPU: 14.18 ms (-0.8% vs baseline)
+      renderer CPU: 0.47 ms (-6.5% vs baseline)
+      physics: 5.44 ms (-6.7% vs baseline)
+      process: 19.19 ms (-4.1% vs baseline)
+      allocated: 15303376 B (-5.8% vs baseline)
+      GC0: 2.00 (-20.0% vs baseline)
+      GC1: 1.00 (+100.0% vs baseline)
+      GC2: 1.00 (+100.0% vs baseline)
+      enemy AI total: 391.05 ms (+0.5% vs baseline)
+      LOS total: 14.86 ms (+8.6% vs baseline)
+      LOS calls: 73.00 (+0.0% vs baseline)
+      pool builds: 0.00 (n/a vs baseline)
+      pool build total: 0.00 ms (n/a vs baseline)
+      missile terrain queries: 11702.00 (+6.0% vs baseline)
+      missile terrain query total: 133.44 ms (+0.5% vs baseline)
+      player world raycast: 5.10 ms (-1.2% vs baseline)
+      player mech raycast: 2.62 ms (-4.6% vs baseline)
+      weapon effect pool builds: 0.00 (n/a vs baseline)
+      weapon effect pool fallbacks: 0.00 (n/a vs baseline)
+      weapon shots: 16.00 (+0.0% vs baseline)
+      enemy weapon shots: 8.00 (+0.0% vs baseline)
+      missile launches: 56.00 (+0.0% vs baseline)
+      impacts: 58.00 (+0.0% vs baseline)
+      head translation: 0.00 m (-19.8% vs baseline)
+      head angle: 0.34 deg (-29.4% vs baseline)
+      first-volley mean frame: 14.70 ms (+0.9% vs baseline)
+      first-volley worst frame: 21.31 ms (-0.9% vs baseline)
+      later-volley mean frame: 14.67 ms (-3.0% vs baseline)
+      first-impact frame: 21.31 ms (+12.5% vs baseline)
+    weapon-lights-off (1 complete trial(s)):
+      HUD instrument redraws: 450.00 (+0.3% vs baseline)
+      mean frame: 15.76 ms (+4.2% vs baseline)
+      p95 frame: 18.60 ms (+1.1% vs baseline)
+      p99 frame: 20.63 ms (-4.5% vs baseline)
+      average FPS: 63.43 (-4.0% vs baseline)
+      1% low FPS: 33.36 (+1.7% vs baseline)
+      GPU: 15.00 ms (+4.9% vs baseline)
+      renderer CPU: 0.51 ms (+1.4% vs baseline)
+      physics: 6.58 ms (+12.7% vs baseline)
+      process: 19.93 ms (-0.3% vs baseline)
+      allocated: 15289448 B (-5.9% vs baseline)
+      GC0: 2.00 (-20.0% vs baseline)
+      GC1: 1.00 (+100.0% vs baseline)
+      GC2: 1.00 (+100.0% vs baseline)
+      enemy AI total: 414.10 ms (+6.4% vs baseline)
+      LOS total: 15.30 ms (+11.9% vs baseline)
+      LOS calls: 73.00 (+0.0% vs baseline)
+      pool builds: 0.00 (n/a vs baseline)
+      pool build total: 0.00 ms (n/a vs baseline)
+      missile terrain queries: 10737.00 (-2.7% vs baseline)
+      missile terrain query total: 120.43 ms (-9.3% vs baseline)
+      player world raycast: 4.93 ms (-4.6% vs baseline)
+      player mech raycast: 2.56 ms (-7.0% vs baseline)
+      weapon effect pool builds: 0.00 (n/a vs baseline)
+      weapon effect pool fallbacks: 0.00 (n/a vs baseline)
+      weapon shots: 16.00 (+0.0% vs baseline)
+      enemy weapon shots: 8.00 (+0.0% vs baseline)
+      missile launches: 56.00 (+0.0% vs baseline)
+      impacts: 58.00 (+0.0% vs baseline)
+      head translation: 0.00 m (+38.0% vs baseline)
+      head angle: 0.41 deg (-14.0% vs baseline)
+      first-volley mean frame: 14.86 ms (+2.0% vs baseline)
+      first-volley worst frame: 18.40 ms (-14.4% vs baseline)
+      later-volley mean frame: 15.79 ms (+4.5% vs baseline)
+      first-impact frame: 14.98 ms (-20.9% vs baseline)
+  Current Quest pools are prepared during mission setup; pool creation in measured combat indicates a fallback. Shader/driver caches can remain warm across reloads.
+  Actual fighting can vary between trials; these summaries show sensitivity and do not establish a unique bottleneck.

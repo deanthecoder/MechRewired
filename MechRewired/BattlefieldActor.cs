@@ -50,6 +50,7 @@ public partial class BattlefieldActor : Node3D
         }
 
         Definition = definition;
+        SourceResourceName = Path.GetFileNameWithoutExtension(definition.SourceEntry.Name);
         m_explosionDebrisMeshes = explosionDebrisMeshes;
         Name = $"{definition.SourceEntry.Name}-{definition.ObjectId}";
         Health = definition.Health;
@@ -58,7 +59,7 @@ public partial class BattlefieldActor : Node3D
 
     public MechWarriorLevelActor Definition { get; }
 
-    public string SourceResourceName => Path.GetFileNameWithoutExtension(Definition.SourceEntry.Name);
+    public string SourceResourceName { get; }
 
     public string Description
     {
@@ -94,13 +95,17 @@ public partial class BattlefieldActor : Node3D
             var bounds = new Aabb();
             var hasBounds = false;
             var representations = IsDestroyed ? m_destroyedRepresentations : m_activeRepresentations;
-            foreach (var meshInstance in representations
-                         .SelectMany(representation => representation.GetChildren())
-                         .OfType<MeshInstance3D>())
+            foreach (var representation in representations)
             {
-                var meshBounds = meshInstance.GlobalTransform * meshInstance.GetAabb();
-                bounds = hasBounds ? bounds.Merge(meshBounds) : meshBounds;
-                hasBounds = true;
+                // Keep transforms and representation changes live without allocating child arrays.
+                var childCount = representation.GetChildCount();
+                for (var index = 0; index < childCount; index++)
+                {
+                    if (representation.GetChild(index) is not MeshInstance3D meshInstance) continue;
+                    var meshBounds = meshInstance.GlobalTransform * meshInstance.GetAabb();
+                    bounds = hasBounds ? bounds.Merge(meshBounds) : meshBounds;
+                    hasBounds = true;
+                }
             }
 
             return hasBounds

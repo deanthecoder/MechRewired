@@ -38,8 +38,8 @@ public sealed class QuestGraphicsSettings
         m_terrainTriplanarEnabled = QuestGraphicsPreferences.LoadTerrainTriplanar();
         ApplyTerrainTriplanar();
 
-        // The headset baseline avoids the full-screen and compositor passes first.
-        SunShadowsEnabled = false;
+        // Use the nearby-object shadow profile while keeping expensive screen/compositor passes off.
+        SunShadowsEnabled = true;
         AmbientOcclusionEnabled = false;
         ScreenReflectionsEnabled = false;
         GlowEnabled = false;
@@ -48,13 +48,36 @@ public sealed class QuestGraphicsSettings
         // from the headset menu and disabled for the Quest baseline.
         LensFlareEnabled = false;
         CockpitGlassEnabled = false;
-        SmokeAndDustEnabled = false;
+        BakedProfileEnabled = true;
+        SmokeAndDustEnabled = true;
     }
 
     public bool SunShadowsEnabled
     {
         get => m_sky.SunShadowsEnabled;
         set => m_sky.SunShadowsEnabled = value;
+    }
+
+    /// <summary>True while the high-resolution sky capture is being rendered.</summary>
+    public bool SkyBakePending => m_sky.SkyBakePending;
+
+    /// <summary>Uses the mission's cached HDR sky and separate sun for Quest gameplay.</summary>
+    public bool BakedSkyEnabled
+    {
+        get => m_sky.BakedSkyEnabled;
+        set => m_sky.BakedSkyEnabled = value;
+    }
+
+    /// <summary>Enables the tested sky and cabin combination without exposing the slower UV-only option.</summary>
+    public bool BakedProfileEnabled
+    {
+        get => BakedSkyEnabled && QuestUvMaterialsEnabled && BakedInteriorLightingEnabled;
+        set
+        {
+            QuestUvMaterialsEnabled = value;
+            BakedInteriorLightingEnabled = value;
+            BakedSkyEnabled = value;
+        }
     }
 
     /// <summary>Persists the Quest-only mapping choice and updates all loaded terrain immediately.</summary>
@@ -119,6 +142,39 @@ public sealed class QuestGraphicsSettings
             }
         }
     }
+
+    /// <summary>Uses the cockpit's Quest UV material path for this mission.</summary>
+    public bool QuestUvMaterialsEnabled
+    {
+        get => m_cockpit?.QuestUvMaterialsEnabled ?? false;
+        set
+        {
+            if (m_cockpit == null) return;
+            m_cockpit.QuestUvMaterialsEnabled = value;
+            if (!value) m_cockpit.BakedInteriorLightingEnabled = false;
+        }
+    }
+
+    /// <summary>Uses the offline baked cabin lighting when the Quest UV path is active.</summary>
+    public bool BakedInteriorLightingEnabled
+    {
+        get => m_cockpit?.BakedInteriorLightingEnabled ?? false;
+        set
+        {
+            if (m_cockpit == null) return;
+            if (value) m_cockpit.QuestUvMaterialsEnabled = true;
+            m_cockpit.BakedInteriorLightingEnabled = value;
+        }
+    }
+
+    /// <summary>Benchmark-only comparison with the original persistent building-smoke material.</summary>
+    public bool DetailedBuildingSmokeEnabled
+    {
+        get => m_effects?.DetailedBuildingSmokeEnabled ?? false;
+        set { if (m_effects != null) m_effects.DetailedBuildingSmokeEnabled = value; }
+    }
+
+    public int BuildingSmokeEmitterCount => m_effects?.BuildingSmokeEmitterCount ?? 0;
 
     public bool SmokeAndDustEnabled
     {

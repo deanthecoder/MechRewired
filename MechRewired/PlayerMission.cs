@@ -190,32 +190,39 @@ public partial class PlayerMission : Node
     public bool IsActiveObjectiveTarget(BattlefieldActor actor)
     {
         ArgumentNullException.ThrowIfNull(actor);
-        return m_runtime.Definition.Objectives.Any(objective =>
-            m_runtime.GetState(objective.Id) == MissionObjectiveState.Active &&
-            string.Equals(
-                objective.TargetResourceName,
-                actor.SourceResourceName,
-                StringComparison.OrdinalIgnoreCase) &&
-            objective.Kind switch
+        var objectives = m_runtime.Definition.Objectives;
+        for (var index = 0; index < objectives.Count; index++)
+        {
+            var objective = objectives[index];
+            if (m_runtime.GetState(objective.Id) == MissionObjectiveState.Active &&
+                string.Equals(objective.TargetResourceName, actor.SourceResourceName, StringComparison.OrdinalIgnoreCase) &&
+                (objective.Kind switch
+                {
+                    MissionObjectiveKind.Destroy => actor.IsDamageable && !actor.IsDestroyed,
+                    MissionObjectiveKind.Inspect => !actor.IsDestroyed,
+                    _ => false
+                }))
             {
-                MissionObjectiveKind.Destroy => actor.IsDamageable && !actor.IsDestroyed,
-                MissionObjectiveKind.Inspect => !actor.IsDestroyed,
-                _ => false
-            });
+                return true;
+            }
+        }
+        return false;
     }
 
     public MissionObjectiveKind? GetActiveObjectiveKind(BattlefieldActor actor)
     {
         ArgumentNullException.ThrowIfNull(actor);
-        return m_runtime.Definition.Objectives
-            .Where(objective =>
-                m_runtime.GetState(objective.Id) == MissionObjectiveState.Active &&
+        var objectives = m_runtime.Definition.Objectives;
+        for (var index = 0; index < objectives.Count; index++)
+        {
+            var objective = objectives[index];
+            if (m_runtime.GetState(objective.Id) == MissionObjectiveState.Active &&
                 string.Equals(
                     objective.TargetResourceName,
                     actor.SourceResourceName,
-                    StringComparison.OrdinalIgnoreCase))
-            .Select(objective => (MissionObjectiveKind?)objective.Kind)
-            .FirstOrDefault();
+                    StringComparison.OrdinalIgnoreCase)) return objective.Kind;
+        }
+        return null;
     }
 
     public override void _Process(double delta)

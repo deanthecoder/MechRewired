@@ -13,7 +13,7 @@ public sealed partial class QuestVrMenu : Node3D
 {
     private const float Distance = 1.15f;
     private const float Width = 0.92f;
-    private const float RowHeight = 0.075f;
+    private const float RowHeight = 0.065f;
     private const float Top = 0.39f;
     private const float Bottom = -0.38f;
     private const float TriggerThreshold = 0.7f;
@@ -28,6 +28,7 @@ public sealed partial class QuestVrMenu : Node3D
     private MeshInstance3D m_cursor;
     private MeshInstance3D m_beam;
     private Label3D m_performanceLabel;
+    private Label3D m_instructionLabel;
     private bool m_triggerWasDown;
     private int m_hoveredRow = -1;
     private int m_lastHoveredRow = -2;
@@ -57,7 +58,12 @@ public sealed partial class QuestVrMenu : Node3D
         ProcessMode = ProcessModeEnum.Always;
     }
 
+    private string m_lastSkyStatus;
+    private string SkyStatus => m_settings.SkyBakePending ? "BAKING" : m_settings.BakedProfileEnabled ? "ON" : "OFF";
     public bool IsOpen => Visible;
+    public PlayerMech Pilot { get; set; }
+    public Action RunBenchmark { get; set; }
+    public Action RunCombatBenchmark { get; set; }
 
     public override void _Ready()
     {
@@ -66,7 +72,25 @@ public sealed partial class QuestVrMenu : Node3D
         AddAction("RECENTER VIEW", RecenterAndClose);
         AddAction("GRAPHICS SETTINGS  >", () => SetPage(1));
         AddAction("HUD SETTINGS  >", () => SetPage(2));
+        if (Pilot != null)
+        {
+            AddAction("PILOT CONTROLS  >", () => SetPage(4));
+            AddRow("REACTOR POWER", () => { Close(); Pilot.VrToggleReactor(); },
+                () => Pilot.IsShutdown ? "RESTART" : "SHUT DOWN", 4);
+            AddRow("HEAT OVERRIDE", Pilot.VrToggleShutdownOverride,
+                () => Pilot.IsShutdown ? "OFFLINE" : Pilot.IsShutdownOverride ? "ON" : "OFF", 4);
+            AddAction("INSPECT TARGET (X)", () => { Close(); Pilot.VrInspect(); }, 4);
+            AddAction("<  BACK", () => SetPage(0), 4);
+        }
+        if (RunBenchmark != null || RunCombatBenchmark != null)
+        {
+            AddAction("BENCHMARKS  >", () => SetPage(3));
+            if (RunBenchmark != null) AddAction("RENDERING TEST", () => RunBenchmark(), 3);
+            if (RunCombatBenchmark != null) AddAction("COMBAT TEST (RESTARTS)", () => RunCombatBenchmark(), 3);
+            AddAction("<  BACK", () => SetPage(0), 3);
+        }
         AddToggle("SUN SHADOWS", () => m_settings.SunShadowsEnabled, value => m_settings.SunShadowsEnabled = value, 1);
+        AddRow("BAKED SKY + CABIN", () => m_settings.BakedProfileEnabled = !m_settings.BakedProfileEnabled, () => SkyStatus, 1);
         AddToggle("SCENE GLOW", () => m_settings.GlowEnabled, value => m_settings.GlowEnabled = value, 1);
         AddToggle("COCKPIT GLASS", () => m_settings.CockpitGlassEnabled, value => m_settings.CockpitGlassEnabled = value, 1);
         AddToggle("TERRAIN TRIPLANAR", () => m_settings.TerrainTriplanarEnabled, value => m_settings.TerrainTriplanarEnabled = value, 1);
@@ -136,6 +160,11 @@ public sealed partial class QuestVrMenu : Node3D
             return;
         }
 
+        if (m_lastSkyStatus != SkyStatus)
+        {
+            m_lastSkyStatus = SkyStatus;
+            RefreshRows();
+        }
         UpdatePerformanceReadout();
         // Preview selection is driven by _UnhandledInput; do not overwrite its hover state
         // each frame with the deliberately untracked desktop controller nodes.
@@ -191,7 +220,7 @@ public sealed partial class QuestVrMenu : Node3D
         };
         AddChild(panel);
         AddLabel("MECHREWIRED  /  PAUSED", new Vector3(-0.39f, 0.35f, 0.012f), 36, new Color(0.35f, 0.95f, 0.85f));
-        AddLabel("POINT AND PULL TRIGGER", new Vector3(-0.39f, 0.30f, 0.012f), 18, new Color(0.55f, 0.70f, 0.72f));
+        m_instructionLabel = AddLabel("POINT AND PULL TRIGGER", new Vector3(-0.39f, 0.30f, 0.012f), 18, new Color(0.55f, 0.70f, 0.72f));
         m_performanceLabel = AddLabel("", new Vector3(0.39f, -0.32f, 0.012f), 17, new Color(0.55f, 0.70f, 0.72f));
         m_performanceLabel.HorizontalAlignment = HorizontalAlignment.Right;
         m_performanceLabel.Width = 250.0f;
@@ -321,6 +350,9 @@ public sealed partial class QuestVrMenu : Node3D
 
     private void SetPage(int page)
     {
+        m_instructionLabel.Text = page == 4
+            ? "COOL DOWN, THEN CLICK LEFT STICK TO RESTART"
+            : "POINT AND PULL TRIGGER";
         m_page = page;
         m_hoveredRow = -1;
         m_lastHoveredRow = -2;

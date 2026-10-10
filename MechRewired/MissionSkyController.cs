@@ -39,6 +39,7 @@ public sealed class MissionSkyController
     private const float DefaultFogStartFraction = 0.35f;
     private const float DesertFogAerialPerspective = 0.72f;
     private const float DesertFogSunScatter = 0.09f;
+    private const float QuestDesertFogRangeScale = 1.75f;
     private const float WarmMountainFogMultiplier = 1.35f;
     private const float WarmMountainFogStartFraction = 0.20f;
     private const float WarmMountainFogAerialPerspective = 0.32f;
@@ -60,6 +61,11 @@ public sealed class MissionSkyController
     private readonly SunLensFlare m_sunLensFlare;
     private readonly Godot.Environment m_environment;
     private readonly MissionSkyProfile m_profile;
+    private readonly Sky m_proceduralSky;
+    private readonly Node.ProcessModeEnum m_skyDomeProcessMode;
+    private Task m_skyBakeTask = Task.CompletedTask;
+    private bool m_bakedSkyRequested;
+    private Sky m_bakedSky;
     private float m_time;
     private float m_fogMultiplier = 1.0f;
     private float m_fogStartFraction = DefaultFogStartFraction;
@@ -79,6 +85,8 @@ public sealed class MissionSkyController
         m_sunLensFlare = sunLensFlare;
         m_environment = environment;
         m_profile = profile;
+        m_proceduralSky = environment.Sky;
+        m_skyDomeProcessMode = skyDome.ProcessMode;
         m_time = profile.TimeOfDay;
     }
 
@@ -128,6 +136,57 @@ public sealed class MissionSkyController
             m_time = Mathf.PosMod(value, 24.0f);
             m_sky3D.Set("current_time", m_time);
             ApplyTimeBasedSunDirection();
+        }
+    }
+
+    /// <summary>The mission's original Sky3D resource, used by the rendering benchmark baseline.</summary>
+    public Sky ProceduralSky => m_proceduralSky;
+
+    public bool SkyBakePending => !m_skyBakeTask.IsCompleted;
+
+    /// <summary>Allows a benchmark to wait for a menu-requested capture before changing the environment.</summary>
+    public Task WaitForSkyBakeAsync() => m_skyBakeTask;
+
+    /// <summary>Requests the cached Quest sky. Capture completes outside benchmark measurement windows.</summary>
+    public bool BakedSkyEnabled
+    {
+        get => m_bakedSkyRequested;
+        set
+        {
+            m_bakedSkyRequested = value;
+            if (!value)
+            {
+                m_environment.Sky = m_proceduralSky;
+                m_skyDome.ProcessMode = m_skyDomeProcessMode;
+            }
+            else if (m_bakedSky != null)
+            {
+                m_environment.Sky = m_bakedSky;
+                m_skyDome.ProcessMode = Node.ProcessModeEnum.Disabled;
+            }
+            else if (!SkyBakePending)
+            {
+                m_skyBakeTask = BakeSkyAsync();
+            }
+        }
+    }
+
+    private async Task BakeSkyAsync()
+    {
+        try
+        {
+            m_bakedSky = await QuestCachedSky.CreateAsync(m_sky3D, m_environment, m_proceduralSky);
+            if (!GodotObject.IsInstanceValid(m_skyDome) || !m_skyDome.IsInsideTree()) return;
+            if (m_bakedSkyRequested)
+            {
+                m_environment.Sky = m_bakedSky;
+                m_skyDome.ProcessMode = Node.ProcessModeEnum.Disabled;
+            }
+        }
+        catch (Exception error)
+        {
+            m_bakedSkyRequested = false;
+            GD.PushWarning("QUEST_SKY_CACHE_FAILED: " + error.Message);
         }
     }
 
@@ -518,6 +577,19 @@ public sealed class MissionSkyController
         m_sunLight.DirectionalShadowBlendSplits = true;
         m_sunLight.DirectionalShadowFadeStart = 0.90f;
         SunShadowDistance = Mathf.Clamp(m_profile.DepthCueDistance * 2.0f, 1800.0f, 4000.0f);
+        if (QuestVrRuntime.Active)
+        {
+            // Spend texels on nearby mechs/buildings instead of kilometre-scale terrain.
+            m_sunLight.DirectionalShadowMode = DirectionalLight3D.ShadowMode.Parallel2Splits;
+            m_sunLight.DirectionalShadowSplit1 = 0.20f;
+            m_sunLight.DirectionalShadowBlendSplits = true;
+            m_sunLight.DirectionalShadowFadeStart = 0.80f;
+            SunShadowDistance = 500.0f;
+            m_sunLight.LightAngularDistance = 0.0f;
+            m_sunLight.ShadowBlur = 1.0f;
+            SunShadowOpacity = DefaultSunShadowOpacity;
+            return;
+        }
         // Jade Falcon's warm mountain level is authored close to noon, which produces a tight
         // ground-space PCSS penumbra. Its muted sun reads as a broad, hazy source instead, so
         // give the mountain and external-mech shadows a deliberately softer, lighter transition.
@@ -547,6 +619,12 @@ public sealed class MissionSkyController
             ? m_profile.VisibilityDistance
             : m_profile.DepthCueDistance;
         var fogEnd = Math.Max(100.0f, authoredFogEnd / m_fogMultiplier);
+        // In the Quest desert profile, the deployment ridges otherwise reach opaque fog
+        // beneath the sun. Preserve atmospheric depth without flattening their surface shading.
+        if (QuestVrRuntime.Active && m_profile.TerrainBiome == MechWarriorTerrainBiome.Desert)
+        {
+            fogEnd *= QuestDesertFogRangeScale;
+        }
         m_environment.FogDepthBegin = fogEnd * m_fogStartFraction;
         m_environment.FogDepthEnd = fogEnd;
     }

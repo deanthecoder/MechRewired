@@ -36,6 +36,10 @@ public partial class PlayerMech : Node3D
     private const float CockpitRelativeVerticalGait = 0.055f;
     private const float CockpitRelativeLateralGait = 0.034f;
     private const float CockpitRelativeRollGait = 0.016f;
+    private const float QuestCockpitStompMeters = 0.025f;
+    private const float QuestCockpitSwayMeters = 0.01f;
+    private const float QuestCockpitRollRadians = 0.006f;
+    private const float QuestCockpitGaitResponse = 10.0f;
     private const float AllowedFootTerrainPenetrationMeters = 0.04f;
     private const float GroundClearanceRiseMetersPerSecond = 4.0f;
     private const float GroundClearanceSettleMetersPerSecond = 1.0f;
@@ -78,6 +82,8 @@ public partial class PlayerMech : Node3D
     private bool m_sceneryBlocked;
     private SceneryObstacle m_lastBlockingObstacle;
     private bool m_aligningLegsToTorso;
+    private bool m_vrAligningLegsToGaze;
+    private float m_vrGazeHeading;
     private bool m_translationLocked;
     private string m_translationLockReason = string.Empty;
     private bool m_displayZoomMoving;
@@ -299,9 +305,25 @@ public partial class PlayerMech : Node3D
 
     public QuestVrRig VrRig { get; private set; }
 
+    // TerrainSurfaceIndex is immutable and samples X/Z only. Never reuse a sample after movement.
+    private Vector3 m_questCockpitGaitOffset;
+    private float m_questCockpitGaitRoll;
+    private bool m_hasQuestSurface;
+    private Vector2 m_questSurfacePosition;
+    private float m_questSurfaceHeight;
+    private float m_questSurfaceSlope;
+    private bool UseQuestGrounding => IsVr && !QuestCombatDiagnostics.LegacyPlayerGrounding;
+
     public bool IsVr => VrRig != null;
 
     public Camera3D PilotCamera => VrRig?.Camera ?? (Camera3D)CockpitCamera;
+
+    /// <summary>One ray shared by the reticle, direct weapons and missile acquisition.</summary>
+    public Vector3 WeaponAimOrigin => IsVr && !VrRig.BenchmarkActive
+        ? VrRig.Camera.GlobalPosition : CockpitCamera.GlobalPosition;
+
+    public Vector3 WeaponAimDirection => IsVr && !VrRig.BenchmarkActive
+        ? VrRig.HeadAimDirection : -Torso.GlobalBasis.Z.Normalized();
 
     /// <summary>Attaches tracking directly to the seat, bypassing synthetic view bob and damage shake.</summary>
     public QuestVrRig EnableVr()
@@ -312,18 +334,50 @@ public partial class PlayerMech : Node3D
     }
 
     public void SetVrPitch(float pitch)
+        => SetVrTorsoAim(m_targetTorsoYaw, pitch);
+
+    /// <summary>Sets bounded torso aim without changing the native headset pose.</summary>
+    public void SetVrTorsoAim(float yaw, float pitch)
     {
         if (IsDestroyed || IsShutdown) return;
-        m_targetTorsoYaw = 0.0f;
+        m_targetTorsoYaw = Mathf.Clamp(yaw, -MaximumTorsoYaw, MaximumTorsoYaw);
         m_targetTorsoPitch = Mathf.Clamp(pitch, MinimumTorsoPitch, MaximumTorsoPitch);
     }
 
     public Vector2 VrAim => new(m_targetTorsoYaw, m_targetTorsoPitch);
 
-    public void VrFire() { if (!IsDestroyed && !IsShutdown) FireRequested?.Invoke(); }
+    public bool IsVrAligningLegsToGaze => m_vrAligningLegsToGaze;
+
+    /// <summary>Turns legs and torso toward the horizontal aim bearing captured at the click.</summary>
+    public void AlignVrLegsToGaze(Vector3 gazeDirection)
+    {
+        if (!IsVr || IsDestroyed || IsShutdown || IsImmobilized ||
+            !gazeDirection.IsFinite() || new Vector2(gazeDirection.X, gazeDirection.Z).LengthSquared() < 0.0001f)
+            return;
+        ManualControlRequested?.Invoke("VR legs to gaze");
+        m_aligningLegsToTorso = false;
+        m_vrGazeHeading = Mathf.Atan2(-gazeDirection.X, -gazeDirection.Z);
+        m_targetTorsoYaw = Mathf.Clamp(
+            Mathf.AngleDifference(GlobalRotation.Y, m_vrGazeHeading), -MaximumTorsoYaw, MaximumTorsoYaw);
+        m_vrAligningLegsToGaze = true;
+    }
+
+    public void VrFire()
+    {
+        if (IsVr && !VrRig.BenchmarkActive && !VrRig.HasHeadAim) return;
+        if (!IsDestroyed && !IsShutdown) FireRequested?.Invoke();
+    }
     public void VrCycleWeapon() => CycleWeaponRequested?.Invoke();
     public void VrCycleTarget() => NextTargetRequested?.Invoke();
     public void VrInspect() => InspectTargetRequested?.Invoke();
+    public void VrToggleReactor()
+    {
+        if (!IsDestroyed) ShutdownRequested?.Invoke();
+    }
+    public void VrToggleShutdownOverride()
+    {
+        if (!IsDestroyed) ShutdownOverrideRequested?.Invoke();
+    }
 
     public void AdjustVrThrottle(int direction)
     {
@@ -344,6 +398,7 @@ public partial class PlayerMech : Node3D
     public void StopVrMovement()
     {
         ManualControlRequested?.Invoke("VR stop");
+        m_vrAligningLegsToGaze = false;
         Drive.SelectStop();
     }
 
@@ -648,6 +703,7 @@ public partial class PlayerMech : Node3D
             Drive.SelectStop();
             m_autopilotSteering = null;
             m_aligningLegsToTorso = false;
+            m_vrAligningLegsToGaze = false;
             if (Math.Abs(Drive.CurrentSpeedKph) < 0.001)
             {
                 ActualSpeedKph = 0.0f;
@@ -690,6 +746,7 @@ public partial class PlayerMech : Node3D
     {
         ArgumentNullException.ThrowIfNull(mesh);
         ArgumentException.ThrowIfNullOrWhiteSpace(partName);
+        MechSectionHitTester.PrepareMesh(mesh.Mesh);
         m_destructibleParts.Add((mesh, partName));
     }
 
@@ -699,7 +756,7 @@ public partial class PlayerMech : Node3D
         out MechSectionHit hit) =>
         MechSectionHitTester.TryFindNearest(
             this,
-            m_destructibleParts.Where(part => IsAncestorOf(part.Mesh)),
+            m_destructibleParts,
             origin,
             direction,
             out hit);
@@ -719,6 +776,7 @@ public partial class PlayerMech : Node3D
         m_gaitGroundElevation = 0.0f;
         m_footprintRadius = Mathf.Max(modelBounds.Size.X, modelBounds.Size.Z) * 0.35f;
         m_terrainSurface = terrainSurface;
+        m_hasQuestSurface = false;
         m_sceneryObstacleProvider = sceneryObstacleProvider;
         foreach (var definition in weaponMounts)
         {
@@ -771,10 +829,14 @@ public partial class PlayerMech : Node3D
             CullMask = 1u | ExteriorRenderLayer
         };
         AddChild(WeaponCamera);
+    }
+
+    /// <summary>Starts deployment audio once the complete mission has rendered its first frame.</summary>
+    public void BeginDeploymentAudio()
+    {
         m_startup.Play();
         m_reactorHum.Play();
         m_deploymentReport.Play();
-
     }
 
     public bool TryGetWeaponOrigin(MechMountedWeapon weapon, out Vector3 origin)
@@ -792,6 +854,7 @@ public partial class PlayerMech : Node3D
 
     public override void _PhysicsProcess(double delta)
     {
+        using var cpuScope = QuestCpuTelemetry.Measure(QuestCpuTelemetry.Category.PlayerPhysics);
         if (CockpitCamera == null)
         {
             return;
@@ -800,7 +863,7 @@ public partial class PlayerMech : Node3D
         if (IsDestroyed)
         {
             ActualSpeedKph = 0.0f;
-            m_mechRig.Advance(0.0f, 0.0f, 0.0f, (float)delta);
+            m_mechRig.Advance(0.0f, 0.0f, 0.0f, (float)delta, applyPose: !UseQuestGrounding);
             UpdateMotorAudio(0.0f, (float)delta);
             return;
         }
@@ -845,6 +908,7 @@ public partial class PlayerMech : Node3D
         if (manualSteering)
         {
             m_aligningLegsToTorso = false;
+            m_vrAligningLegsToGaze = false;
         }
         else if (m_autopilotSteering.HasValue)
         {
@@ -857,8 +921,9 @@ public partial class PlayerMech : Node3D
         {
             AdvanceJumpJets((float)delta, false);
             m_aligningLegsToTorso = false;
+            m_vrAligningLegsToGaze = false;
             ActualSpeedKph = 0.0f;
-            m_mechRig.Advance(0.0f, 0.0f, 0.0f, (float)delta, IsAirborne);
+            m_mechRig.Advance(0.0f, 0.0f, 0.0f, (float)delta, IsAirborne, applyPose: !UseQuestGrounding);
             ApplyLandingDip((float)delta);
             ApplyDamageShudder((float)delta);
             UpdateMotorAudio(torsoAngularSpeed, (float)delta);
@@ -869,10 +934,13 @@ public partial class PlayerMech : Node3D
         {
             steering = Mathf.Sign(m_torsoYaw);
         }
+        if (m_vrAligningLegsToGaze)
+            steering = Mathf.Sign(Mathf.AngleDifference(GlobalRotation.Y, m_vrGazeHeading));
 
         var driveStep = Drive.Advance(delta, steering);
         var headingChangeRadians = Mathf.DegToRad((float)driveStep.HeadingChangeDegrees);
         headingChangeRadians = ApplyLegAlignment(headingChangeRadians);
+        headingChangeRadians = ApplyVrGazeLegAlignment(headingChangeRadians);
         RotateY(headingChangeRadians);
         var appliedDistance = TryMoveAcrossTerrain(
             (float)driveStep.DistanceMeters * GetDebugTravelMultiplier());
@@ -1596,6 +1664,24 @@ public partial class PlayerMech : Node3D
         return headingChange;
     }
 
+    private float ApplyVrGazeLegAlignment(float proposedHeadingChange)
+    {
+        if (!m_vrAligningLegsToGaze) return proposedHeadingChange;
+        var remaining = Mathf.AngleDifference(GlobalRotation.Y, m_vrGazeHeading);
+        var headingChange = Mathf.Sign(remaining) * Mathf.Min(Mathf.Abs(proposedHeadingChange), Mathf.Abs(remaining));
+        // Keep the current torso bearing continuous as the chassis turns, then let the
+        // normal torso motor approach the captured aim bearing. Native head pose stays untouched.
+        m_torsoYaw = Mathf.Clamp(m_torsoYaw - headingChange, -MaximumTorsoYaw, MaximumTorsoYaw);
+        m_targetTorsoYaw = Mathf.Clamp(remaining - headingChange, -MaximumTorsoYaw, MaximumTorsoYaw);
+        Torso.Rotation = new Vector3(m_torsoPitch, m_torsoYaw, 0.0f);
+        if (Mathf.Abs(remaining - headingChange) <= LegAlignmentTolerance)
+        {
+            m_targetTorsoYaw = 0.0f;
+            m_vrAligningLegsToGaze = false;
+        }
+        return headingChange;
+    }
+
     private float TryMoveAcrossTerrain(float distanceMeters)
     {
         if (Mathf.IsZeroApprox(distanceMeters))
@@ -1704,6 +1790,19 @@ public partial class PlayerMech : Node3D
 
     private bool TryGetSurface(Vector3 position, out float height, out float slopeDegrees)
     {
+        using var cpuScope = QuestCpuTelemetry.Measure(QuestCpuTelemetry.Category.PlayerSurface);
+        var planar = new Vector2(position.X, position.Z);
+        // Exact coordinates, not an approximate cell: crossing a slope/edge always queries again.
+        // Airborne motion and jump initiation explicitly refresh even at unchanged X/Z.
+        var cacheable = UseQuestGrounding && !IsAirborne && !VrRig.JumpJetsRequested;
+        if (cacheable && m_hasQuestSurface && planar == m_questSurfacePosition)
+        {
+            height = m_questSurfaceHeight;
+            slopeDegrees = m_questSurfaceSlope;
+            return true;
+        }
+        m_hasQuestSurface = false;
+        using var queryScope = QuestCpuTelemetry.Measure(QuestCpuTelemetry.Category.PlayerSurfaceQuery);
         if (m_terrainSurface == null ||
             !m_terrainSurface.TryGetSurface(position, out height, out var triangle))
         {
@@ -1715,11 +1814,20 @@ public partial class PlayerMech : Node3D
         var normal = (triangle.B - triangle.A).Cross(triangle.C - triangle.A).Normalized();
         var verticalAlignment = Mathf.Clamp(Mathf.Abs(normal.Dot(Vector3.Up)), 0.0f, 1.0f);
         slopeDegrees = Mathf.RadToDeg(Mathf.Acos(verticalAlignment));
+        if (cacheable)
+        {
+            m_questSurfacePosition = planar;
+            m_questSurfaceHeight = height;
+            m_questSurfaceSlope = slopeDegrees;
+            m_hasQuestSurface = true;
+        }
         return true;
     }
 
     private void AdvanceJumpJets(float delta, bool thrustRequested)
     {
+        using var cpuScope = QuestCpuTelemetry.Measure(QuestCpuTelemetry.Category.PlayerJumpJets);
+        if (thrustRequested) m_hasQuestSurface = false;
         if (!TryGetSurface(Position, out var surfaceHeight, out _))
         {
             IsJumpJetThrusting = false;
@@ -1837,17 +1945,20 @@ public partial class PlayerMech : Node3D
 
     private void ApplyCockpitGait(float distanceMeters, float headingChangeRadians, float delta)
     {
+        using var cpuScope = QuestCpuTelemetry.Measure(QuestCpuTelemetry.Category.PlayerGait);
         if (IsAirborne)
         {
-            m_mechRig.Advance(0.0f, 0.0f, 0.0f, delta, airborne: true);
+            m_mechRig.Advance(0.0f, 0.0f, 0.0f, delta, airborne: true, applyPose: !UseQuestGrounding);
             ViewBobMount.Position = Vector3.Zero;
             ViewBobMount.Rotation = Vector3.Zero;
-            Cockpit.SetPose(CockpitPitchDegrees, m_torsoYaw * CockpitTorsoYawFactor, Vector3.Zero, 0.0f);
+            if (IsVr) SmoothQuestCockpitGait(Vector3.Zero, 0.0f, delta);
+            Cockpit.SetPose(CockpitPitchDegrees, IsVr ? 0.0f : m_torsoYaw * CockpitTorsoYawFactor,
+                IsVr ? m_questCockpitGaitOffset : Vector3.Zero, IsVr ? m_questCockpitGaitRoll : 0.0f);
             return;
         }
 
         var speedFraction = (float)Drive.SpeedFraction;
-        if (m_mechRig.Advance(distanceMeters, headingChangeRadians, speedFraction, delta))
+        if (m_mechRig.Advance(distanceMeters, headingChangeRadians, speedFraction, delta, applyPose: !UseQuestGrounding))
         {
             PlayFootfall();
         }
@@ -1870,19 +1981,47 @@ public partial class PlayerMech : Node3D
             -Mathf.Sin(gaitPhase * 2.0f) * CockpitRelativeVerticalGait,
             0.0f) * gaitWeight;
         var cockpitRelativeRoll = Mathf.Sin(gaitPhase) * CockpitRelativeRollGait * gaitWeight;
+        // Broaden the stomp and alternate left/right loading, then soften the mesh motion.
+        // The sibling XR rig, aim and collision remain independent of this visual pose.
+        if (IsVr)
+        {
+            var strength = Mathf.Clamp(gaitWeight / (float)MechGait.MaximumPoseSpeedFraction, 0.0f, 1.0f);
+            var broadPulse = Mathf.Pow(Mathf.Max(0.0f, Mathf.Cos(gaitPhase * 2.0f)), 3.0f);
+            var side = Mathf.Cos(gaitPhase) * strength;
+            SmoothQuestCockpitGait(new Vector3(side * QuestCockpitSwayMeters,
+                -QuestCockpitStompMeters * broadPulse * strength, 0.0f),
+                -side * QuestCockpitRollRadians, delta);
+        }
         Cockpit.SetPose(
             CockpitPitchDegrees,
             IsVr ? 0.0f : m_torsoYaw * CockpitTorsoYawFactor,
-            IsVr ? Vector3.Zero : viewOffset + cockpitRelativeOffset,
-            IsVr ? 0.0f : roll + cockpitRelativeRoll);
+            IsVr ? m_questCockpitGaitOffset : viewOffset + cockpitRelativeOffset,
+            IsVr ? m_questCockpitGaitRoll : roll + cockpitRelativeRoll);
+    }
+
+    private void SmoothQuestCockpitGait(Vector3 offset, float roll, float delta)
+    {
+        var blend = 1.0f - Mathf.Exp(-QuestCockpitGaitResponse * delta);
+        m_questCockpitGaitOffset = m_questCockpitGaitOffset.Lerp(offset, blend);
+        m_questCockpitGaitRoll = Mathf.Lerp(m_questCockpitGaitRoll, roll, blend);
     }
 
     private void ApplyGaitGroundClearance(float delta)
     {
-        if (m_terrainSurface == null)
+        using var cpuScope = QuestCpuTelemetry.Measure(QuestCpuTelemetry.Category.PlayerGroundClearance);
+        // This offset only prevents animated toe artwork penetrating terrain. Quest's hidden
+        // legs need no per-vertex contact solving; movement/landing still use the chassis surface.
+        if (UseQuestGrounding)
         {
+            var settled = Mathf.MoveToward(m_gaitGroundElevation, 0, GroundClearanceSettleMetersPerSecond * delta);
+            if (settled != m_gaitGroundElevation)
+            {
+                Position += Vector3.Up * (settled - m_gaitGroundElevation);
+                m_gaitGroundElevation = settled;
+            }
             return;
         }
+        if (m_terrainSurface == null) return;
 
         var targetElevation = m_mechRig.CalculateRequiredChassisElevation(
             position => m_terrainSurface.TryGetHeight(position, out var height) ? height : null,

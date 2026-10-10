@@ -63,9 +63,17 @@ public partial class PlayerCockpit : Node3D
 
     private readonly List<(OmniLight3D Light, float Baseline, float Lift)> m_interiorLights = new();
     private float m_lightingStrength = 1.0f;
+    private bool m_interiorLightsEnabled = true;
+    private bool m_questUvMaterialsEnabled;
+    private bool m_bakedInteriorLightingEnabled;
+    private QuestCockpitMaterials m_questMaterials;
+    private Node3D m_model;
     private StandardMaterial3D m_frameMaterial;
     private MeshInstance3D m_frameMesh;
     private MeshInstance3D m_glassMesh;
+    private Vector3[] m_mainWindshieldVertices = [];
+    internal ReadOnlySpan<Vector3> MainWindshieldVertices => m_mainWindshieldVertices;
+    internal Transform3D MainWindshieldTransform => m_glassMesh.GlobalTransform;
     private ShaderMaterial m_glassMaterial;
     private float m_frameTextureScale = DefaultFrameTextureScale;
     private float m_frameMetallic = DefaultFrameMetallic;
@@ -91,11 +99,66 @@ public partial class PlayerCockpit : Node3D
         set
         {
             m_lightingStrength = Mathf.Clamp(value, 0.0f, 2.0f);
-            foreach (var (light, baseline, lift) in m_interiorLights)
-            {
-                light.LightEnergy = baseline + lift * m_lightingStrength;
-            }
+            UpdateInteriorLights();
         }
+    }
+
+    /// <summary>Enables or disables all authored cockpit interior lighting.</summary>
+    public bool InteriorLightsEnabled
+    {
+        get => m_interiorLightsEnabled;
+        set
+        {
+            m_interiorLightsEnabled = value;
+            UpdateInteriorLights();
+        }
+    }
+
+    private void UpdateInteriorLights()
+    {
+        var useBake = m_questUvMaterialsEnabled && m_bakedInteriorLightingEnabled;
+        foreach (var (light, baseline, lift) in m_interiorLights)
+        {
+            // Hide the lamps too: zero energy alone need not remove them from light lists.
+            light.Visible = m_interiorLightsEnabled && !useBake;
+            light.LightEnergy = m_interiorLightsEnabled && !useBake ? baseline + lift * m_lightingStrength : 0.0f;
+        }
+        m_questMaterials?.SetInteriorLighting(useBake && m_interiorLightsEnabled, m_lightingStrength);
+    }
+
+    /// <summary>Uses offline UV atlases in place of the original cockpit surface materials.</summary>
+    public bool QuestUvMaterialsEnabled
+    {
+        get => m_questUvMaterialsEnabled;
+        set
+        {
+            if (value == m_questUvMaterialsEnabled) return;
+            // Load first, so a missing or stale bake cannot leave the model half-switched.
+            if (value && m_model != null) m_questMaterials ??= new QuestCockpitMaterials(m_model);
+            m_questUvMaterialsEnabled = value;
+            ApplyQuestMaterials();
+        }
+    }
+
+    /// <summary>Replaces fixed cabin lamps with their offline bake when UV materials are active.</summary>
+    public bool BakedInteriorLightingEnabled
+    {
+        get => m_bakedInteriorLightingEnabled;
+        set
+        {
+            m_bakedInteriorLightingEnabled = value;
+            UpdateInteriorLights();
+        }
+    }
+
+    private void ApplyQuestMaterials()
+    {
+        if (m_model == null) return;
+        if (m_questUvMaterialsEnabled) m_questMaterials ??= new QuestCockpitMaterials(m_model);
+        m_questMaterials?.Apply(m_questUvMaterialsEnabled);
+        m_questMaterials?.SetFrameProperties(m_frameMetallic, m_frameRoughness);
+        UpdateInteriorLights();
+        ApplyFrameDiagnosticMaterial();
     }
 
     public CockpitFrameDiagnosticMode FrameDiagnosticMode
@@ -286,6 +349,24 @@ public partial class PlayerCockpit : Node3D
 
         m_glassMaterial = CreateGlassMaterial();
         m_glassMesh = glass;
+        // The main windshield is the upper forward pane (local Y >= 0). Exclude the
+        // lower nose and side panes: their combined silhouette is not a convex opening.
+        // Cache its actual vertices even when glass rendering is disabled.
+        var windshieldVertices = new HashSet<Vector3>();
+        var glassFaces = glass.Mesh.GetFaces();
+        for (var i = 0; i + 2 < glassFaces.Length; i += 3)
+        {
+            var a = glassFaces[i];
+            var b = glassFaces[i + 1];
+            var c = glassFaces[i + 2];
+            var normal = (b - a).Cross(c - a).Normalized();
+            if (Mathf.Abs(normal.Z) < 0.5f || Math.Max(a.Z, Math.Max(b.Z, c.Z)) >= 0 ||
+                Math.Min(a.Y, Math.Min(b.Y, c.Y)) < -0.00001f) continue;
+            windshieldVertices.Add(a);
+            windshieldVertices.Add(b);
+            windshieldVertices.Add(c);
+        }
+        m_mainWindshieldVertices = windshieldVertices.ToArray();
         glass.MaterialOverride = m_glassMaterial;
         glass.CastShadow = GeometryInstance3D.ShadowCastingSetting.Off;
         glass.Visible = m_glassEnabled;
@@ -296,6 +377,7 @@ public partial class PlayerCockpit : Node3D
         }
 
         model.Name = "AuthoredCockpit";
+        m_model = model;
         AddChild(model);
         AddInteriorLight(model, "PortRailLamp", new Vector3(-0.30f, -0.016f, -0.42f),
             new Color(1.0f, 0.40f, 0.12f), 0.035f, 0.025f, 0.45f);
@@ -306,7 +388,7 @@ public partial class PlayerCockpit : Node3D
         // Approximate instrument light bouncing through the cabin, without lighting the landscape.
         AddInteriorLight(model, "CabinBounce", new Vector3(0.0f, 0.10f, 0.10f),
             new Color(0.72f, 0.80f, 1.0f), 0.0f, 0.08f, 1.4f);
-        ApplyFrameDiagnosticMaterial();
+        ApplyQuestMaterials();
     }
 
     private void AddInteriorLight(Node3D model, string name, Vector3 position, Color color,
@@ -317,7 +399,7 @@ public partial class PlayerCockpit : Node3D
             Name = name,
             Position = position,
             LightColor = color,
-            LightEnergy = baseline + lift * m_lightingStrength,
+            LightEnergy = m_interiorLightsEnabled ? baseline + lift * m_lightingStrength : 0.0f,
             OmniRange = range,
             LightCullMask = RenderLayer,
             LightVolumetricFogEnergy = 0.0f,
@@ -374,6 +456,7 @@ public partial class PlayerCockpit : Node3D
         m_frameMaterial.Metallic = m_frameMetallic;
         m_frameMaterial.Roughness = m_frameRoughness;
         m_frameMaterial.Uv1Scale = Vector3.One * m_frameTextureScale;
+        m_questMaterials?.SetFrameProperties(m_frameMetallic, m_frameRoughness);
         if (FrameDiagnosticMode is CockpitFrameDiagnosticMode.Albedo or
             CockpitFrameDiagnosticMode.NormalMap or
             CockpitFrameDiagnosticMode.Roughness or
@@ -509,7 +592,7 @@ public partial class PlayerCockpit : Node3D
 
         m_frameMesh.MaterialOverride = FrameDiagnosticMode switch
         {
-            CockpitFrameDiagnosticMode.Lit => null,
+            CockpitFrameDiagnosticMode.Lit => m_questUvMaterialsEnabled ? m_questMaterials?.FrameMaterial : null,
             CockpitFrameDiagnosticMode.Albedo => CreateTextureDiagnosticMaterial(FrameAlbedoTexturePath),
             CockpitFrameDiagnosticMode.NormalMap => CreateTextureDiagnosticMaterial(FrameNormalTexturePath),
             CockpitFrameDiagnosticMode.Roughness => CreateTextureDiagnosticMaterial(FrameRoughnessTexturePath),

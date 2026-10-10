@@ -48,7 +48,13 @@ connect_quest() {
   if ! select_quest; then
     if [[ -n "$address" ]]; then
       [[ "$address" == *:* ]] || address="$address:5555"
-      "$adb_bin" connect "$address"
+      "$adb_bin" connect "$address" || true
+      if ! select_quest; then
+        # ADB's background server can retain a broken route after Wi-Fi wakes.
+        "$adb_bin" kill-server
+        "$adb_bin" start-server
+        "$adb_bin" connect "$address" || true
+      fi
     fi
     if ! select_quest; then
       printf 'No Quest connected. Connect USB and accept debugging, then run scripts/quest.sh connect to enable Wi-Fi. For a changed IP, use QUEST_HOST=<headset-ip> scripts/quest.sh install.\n' >&2
@@ -122,8 +128,65 @@ install_game_data() {
   printf 'Verified your file in Downloads/MechRewired. In MechRewired select IMPORT MW2.PRJ to copy it into private app storage.\n'
 }
 
+fetch_benchmarks() {
+  local destination="$repo_dir/local/quest-benchmarks/$(date +%Y%m%d-%H%M%S)"
+  local app_destination="$destination/app-storage"
+  local downloads_destination="$destination/downloads"
+  local remote_path local_destination
+  connect_quest
+  mkdir -p "$app_destination" "$downloads_destination"
+  # App-specific external storage remains readable over ADB even when Android
+  # prevents a release app from writing into the public Downloads directory.
+  for remote_path in /storage/emulated/0/Android/data/uk.co.deanthecoder.mechrewired/files/benchmarks \
+    /sdcard/Download/MechRewired/benchmarks; do
+    if [[ "$remote_path" == /storage/emulated/0/Android/data/* ]]; then
+      local_destination="$app_destination"
+    else
+      local_destination="$downloads_destination"
+    fi
+    if "$adb_bin" -s "$quest_serial" shell test -d "$remote_path" >/dev/null 2>&1; then
+      if ! "$adb_bin" -s "$quest_serial" pull "$remote_path/" "$local_destination/"; then
+        printf 'Could not read Quest benchmark mirror: %s\n' "$remote_path" >&2
+      fi
+    fi
+  done
+  if find "$app_destination" -type f -name '*.log' -print -quit | rg -q .; then
+    printf 'Fetched preferred app-storage benchmark logs to %s\n' "$app_destination"
+    if find "$downloads_destination" -type f -name '*.log' -print -quit | rg -q .; then
+      printf 'Fetched separate Downloads mirror to %s\n' "$downloads_destination"
+    fi
+    printf 'Quest benchmark files are under %s\n' "$destination"
+  elif find "$downloads_destination" -type f -name '*.log' -print -quit | rg -q .; then
+    printf 'App-storage mirror is unavailable; fetched Downloads fallback to %s\n' "$downloads_destination"
+    printf 'Quest benchmark files are under %s\n' "$destination"
+  else
+    rmdir "$app_destination" "$downloads_destination" "$destination" 2>/dev/null || true
+    printf 'No ADB-readable combat benchmark files were found. Run the benchmark once with this build, then retry. The app-private user:// copy is not readable from a Release APK over ADB.\n' >&2
+    printf 'Expected mirrors: /storage/emulated/0/Android/data/uk.co.deanthecoder.mechrewired/files/benchmarks or /sdcard/Download/MechRewired/benchmarks\n' >&2
+    exit 1
+  fi
+}
+
 build_quest() {
-  local output_path="$1" signing_dir signing_key signing_password
+  local output_path="$1" signing_dir signing_key signing_password export_status export_log quest_dotnet_dir
+  # IDE shells can force MSBuild from a different SDK than the dotnet executable.
+  # Let the selected dotnet SDK resolve its own tools for this build process.
+  unset MSBUILD_EXE_PATH MSBuildSDKsPath MSBuildExtensionsPath
+  unset DOTNET_MSBUILD_SDK_RESOLVER_CLI_DIR DOTNET_MSBUILD_SDK_RESOLVER_SDKS_DIR DOTNET_MSBUILD_SDK_RESOLVER_SDKS_VER
+  # Godot prefers this installation on macOS even when PATH selects a private SDK.
+  # Align its in-process SDK discovery and child publish process with that choice.
+  if [[ "$(uname -s)" == Darwin && -x /usr/local/share/dotnet/dotnet ]]; then
+    quest_dotnet_dir=/usr/local/share/dotnet
+    if [[ "$(uname -m)" == x86_64 && -x /usr/local/share/dotnet/x64/dotnet ]]; then
+      quest_dotnet_dir=/usr/local/share/dotnet/x64
+    fi
+    export PATH="$quest_dotnet_dir:$PATH"
+    export DOTNET_ROOT="$quest_dotnet_dir"
+    export DOTNET_ROOT_ARM64="$quest_dotnet_dir"
+    export DOTNET_ROOT_X64="$quest_dotnet_dir"
+    export DOTNET_HOST_PATH="$quest_dotnet_dir/dotnet"
+    printf 'Quest .NET SDK: %s (%s)\n' "$("$quest_dotnet_dir/dotnet" --version)" "$quest_dotnet_dir"
+  fi
   signing_dir="${QUEST_SIGNING_DIR:-$HOME/Library/Application Support/MechRewired/signing}"
   signing_key="$signing_dir/mechrewired-release.keystore"
   signing_password="$signing_dir/keystore-password"
@@ -181,8 +244,20 @@ build_quest() {
   if ! rg -q 'android.hardware.vr.headtracking' "$main_manifest"; then
     perl -0pi -e 's#(<supports-screens)#<uses-feature android:name="android.hardware.vr.headtracking" android:required="true" android:version="1" />\n\n    $1#' "$main_manifest"
   fi
+  export_log="$output_path.export.log"
+  export_status=0
   "$godot_bin" --headless --path "$project_dir" --xr-mode off \
-    --export-release 'Quest Alpha' "$output_path"
+    --export-release 'Quest Alpha' "$output_path" 2>&1 | tee "$export_log" || export_status=$?
+  # Godot can return success after a failed managed publish and write an incomplete APK.
+  if [[ "$export_status" != 0 ]] || rg -q 'Export \.NET Project:|Failed to build project\. Check MSBuild' "$export_log"; then
+    printf 'Quest Release export failed. See %s and the Godot MSBuild panel for details.\n' "$export_log" >&2
+    exit 1
+  fi
+  if [[ "${QUEST_INCLUDE_TEST_DATA:-0}" == 1 ]]; then
+    python3 "$repo_dir/scripts/validate-quest-apk.py" "$output_path" --require-test-data
+  else
+    python3 "$repo_dir/scripts/validate-quest-apk.py" "$output_path"
+  fi
   restore_project_config
   trap - EXIT
   printf 'Built release APK: %s\n' "$output_path"
@@ -220,8 +295,11 @@ case "${1:-install}" in
     connect_quest
     install_game_data
     ;;
+  fetch-benchmarks)
+    fetch_benchmarks
+    ;;
   *)
-    printf 'Usage: scripts/quest.sh [build|install|connect|data|share]\n' >&2
+    printf 'Usage: scripts/quest.sh [build|install|connect|data|share|fetch-benchmarks]\n' >&2
     exit 2
     ;;
 esac

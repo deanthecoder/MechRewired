@@ -70,18 +70,23 @@ public static class DerivedTerrainSurfaceBuilder
                     new System.Numerics.Vector2(position.X, position.Z),
                     groundReliefKind)
                 : _ => ImplicitGroundHeight;
-        var render = TerrainMeshDeriver.Build(
-            source,
-            RenderSubdivisions,
-            SmoothingAngleDegrees,
-            SmoothingStrength,
-            displacement);
-        var collision = TerrainMeshDeriver.Build(
-            source,
-            CollisionSubdivisions,
-            SmoothingAngleDegrees,
-            SmoothingStrength,
-            displacement);
+        DerivedTerrainMesh render = null;
+        DerivedTerrainMesh collision = null;
+        // These independent builders use immutable source data and managed numeric arrays.
+        // Keep Godot mesh creation below on the calling (main) thread.
+        Parallel.Invoke(new ParallelOptions { MaxDegreeOfParallelism = 2 },
+            () => render = TerrainMeshDeriver.Build(
+                source,
+                RenderSubdivisions,
+                SmoothingAngleDegrees,
+                SmoothingStrength,
+                displacement),
+            () => collision = TerrainMeshDeriver.Build(
+                source,
+                CollisionSubdivisions,
+                SmoothingAngleDegrees,
+                SmoothingStrength,
+                displacement));
         var renderBaseSnapCount = 0;
         IReadOnlyList<TerrainSourceTriangle> renderSkirts = Array.Empty<TerrainSourceTriangle>();
         IReadOnlyList<TerrainSourceTriangle> collisionSkirts = Array.Empty<TerrainSourceTriangle>();

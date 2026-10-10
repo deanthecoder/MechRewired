@@ -1,0 +1,103 @@
+# Quest startup crash — 4 October 2026
+
+The uploaded package crashed before executing game code. A fresh launch reproduced
+`.NET: Assemblies not found`, followed by a native SIGSEGV in `VkThread`.
+The installed APK and the local pre-rebuild APK both measured 170,868,049 bytes
+and contained no `assets/.godot/mono/publish/arm64/` managed payload. The installed
+APK SHA-256 was `be5f64eb5b3c8b8b3a01bdba20849030a9ede8520e0ac1119612ff618f226035`.
+The generating export command is unknown; do not attribute this to the HUD or
+collision changes, since the application assembly was absent.
+
+## Repair and device verification
+
+Rebuilt from `c781cb4` using the Mono Godot 4.7.1 executable and
+`QUEST_INCLUDE_TEST_DATA=1 scripts/quest.sh build`. The .NET publish and Android
+export completed. The 213,078,993-byte Release package contains:
+
+- `assets/.godot/mono/publish/arm64/MechRewired.dll`
+- `assets/.godot/mono/publish/arm64/MechRewired.runtimeconfig.json`
+- `assets/.godot/mono/publish/arm64/System.Private.CoreLib.dll`
+- `assets/TestData/MW2.PRJ` (21,893,380 bytes)
+
+The assembly hash matches the Android Release publish output; bundled game data
+matches the private source. APK signature verification passed with the existing
+release certificate. The manifest has no debuggable flag. Candidate SHA-256:
+`a9e86708b9aee7ae54f0da098fdeec7744a3945be31440eb3c9098b0e38f467f`.
+
+Installed over USB with `adb install --no-incremental -r`, preserving app data,
+and launched with logging already active. At 19:26:59 BST it reached the first
+frame (13,274 ms startup), and at 19:27:00 logged focused head tracking, centered
+seat, valid aim, right controller tracked, left inactive, menu closed and
+`paused=False`. The process remained alive after startup. This verifies the
+packaging repair and mission launch, not live firing or headset readability.
+The package includes the independently tracked right-hand weapon control fix and
+compact Quest HUD from the previous session.
+
+Filtered crash and repaired startup evidence is in
+[quest-startup-2026-10-04.log](data/quest-startup-2026-10-04.log). Full captures and
+both old APK snapshots remain under ignored `local/benchmarks/`; the committed
+excerpt normalizes trailing whitespace and excludes unrelated Android app logs.
+
+## Packaging safeguard
+
+`scripts/quest.sh build` now runs `scripts/validate-quest-apk.py` before reporting
+success or allowing its install flow to continue. It rejects absent/empty app and
+core runtime assemblies or absent/empty/invalid runtime configuration. Private
+test-data builds also require a nonempty bundled MW2.PRJ. This is a structural
+check; signature verification and on-device startup are separate proof levels.
+
+All six validator unit tests passed. The broken APK is rejected and the repaired
+APK passes, including the private-data requirement. Shell syntax validation
+passed. The user's pre-existing ADB reconnection changes in `scripts/quest.sh`
+were preserved and are not included in the packaging-fix commit.
+
+## Repeated install export failure: SDK mismatch
+
+The user’s ordinary `./scripts/quest.sh install` subsequently failed during
+Godot’s managed publish before generating an incomplete APK. The Godot MSBuild
+log showed `/usr/local/share/dotnet/dotnet` (SDK 9.0.203) executing
+`/Users/dean/.dotnet/sdk/9.0.200/MSBuild.dll`; referenced projects also imported
+targets from the older SDK. The publish failed before game code could be packaged.
+
+Setting `MSBUILD_EXE_PATH` to that older DLL reproduced a publish exit code of 1
+with no console error, only restore success. Clearing inherited MSBuild/tool
+resolver overrides in the Quest build process allows the selected dotnet SDK to
+resolve its own matching tools. This reproduces and addresses the observed mixed
+toolchain; the originating Terminal environment was not read directly.
+
+A Release build with deliberately stale `MSBUILD_EXE_PATH` and `MSBuildSDKsPath`
+now completes and passes APK managed-payload validation. Its MSBuild log confirms
+that both the dotnet executable and MSBuild come from the system 9.0.203 SDK.
+No installation was performed; the user can rerun the same install command.
+
+The script also saves Godot output to `<APK>.export.log` and explicitly rejects
+a managed-export error even if Godot returns zero. The structural APK validator
+still runs after a successful export. Project configuration and manifest
+restoration continue to run on failure.
+
+## Follow-up: align PATH and DOTNET_ROOT together
+
+Clearing explicit MSBuild overrides was insufficient in the user’s shell. The
+next failed publish again showed system dotnet 9.0.203 loading private MSBuild
+9.0.200. The exact failure is reproducible with:
+
+```sh
+PATH=/Users/dean/.dotnet:$PATH DOTNET_ROOT=/Users/dean/.dotnet scripts/quest.sh build
+```
+
+Setting either variable alone passed here; setting both reproduced the managed
+publish failure. Godot’s macOS publish CLI discovery prefers the system dotnet
+installation, while its SDK discovery can still be influenced by private-root
+environment settings. The previous override-only validation covered a narrower
+case and did not establish a fix for this combination.
+
+The Quest build now aligns PATH, DOTNET_ROOT, architecture-specific roots, and
+DOTNET_HOST_PATH to the system installation Godot uses on macOS. This affects
+only the script process, without changing the user’s shell configuration or
+installed SDKs. It prints the selected SDK version and location before export.
+
+The same combined private PATH/root command now completes a Release export and
+passes the required managed-payload APK validation. Both dotnet and MSBuild are
+confirmed from the system 9.0.203 installation. The existing signature is retained.
+No installation was performed. See
+[export SDK evidence](data/quest-export-sdk-2026-10-04.log).
