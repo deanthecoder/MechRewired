@@ -1990,10 +1990,6 @@ public partial class Main : Node3D
         }
         BattlefieldPhysics.AddTerrainCollision(levelRoot, debugTriangles);
         battlefieldEffects.ConfigureTerrain(terrainSurface);
-        foreach (var battlefieldActor in battlefieldActors)
-        {
-            battlefieldActor.ConfigureTerrain(terrainSurface);
-        }
         var hostileAircraft = LoadAuthoredAircraft(
             archive,
             level,

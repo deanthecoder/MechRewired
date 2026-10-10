@@ -23,13 +23,11 @@ namespace MechRewired;
 public partial class BattlefieldActor : Node3D
 {
     private const float DebrisGravity = 4.5f;
-    private const float MaximumDebrisLifetime = 12.0f;
 
     private readonly List<Node3D> m_activeRepresentations = new();
     private readonly List<Node3D> m_destroyedRepresentations = new();
     private readonly IReadOnlyList<ArrayMesh> m_explosionDebrisMeshes;
-    private readonly List<DebrisState> m_debris = new();
-    private TerrainSurfaceIndex m_terrainSurface;
+    private readonly List<RigidBody3D> m_debris = new();
     private Node3D m_effectObserver;
     private SceneryObstacle m_activeObstacle;
     private SceneryObstacle m_destroyedObstacle;
@@ -131,58 +129,6 @@ public partial class BattlefieldActor : Node3D
             GD.Print(
                 $"MechRewired: culled explosion debris for {Description} beyond " +
                 $"{BattlefieldEffects.EffectPersistenceRadius:F0}m.");
-            return;
-        }
-
-        var elapsed = (float)delta;
-        for (var index = m_debris.Count - 1; index >= 0; index--)
-        {
-            var debris = m_debris[index];
-            debris.Age += elapsed;
-            if (debris.Settled)
-            {
-                continue;
-            }
-
-            debris.Velocity += Vector3.Down * DebrisGravity * elapsed;
-            debris.Representation.GlobalPosition += debris.Velocity * elapsed;
-            debris.Representation.RotateObjectLocal(Vector3.Right, debris.AngularVelocity.X * elapsed);
-            debris.Representation.RotateObjectLocal(Vector3.Up, debris.AngularVelocity.Y * elapsed);
-            debris.Representation.RotateObjectLocal(Vector3.Back, debris.AngularVelocity.Z * elapsed);
-
-            if (debris.Velocity.Y <= 0.0f &&
-                TryGetTerrainHeight(debris.Representation.GlobalPosition, out var terrainHeight))
-            {
-                var lowestPoint = GetWorldBounds(debris.Representation).Position.Y;
-                if (lowestPoint <= terrainHeight)
-                {
-                    debris.Representation.GlobalPosition += Vector3.Up * (terrainHeight - lowestPoint);
-                    if (debris.Velocity.Y < -0.8f && debris.Age < MaximumDebrisLifetime)
-                    {
-                        debris.Velocity = new Vector3(
-                            debris.Velocity.X * 0.58f,
-                            -debris.Velocity.Y * 0.22f,
-                            debris.Velocity.Z * 0.58f);
-                        debris.AngularVelocity *= 0.65f;
-                    }
-                    else
-                    {
-                        SettleDebris(debris, terrainHeight);
-                    }
-                }
-            }
-
-            if (debris.Age >= MaximumDebrisLifetime)
-            {
-                if (TryGetTerrainHeight(debris.Representation.GlobalPosition, out var finalTerrainHeight))
-                {
-                    SettleDebris(debris, finalTerrainHeight);
-                }
-                else
-                {
-                    debris.Settled = true;
-                }
-            }
         }
     }
 
@@ -237,12 +183,6 @@ public partial class BattlefieldActor : Node3D
     {
         ArgumentNullException.ThrowIfNull(observer);
         m_effectObserver = observer;
-    }
-
-    public void ConfigureTerrain(TerrainSurfaceIndex terrainSurface)
-    {
-        ArgumentNullException.ThrowIfNull(terrainSurface);
-        m_terrainSurface = terrainSurface;
     }
 
     /// <summary>
@@ -304,28 +244,28 @@ public partial class BattlefieldActor : Node3D
             Seed = unchecked((ulong)(Definition.ObjectId * 7919 + 104729))
         };
         var pieceCount = Math.Clamp(4 + MaximumHealth / 10, 5, 10);
+        var hulls = new Dictionary<ArrayMesh, ConvexPolygonShape3D>();
         for (var index = 0; index < pieceCount; index++)
         {
-            var representation = new Node3D
+            var mesh = m_explosionDebrisMeshes[index % m_explosionDebrisMeshes.Count];
+            if (!hulls.TryGetValue(mesh, out var hull))
             {
-                Name = $"ExplosionDebris-{index + 1}"
-            };
-            var meshInstance = new MeshInstance3D
-            {
-                Mesh = m_explosionDebrisMeshes[index % m_explosionDebrisMeshes.Count],
-                CastShadow = GeometryInstance3D.ShadowCastingSetting.DoubleSided
-            };
-            representation.AddChild(meshInstance);
+                hull = mesh.CreateConvexShape();
+                hulls.Add(mesh, hull);
+            }
+            var representation = ExplosionDebrisBody.Create(mesh, hull, DebrisGravity);
+            representation.Name = $"ExplosionDebris-{index + 1}";
             AddChild(representation);
             var center = explosionBounds.GetCenter() + new Vector3(
                 random.RandfRange(-explosionBounds.Size.X * 0.18f, explosionBounds.Size.X * 0.18f),
                 random.RandfRange(0.0f, Math.Max(explosionBounds.Size.Y * 0.25f, 0.5f)),
                 random.RandfRange(-explosionBounds.Size.Z * 0.18f, explosionBounds.Size.Z * 0.18f));
-            representation.GlobalPosition = center;
             representation.Rotation = new Vector3(
                 random.RandfRange(0.0f, Mathf.Tau),
                 random.RandfRange(0.0f, Mathf.Tau),
                 random.RandfRange(0.0f, Mathf.Tau));
+            // Keep the original mesh's launch position while centering its body on the hull.
+            representation.GlobalPosition = center + representation.GlobalBasis * mesh.GetAabb().GetCenter();
             var outward = new Vector3(center.X - hitPosition.X, 0.0f, center.Z - hitPosition.Z);
             if (outward.LengthSquared() < 0.01f)
             {
@@ -342,12 +282,14 @@ public partial class BattlefieldActor : Node3D
                 random.RandfRange(-2.2f, 2.2f),
                 random.RandfRange(-1.6f, 1.6f),
                 random.RandfRange(-2.2f, 2.2f));
-            m_debris.Add(new DebrisState(representation, velocity, angularVelocity));
+            representation.LinearVelocity = velocity;
+            representation.AngularVelocity = angularVelocity;
+            m_debris.Add(representation);
         }
 
         GD.Print(
             $"MechRewired: launched {m_debris.Count} original MW2 explosion chunks from " +
-            $"{Description} with low-gravity debris physics and spatial terrain queries.");
+            $"{Description} with sleeping convex debris bodies and terrain collision.");
     }
 
     private bool IsWithinEffectPersistenceRange() =>
@@ -363,48 +305,10 @@ public partial class BattlefieldActor : Node3D
     {
         foreach (var debris in m_debris)
         {
-            debris.Representation.QueueFree();
+            debris.QueueFree();
         }
 
         m_debris.Clear();
-    }
-
-    private bool TryGetTerrainHeight(Vector3 position, out float height)
-    {
-        if (m_terrainSurface == null || !m_terrainSurface.TryGetHeight(position, out height))
-        {
-            height = 0.0f;
-            return false;
-        }
-
-        return true;
-    }
-
-    private static void SettleDebris(DebrisState debris, float terrainHeight)
-    {
-        var rotation = debris.Representation.Rotation;
-        debris.Representation.Rotation = new Vector3(0.0f, rotation.Y, 0.0f);
-        var lowestPoint = GetWorldBounds(debris.Representation).Position.Y;
-        debris.Representation.GlobalPosition += Vector3.Up * (terrainHeight - lowestPoint);
-        debris.Velocity = Vector3.Zero;
-        debris.AngularVelocity = Vector3.Zero;
-        debris.Settled = true;
-    }
-
-    private static Aabb GetWorldBounds(Node3D representation)
-    {
-        var bounds = new Aabb();
-        var hasBounds = false;
-        foreach (var meshInstance in representation.GetChildren().OfType<MeshInstance3D>())
-        {
-            var meshBounds = meshInstance.GlobalTransform * meshInstance.GetAabb();
-            bounds = hasBounds ? bounds.Merge(meshBounds) : meshBounds;
-            hasBounds = true;
-        }
-
-        return hasBounds
-            ? bounds
-            : new Aabb(representation.GlobalPosition, Vector3.Zero);
     }
 
     private static SceneryObstacle TransformObstacle(SceneryObstacle obstacle, Transform3D transform)
@@ -437,21 +341,5 @@ public partial class BattlefieldActor : Node3D
     {
         var moved = transform * new Vector3(point.X, 0.0f, point.Y);
         return new System.Numerics.Vector2(moved.X, moved.Z);
-    }
-
-    private sealed class DebrisState(
-        Node3D representation,
-        Vector3 velocity,
-        Vector3 angularVelocity)
-    {
-        public Node3D Representation { get; } = representation;
-
-        public Vector3 Velocity { get; set; } = velocity;
-
-        public Vector3 AngularVelocity { get; set; } = angularVelocity;
-
-        public float Age { get; set; }
-
-        public bool Settled { get; set; }
     }
 }
