@@ -13,8 +13,9 @@ been retired from the active suite; the analyzer still accepts their historical 
 ## Run on the headset
 
 1. Build and install the Release APK with `./scripts/quest.sh install`.
-2. Open **BENCHMARKS > COMBAT TEST (RESTARTS)** and keep your head still. This
-   intentionally resets mission progress. Menu or loss of headset focus cancels.
+2. Launch the app with `--quest-combat-benchmark` enabled and keep your head
+   still. This intentionally resets mission progress. Menu or loss of headset
+   focus cancels.
 3. Wait for completion. Three fresh missions each run three seconds of live warmup
    and twelve seconds of measurement: 45 seconds plus loading and reporting.
    A final fresh mission restores settings and resumes play. Failed/cancelled

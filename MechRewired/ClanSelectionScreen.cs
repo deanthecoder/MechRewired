@@ -71,8 +71,8 @@ public sealed partial class ClanSelectionScreen : Control
         MouseFilter = MouseFilterEnum.Stop;
         Input.MouseMode = Input.MouseModeEnum.Visible;
         m_font = GD.Load<FontFile>("res://Assets/Fonts/Orbitron-Variable.ttf") ?? ThemeDB.FallbackFont;
-        m_falconInsignia = LoadIndexedTexture(JadeFalconInsigniaPath);
-        m_wolfInsignia = LoadIndexedTexture(WolfInsigniaPath);
+        m_falconInsignia = LoadInsigniaTexture(m_archive, ClanCampaignSelection.JadeFalcon);
+        m_wolfInsignia = LoadInsigniaTexture(m_archive, ClanCampaignSelection.Wolf);
         // Presentation extras must not prevent a valid DOS archive from reaching a campaign.
         try
         {
@@ -226,10 +226,19 @@ public sealed partial class ClanSelectionScreen : Control
         }
     }
 
-    private Texture2D LoadIndexedTexture(string resourcePath)
+    /// <summary>Decodes the original clan insignia from the player's MW2 archive for desktop and VR selection screens.</summary>
+    internal static Texture2D LoadInsigniaTexture(
+        MechWarriorProjectArchive archive,
+        ClanCampaignSelection campaign)
     {
-        var palette = MechWarriorPalette.Load(m_archive.ReadEntry(m_archive.GetEntry(InsigniaPalettePath)));
-        var source = MechWarriorIndexedImage.Load(m_archive.ReadEntry(m_archive.GetEntry(resourcePath)));
+        var resourcePath = campaign switch
+        {
+            ClanCampaignSelection.JadeFalcon => JadeFalconInsigniaPath,
+            ClanCampaignSelection.Wolf => WolfInsigniaPath,
+            _ => throw new ArgumentOutOfRangeException(nameof(campaign), campaign, "A Clan insignia is required.")
+        };
+        var palette = MechWarriorPalette.Load(archive.ReadEntry(archive.GetEntry(InsigniaPalettePath)));
+        var source = MechWarriorIndexedImage.Load(archive.ReadEntry(archive.GetEntry(resourcePath)));
         var pixels = new byte[source.Width * source.Height * 4];
         for (var y = 0; y < source.Height; y++)
         {

@@ -28,7 +28,7 @@ measure the cost of a live battle, weapon simulation, destruction or AI.
 
    Leave this running. The log is written directly on your Mac in the terminal's
    current directory. Restart the mission to restore its initial state.
-3. Open the Quest menu, select **BENCHMARKS > RENDERING TEST**, and remain seated. Keep your
+3. Launch the app with `--quest-benchmark` enabled and remain seated. Keep your
    head in the same position, facing forward. The sweeps translate/turn the mech;
    native headset tracking remains live. Press **Menu** to stop at any time.
    Loss of headset tracking/focus also stops the run.

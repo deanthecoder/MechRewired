@@ -1,7 +1,21 @@
 # Quest 3 export and setup
 
-The Quest build is a seated-cockpit VR build. It starts the Wolf desert campaign
-directly once compatible game data is present. If it is missing, VR shows a
+The Quest build is a seated-cockpit VR build. Once compatible game data is present,
+it offers the same two starting clan/level pairings as desktop: Jade Falcon
+(Stormcrow) and Wolf (Mad Dog). Point at an original clan insignia and pull the
+right trigger to deploy. The panel stays fixed in front of the seated player;
+desktop VR preview uses the mouse. The pause menu offers **CHOOSE MISSION**
+and **RESTART MISSION**; restarting retains the selected clan.
+After mission success (including extraction) or failure, a dedicated VR result
+panel offers **CHOOSE MISSION** and **REPLAY MISSION**. The finished mission stays
+paused; the Menu button repositions this panel instead of resuming play.
+The pause menu's **OBJECTIVES** page lists the original mission objectives with
+active, pending, or complete status and identifies optional objectives. The result
+panel shows completed and missed objectives. Both views show three entries per
+page; **NEXT OBJECTIVES** cycles through the full list without leaving the panel.
+`--jade`, `--wolf`, and `--campaign=jade|wolf` bypass selection. Existing VR smoke
+and benchmark flags also bypass it (Wolf by default).
+If game data is missing, VR shows a
 setup panel with a native Android file picker to import your own `MW2.PRJ`;
 the desktop drag-and-drop importer is not available in VR.
 Use `-- --vr-preview` for a flat desktop preview, or
@@ -115,7 +129,7 @@ can read the following names from its left or right controller tracker:
 | `grip`, `grip_click`, `aim_pose`, `grip_pose` | float, boolean, poses | Grip and controller poses |
 
 The seated mapping currently uses the left thumbstick for signed, persistent
-throttle: 20–100% forward, through neutral, then reverse. Click it to stop;
+throttle: 20–100% forward, through neutral, then reverse. Click it to toggle reactor power;
 return it to neutral before choosing another throttle. The right thumbstick
 steers the mech left/right and pitches the torso up/down. Head direction aims
 the weapons and moves the reticle. Automatic torso following is disabled after
@@ -126,6 +140,11 @@ Press the right index trigger to fire the selected weapon once; release it below
 to cycle weapons. Squeeze the left index trigger to select the next target;
 hold the left grip for jump jets. A and B also cycle weapons and targets,
 respectively. X inspects, Y recentres, and left Menu pauses.
+
+The pause menu contains **RESUME**, **RECENTER VIEW**, **OBJECTIVES**, **HELP**, **GRAPHICS
+SETTINGS**, **HEAT OVERRIDE**, **RESTART MISSION**, and **CHOOSE MISSION**.
+Graphics Settings retains its six existing toggles. Reactor power remains on
+left-stick click; inspect remains X.
 
 ## WIP scope and verification
 
@@ -222,13 +241,14 @@ HUD instrument drawing commands are cached between 30 Hz updates, while the
 reticle, target frames and projected navigation indicator update every frame.
 The HUD texture retains its 1280x720 resolution; this reduces CPU command
 generation rather than the texture's per-frame GPU rendering cost.
-HUD settings also have a separate HUD glow switch, disabled by default on Quest.
 Missile trails, fire, weapon flashes and other combat feedback remain; the
 smoke/dust toggle is not a master switch for every particle in the game.
 SSAO, screen-space reflections and the unverified stereo lens-flare compositor
 are disabled. Mobile does not create the localized volumetric ground fog.
-Other graphics options currently last for the mission session. The menu displays the most
-recent running FPS/frame interval, **not GPU time or a paused benchmark**.
+Other graphics options currently last for the mission session. FPS and frame
+interval are hidden during normal play. Use `--vr-diagnostics` to show them;
+`--quest-benchmark` and `--quest-combat-benchmark` enable their respective
+benchmark diagnostics. The mission result summary remains visible.
 
 ## Quest HUD coverage
 
@@ -283,15 +303,15 @@ still need hands-on testing.
 
 ### Reactor and inspect controls
 
-Left-stick click stops the mech while online. While shut down, it requests a reactor
-restart and keeps the throttle stopped until the stick returns to neutral. The
+Left-stick click toggles reactor power: shut down while online, restart while
+offline. It also stops the mech and keeps the throttle stopped until the stick returns to neutral. The
 existing critical-heat check still refuses restart while too hot; let the game run
 to cool down (the pause menu pauses cooling). A held click does not repeat.
 
 Left X inspects the selected actor or the active inspect objective when applicable.
-The pause menu's **PILOT CONTROLS** page exposes **REACTOR POWER**, **HEAT OVERRIDE**,
-and **INSPECT TARGET (X)**. Reactor power and inspect close the menu before acting.
-Override retains the existing higher heat limit and cannot be enabled while offline.
+Reactor power is toggled with left-stick click. **HEAT OVERRIDE** is a direct
+pause-menu action; it retains the existing higher heat limit and cannot be enabled
+while the reactor is offline.
 
 ### HUD panel seams
 
@@ -354,3 +374,9 @@ do not cast shadows. The dedicated terrain shadow proxy is omitted, and scatter
 rocks also do not cast. Mech and building geometry retains shadow casting.
 Desktop terrain shadows and long-range sun tuning remain unchanged. The sun
 shadow menu switch still works; turning it off disables the directional pass.
+
+### Help controller reference
+
+The pause menu's **HELP** page shows the Quest VR pilot controller reference. See the
+[controller guide image](../MechRewired/Assets/UI/quest-pilot-controls.png) when reading
+this document outside the game.

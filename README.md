@@ -52,3 +52,9 @@ The verified package is **PC / English / MS-DOS v1.1** (`mechwarrior2_dos_win.7z
 ## About the project
 
 MechRewired is unofficial and independently written. *MechWarrior*, *BattleTech*, and the original game assets belong to their respective owners; no affiliation or endorsement is implied. The source code is available under the [MIT License](LICENSE), while user-supplied game data remains the property of its owners. See [third-party licenses](docs/THIRD_PARTY_LICENSES.md) for included asset and dependency attributions.
+
+## Quest VR controls
+
+The controller reference is available from the in-game pause menu under **HELP**.
+
+![Quest VR pilot controller controls](MechRewired/Assets/UI/quest-pilot-controls.png)

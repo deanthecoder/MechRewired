@@ -172,3 +172,9 @@ to decode the GIF payload embedded in the original title artwork. StbImageSharp 
 C# port of Sean Barrett's stb_image and is distributed under the Unlicense or MIT;
 MechRewired uses it under the MIT option. The complete license is included at
 [`docs/licenses/StbImageSharp-LICENSE.txt`](licenses/StbImageSharp-LICENSE.txt).
+
+## Quest VR pilot controls artwork
+
+`MechRewired/Assets/UI/quest-pilot-controls.png` is an AI-generated controller guide
+created for MechRewired and approved for inclusion in the project. It is not third-party
+licensed artwork, and no third-party license is claimed for it.

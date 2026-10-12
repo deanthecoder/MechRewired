@@ -81,6 +81,8 @@ public partial class Main : Node3D
     private CombatDifficulty m_combatDifficulty = CombatDifficulty.Medium;
     private DirectoryInfo m_gameDataDirectory;
     private static ClanCampaignSelection s_pendingCampaignRestart;
+    private static ClanCampaignSelection s_activeVrCampaign = ClanCampaignSelection.Wolf;
+    private static bool s_showVrSelection;
 #if DEBUG
     private Node m_debugConsole;
     private PlayerHud m_debugHud;
@@ -151,12 +153,6 @@ public partial class Main : Node3D
 
     private void ContinueStartup(MechWarriorProjectArchive archive)
     {
-        if (QuestVrRuntime.Active)
-        {
-            s_pendingCampaignRestart = ClanCampaignSelection.None;
-            StartCampaign(archive, ClanCampaignSelection.Wolf);
-            return;
-        }
         if (s_pendingCampaignRestart != ClanCampaignSelection.None)
         {
             var restartCampaign = s_pendingCampaignRestart;
@@ -166,10 +162,27 @@ public partial class Main : Node3D
             return;
         }
 
-        if (TryGetRequestedCampaign(out var requestedCampaign))
+        var showVrSelection = QuestVrRuntime.Active && s_showVrSelection;
+        s_showVrSelection = false;
+        if (!showVrSelection && TryGetRequestedCampaign(out var requestedCampaign))
         {
             GD.Print($"MechRewired: launching {requestedCampaign} directly from the command line.");
             StartCampaign(archive, requestedCampaign);
+            return;
+        }
+
+        if (QuestVrRuntime.Active)
+        {
+            var arguments = OS.GetCmdlineUserArgs();
+            if (!showVrSelection && (QuestCombatBenchmark.IsSuiteActive ||
+                arguments.Contains("--vr-smoke") || arguments.Contains("--quest-benchmark") ||
+                arguments.Contains("--quest-combat-benchmark")))
+            {
+                StartCampaign(archive, s_activeVrCampaign);
+                return;
+            }
+
+            AddChild(new QuestVrClanSelection(archive, campaign => StartCampaign(archive, campaign)));
             return;
         }
 
@@ -251,6 +264,17 @@ public partial class Main : Node3D
     {
         var startupTimer = System.Diagnostics.Stopwatch.StartNew();
         var clanSelection = GetNodeOrNull<ClanSelectionScreen>("ClanSelection");
+        var vrSelection = GetNodeOrNull<QuestVrClanSelection>("QuestVrClanSelection");
+        vrSelection?.SetLoading(true);
+        // Let the loading message render before synchronous archive/scene construction.
+        if (vrSelection != null)
+        {
+            if (DisplayServer.GetName() == "headless")
+                await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            else
+                await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
+        }
+        if (QuestVrRuntime.Active) s_activeVrCampaign = campaign;
         clanSelection?.Hide();
         var (scenarioPath, playerMechPath) = campaign switch
         {
@@ -277,6 +301,7 @@ public partial class Main : Node3D
                 out var missionResources))
         {
             clanSelection?.Show();
+            vrSelection?.SetLoading(false);
             return;
         }
 
@@ -304,6 +329,7 @@ public partial class Main : Node3D
                 missionResources);
 
             GD.Print($"MISSION_STARTUP: scene assembled {startupTimer.Elapsed.TotalMilliseconds:F0} ms total.");
+            if (vrSelection != null) vrSelection.Visible = false;
             // Audio runs independently of rendering. Keep deployment and mission time from
             // starting while the renderer uploads resources and prepares the first frame.
             var tree = GetTree();
@@ -334,10 +360,17 @@ public partial class Main : Node3D
         {
             GD.PushError($"MechRewired cannot render the scene: {exception.Message}");
             clanSelection?.Show();
+            if (vrSelection != null)
+            {
+                vrSelection.Visible = true;
+                vrSelection.SetLoading(false);
+                vrSelection.ActivateCamera();
+            }
             return;
         }
 
         clanSelection?.QueueFree();
+        vrSelection?.QueueFree();
     }
 
     private bool TryOpenGameArchive(out MechWarriorProjectArchive archive, out string error)
@@ -2367,21 +2400,27 @@ public partial class Main : Node3D
                 effects: battlefieldEffects,
                 terrainMaterials: levelRoot.FindChildren("*", "MeshInstance3D", true, false)
                     .OfType<MeshInstance3D>().Select(mesh => mesh.MaterialOverride).OfType<ShaderMaterial>());
-            var vrMenu = new QuestVrMenu(rig.Camera, rig.RightAim, rig.Right, graphics, playerHud,
+            var vrMenu = new QuestVrMenu(rig.Camera, rig.RightAim, rig.Right, graphics,
                 rig.RecenterSeat, () =>
                 {
                     GetTree().Paused = false;
+                    s_pendingCampaignRestart = s_activeVrCampaign;
                     GetTree().CallDeferred(SceneTree.MethodName.ReloadCurrentScene);
                 });
+            vrMenu.SelectClan = () =>
+            {
+                s_showVrSelection = true;
+                GetTree().Paused = false;
+                GetTree().CallDeferred(SceneTree.MethodName.ReloadCurrentScene);
+            };
             vrMenu.Pilot = playerMech;
+            vrMenu.Mission = playerMission;
             var benchmark = new QuestPerformanceBenchmark(levelRoot, playerMech, playerHud, missionSky,
                 terrainSurface, terrainRocks, battlefieldActors, enemyMechs,
                 Path.GetFileNameWithoutExtension(missionResources.ScenarioEntry.Name));
             var combatBenchmark = new QuestCombatBenchmark(playerMech, playerHud, graphics, missionSky,
                 terrainSurface, terrainRocks, enemyMechs,
                 Path.GetFileNameWithoutExtension(missionResources.ScenarioEntry.Name));
-            vrMenu.RunBenchmark = benchmark.Start;
-            vrMenu.RunCombatBenchmark = combatBenchmark.Start;
             AddChild(vrMenu);
             rig.Menu = vrMenu;
             AddChild(benchmark);

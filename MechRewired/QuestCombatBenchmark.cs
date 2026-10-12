@@ -88,14 +88,14 @@ public sealed partial class QuestCombatBenchmark : Node
             .ThenByDescending(e => e.MaximumHealth).ThenBy(e => e.Name.ToString(), StringComparer.Ordinal).FirstOrDefault();
         if (target == null)
         {
-            m_player.VrRig.Menu.ShowMissionResult("COMBAT TEST: NO ENEMY AVAILABLE");
+            m_player.VrRig.Menu.ShowDiagnosticResult("COMBAT TEST: NO ENEMY AVAILABLE");
             return;
         }
         s_session = new Session(target.Name, m_mission, CaptureOptions());
         if (!QuestCombatLogArchive.BeginRun(s_session.RunId))
         {
             s_session = null;
-            m_player.VrRig.Menu.ShowMissionResult("COMBAT TEST: CANNOT SAVE LOG");
+            m_player.VrRig.Menu.ShowDiagnosticResult("COMBAT TEST: CANNOT SAVE LOG");
             QuestCombatLogArchive.EndRun();
             return;
         }
@@ -127,7 +127,7 @@ public sealed partial class QuestCombatBenchmark : Node
         {
             s_session = null;
             QuestCombatLogArchive.EndRun();
-            m_player.VrRig.Menu.ShowMissionResult("COMBAT TEST: CANNOT SAVE LOG");
+            m_player.VrRig.Menu.ShowDiagnosticResult("COMBAT TEST: CANNOT SAVE LOG");
             return;
         }
         Reload();
@@ -171,7 +171,7 @@ public sealed partial class QuestCombatBenchmark : Node
                     GD.Print($"QUEST_COMBAT_RESUMED: mission={m_mission} paused={GetTree().Paused}");
                 }
                 else
-                    rig.Menu.ShowMissionResult("COMBAT TEST " + session.Result.ToUpperInvariant() + " / LOGGED");
+                    rig.Menu.ShowDiagnosticResult("COMBAT TEST " + session.Result.ToUpperInvariant() + " / LOGGED");
                 return;
             }
             if (session.Mission != m_mission) throw new InvalidOperationException("Mission changed during the combat suite.");
@@ -317,7 +317,7 @@ public sealed partial class QuestCombatBenchmark : Node
                 PrintJson("STATUS", JsonSerializer.Serialize(new { runId = session.RunId, status = "restore-failed" }));
                 QuestCombatLogArchive.EndRun();
                 s_session = null;
-                if (GodotObject.IsInstanceValid(rig)) rig.Menu.ShowMissionResult("COMBAT TEST: RESTORE FAILED");
+                if (GodotObject.IsInstanceValid(rig)) rig.Menu.ShowDiagnosticResult("COMBAT TEST: RESTORE FAILED");
             }
             if (s_session == null) return;
         }
@@ -516,7 +516,7 @@ public sealed partial class QuestCombatBenchmark : Node
             PrintJson("STATUS", JsonSerializer.Serialize(new { runId = s_session?.RunId, status = "reload-failed", error = error.ToString() }));
             QuestCombatLogArchive.EndRun();
             s_session = null;
-            m_player.VrRig.Menu.ShowMissionResult("COMBAT TEST: RESTART FAILED");
+            m_player.VrRig.Menu.ShowDiagnosticResult("COMBAT TEST: RESTART FAILED");
             GD.PushError("QUEST_COMBAT_RELOAD_FAILED: " + error);
         }).CallDeferred();
     }

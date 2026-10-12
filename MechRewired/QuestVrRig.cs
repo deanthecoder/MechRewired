@@ -119,7 +119,7 @@ public partial class QuestVrRig : XROrigin3D
         var rightTracked = Right.GetIsActive();
         if (sessionFocused && headTracked && m_seatCentered) m_hasFocusedSession = true;
         var menuPressed = Pressed("menu", leftTracked && Left.IsButtonPressed("menu_button"));
-        var stopPressed = Pressed("stop", leftTracked && Left.IsButtonPressed("primary_click"));
+        var reactorPressed = Pressed("reactor", leftTracked && Left.IsButtonPressed("primary_click"));
         var weaponButtonPressed = Pressed("weapon_button", rightTracked && Right.IsButtonPressed("ax_button"));
         var weaponGripPressed = Pressed("weapon_grip", rightTracked && Right.GetFloat("grip") > 0.65f);
         var targetButtonPressed = Pressed("target_button", rightTracked && Right.IsButtonPressed("by_button"));
@@ -175,9 +175,9 @@ public partial class QuestVrRig : XROrigin3D
         if (rightTracked && fireTrigger < 0.45f) m_requireRelease = false;
         if (locomotionTracked && !jumpJetsHeld) m_jumpJetsRequireRelease = false;
         JumpJetsRequested = locomotionTracked && jumpJetsHeld && !m_jumpJetsRequireRelease;
-        if (stopPressed)
+        if (reactorPressed)
         {
-            if (m_player.IsShutdown) m_player.VrToggleReactor();
+            m_player.VrToggleReactor();
             m_player.StopVrMovement();
             m_waitForThrottleCenter = true;
         }

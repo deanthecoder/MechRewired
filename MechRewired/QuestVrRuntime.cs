@@ -6,7 +6,7 @@ using Godot;
 
 namespace MechRewired;
 
-/// <summary>Explicit desktop opt-in; Android always launches the seated Wolf VR prototype.</summary>
+/// <summary>Explicit desktop opt-in; Android always launches seated VR.</summary>
 public static class QuestVrRuntime
 {
     public static bool Active { get; private set; }

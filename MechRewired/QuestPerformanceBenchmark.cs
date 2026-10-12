@@ -230,7 +230,7 @@ public sealed partial class QuestPerformanceBenchmark : Node
             }
             var result = completed ? "complete" : m_cancelled ? "cancelled" : "failed";
             GD.Print("QUEST_BENCHMARK_STATUS: " + result);
-            menu.ShowMissionResult(completed ? "BENCHMARK COMPLETE / RESULTS LOGGED" : "BENCHMARK STOPPED / PARTIAL LOGS");
+            menu.ShowDiagnosticResult(completed ? "BENCHMARK COMPLETE / RESULTS LOGGED" : "BENCHMARK STOPPED / PARTIAL LOGS");
             GD.Print("QUEST_BENCHMARK_OUTPUT: " + m_output);
         }
     }

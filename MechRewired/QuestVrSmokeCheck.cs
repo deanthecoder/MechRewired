@@ -6,6 +6,7 @@
 // Godot 4.7 exposes SetInput only on the base C# binding, even for XRControllerTracker.
 #pragma warning disable CS0618
 using Godot;
+using MechRewired.Missions;
 
 namespace MechRewired;
 
@@ -35,7 +36,7 @@ public partial class QuestVrSmokeCheck : Node
             await Frames(5);
             var rig = m_player.VrRig;
             var sun = GetTree().Root.FindChildren("SunLight", "DirectionalLight3D", true, false)
-                .OfType<DirectionalLight3D>().Single();
+                .OfType<DirectionalLight3D>().Single(light => light.GetViewport() == m_player.GetViewport());
             Check(sun.ShadowEnabled && sun.DirectionalShadowMode == DirectionalLight3D.ShadowMode.Parallel2Splits,
                 "Quest sun shadows default on with two cascades");
             Check(Math.Abs(sun.DirectionalShadowMaxDistance - 500.0f) < 0.001f &&
@@ -55,9 +56,7 @@ public partial class QuestVrSmokeCheck : Node
             Check(rig.Position.DistanceTo(new Vector3(0, 0.12f, 0.10f)) < 0.001f,
                 "seat is raised 12 cm and moved back 10 cm");
             Check(m_hud.GetViewport() is SubViewport && m_hud.VrSurface != null, "HUD uses stereo-visible surface");
-            Check(m_hud.HudGlow == 0.0f && rig.Menu.FindChildren("*", "Label3D", true, false)
-                .OfType<Label3D>().Any(label => label.Text == "HUD GLOW"),
-                "Quest HUD glow defaults off and has a menu switch");
+            Check(m_hud.HudGlow == 0.0f, "Quest HUD glow defaults off");
             Check(rig.Left.GetIsActive() && rig.Right.GetIsActive(), "synthetic controllers tracked");
             await CheckNativeCameraRecenter(rig);
 
@@ -88,6 +87,14 @@ public partial class QuestVrSmokeCheck : Node
             left.SetInput("primary_click", true);
             await Frames(3);
             Check(m_player.Drive.ThrottlePercent == 0, "stop wins over held throttle");
+            Check(m_player.IsShutdown, "left stick click shuts down an online reactor");
+            await Frames(3);
+            Check(m_player.IsShutdown, "held power click does not restart the reactor");
+            left.SetInput("primary_click", false);
+            await Frames(3);
+            left.SetInput("primary_click", true);
+            await Frames(3);
+            Check(!m_player.IsShutdown, "next left stick click powers up again");
             left.SetInput("primary_click", false);
             await Frames(3);
             Check(m_player.Drive.ThrottlePercent == 0, "stop waits for neutral stick");
@@ -121,7 +128,7 @@ public partial class QuestVrSmokeCheck : Node
             left.SetInput("primary_click", false);
             await Frames(3);
             Check(rig.Menu.FindChildren("*", "Label3D", true, false).OfType<Label3D>()
-                .Any(label => label.Text == "PILOT CONTROLS  >"), "reactor controls are discoverable in pause menu");
+                .Any(label => label.Text == "HEAT OVERRIDE"), "heat override is available in pause menu");
             var inspections = 0;
             m_player.InspectTargetRequested += () => inspections++;
             left.SetInput("ax_button", true);
@@ -235,12 +242,54 @@ public partial class QuestVrSmokeCheck : Node
             await Frames(4);
             await Capture("quest-vr-menu.png");
             typeof(QuestVrMenu).GetMethod("SetPage", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
-                .Invoke(rig.Menu, new object[] { 4 });
+                .Invoke(rig.Menu, new object[] { 1 });
             await Frames(3);
-            await Capture("quest-vr-pilot-controls.png");
+            await Capture("quest-vr-graphics.png");
+            var setPage = typeof(QuestVrMenu).GetMethod("SetPage",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+            var nextObjectives = typeof(QuestVrMenu).GetMethod("NextObjectives",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+            var mission = rig.Menu.Mission;
+            var objectivePageCount = Math.Max(1, (mission.Objectives.Count + 2) / 3);
+            setPage.Invoke(rig.Menu, new object[] { 4 });
+            var objectivesDisplayed = new List<string>();
+            for (var page = 0; page < objectivePageCount; page++)
+            {
+                CheckObjectivePage(rig.Menu, mission, page, resolved: false);
+                foreach (var description in VisibleObjectiveDescriptions(rig.Menu))
+                {
+                    objectivesDisplayed.Add(description);
+                }
+                if (page + 1 < objectivePageCount)
+                {
+                    nextObjectives.Invoke(rig.Menu, null);
+                }
+            }
+            Check(objectivesDisplayed.SequenceEqual(mission.Objectives.Select(objective => objective.Description)),
+                $"objectives pages cover all {mission.Objectives.Count} mission objectives in {objectivePageCount} pages");
             rig.Menu.Close();
-            rig.Menu.ShowMissionResult("MISSION FAILED / SMOKE CHECK");
+            rig.Menu.ShowMissionResult("MISSION FAILED");
             Check(GetTree().Paused && rig.Menu.IsOpen && rig.Camera.Current, "mission result retains tracked view and opens restart menu");
+            var resultLabels = rig.Menu.FindChildren("*", "Label3D", true, false).OfType<Label3D>()
+                .Where(label => label.IsVisibleInTree()).Select(label => label.Text).ToArray();
+            Check(resultLabels.Contains("CHOOSE MISSION") && resultLabels.Contains("REPLAY MISSION") &&
+                !resultLabels.Contains("RESUME"), "mission result offers selection and replay without resume");
+            var resultObjectiveCount = 0;
+            for (var page = 0; page < objectivePageCount; page++)
+            {
+                var pageDescriptions = VisibleObjectiveDescriptions(rig.Menu);
+                CheckObjectivePage(rig.Menu, mission, page, resolved: true);
+                resultObjectiveCount += pageDescriptions.Count;
+                if (page + 1 < objectivePageCount)
+                {
+                    nextObjectives.Invoke(rig.Menu, null);
+                }
+            }
+            Check(resultObjectiveCount == mission.Objectives.Count,
+                $"mission result displays all {mission.Objectives.Count} objective descriptions across {objectivePageCount} pages");
+            rig.Menu.Toggle();
+            rig.Menu.Close();
+            Check(GetTree().Paused && rig.Menu.IsOpen, "finished mission cannot resume through menu toggle or close");
             GD.Print("QUEST_VR_SMOKE_PASS");
             GetTree().Quit();
         }
@@ -442,6 +491,41 @@ public partial class QuestVrSmokeCheck : Node
     {
         if (!condition) throw new InvalidOperationException(message);
         GD.Print("VR_CHECK: " + message);
+    }
+
+    private static IReadOnlyList<string> VisibleObjectiveDescriptions(QuestVrMenu menu)
+    {
+        var content = menu.FindChildren("ObjectiveSummary", "Node3D", true, false)
+            .OfType<Node3D>().Single();
+        var labels = content.FindChildren("*", "Label3D", true, false)
+            .OfType<Label3D>().Where(label => label.IsVisibleInTree()).ToArray();
+        var mission = menu.Mission;
+        return labels.Where(label => mission.Objectives.Any(objective => objective.Description == label.Text))
+            .Select(label => label.Text).ToArray();
+    }
+
+    private static void CheckObjectivePage(QuestVrMenu menu, PlayerMission mission, int page, bool resolved)
+    {
+        var content = menu.FindChildren("ObjectiveSummary", "Node3D", true, false)
+            .OfType<Node3D>().Single();
+        var labels = content.FindChildren("*", "Label3D", true, false)
+            .OfType<Label3D>().Where(label => label.IsVisibleInTree()).ToArray();
+        var expected = mission.Objectives.Skip(page * 3).Take(3).ToArray();
+        var descriptions = labels.Where(label => expected.Any(objective => objective.Description == label.Text)).ToArray();
+        var statuses = labels.Where(label => label.Text.StartsWith("COMPLETE", StringComparison.Ordinal) ||
+                                             label.Text.StartsWith("MISSED", StringComparison.Ordinal) ||
+                                             label.Text.StartsWith("ACTIVE", StringComparison.Ordinal) ||
+                                             label.Text.StartsWith("PENDING", StringComparison.Ordinal)).ToArray();
+        Check(descriptions.Length == expected.Length &&
+              descriptions.Select(label => label.Text).SequenceEqual(expected.Select(objective => objective.Description)),
+            $"objective page {page + 1} displays its expected {expected.Length} descriptions");
+        Check(statuses.Length == expected.Length && statuses.Zip(expected).All(pair =>
+                pair.First.Text.StartsWith(mission.GetState(pair.Second.Id) == MissionObjectiveState.Completed
+                    ? "COMPLETE" : resolved ? "MISSED"
+                    : mission.GetState(pair.Second.Id) == MissionObjectiveState.Active ? "ACTIVE" : "PENDING",
+                    StringComparison.Ordinal) &&
+                pair.First.Text.EndsWith(pair.Second.IsOptional ? "OPTIONAL" : "PRIMARY", StringComparison.Ordinal)),
+            $"objective page {page + 1} statuses match mission state and primary/optional type{(resolved ? " after resolution" : string.Empty)}");
     }
 }
 #endif
