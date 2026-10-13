@@ -50,7 +50,7 @@ Run these commands from the repository root:
 
 ```sh
 scripts/quest.sh build    # Build the signed release APK for local Quest install.
-scripts/quest.sh install  # Build and install it; stage local game data if present.
+scripts/quest.sh install  # Build and install it, including local game data.
 scripts/quest.sh share    # Build the signed Alpha APK for a separate Meta upload.
 ```
 
@@ -79,22 +79,28 @@ data and explicit approval first.
 
 ## Install and import game data
 
-By default, APKs built by `build`, `install`, or `share` do not include original
-game data. For private Alpha testing with your own local archive, explicitly opt
-in when building the Alpha APK:
+During private beta testing, APKs built by `build`, `install`, or `share` include
+`local/game-data/MW2.PRJ` by default. Set `MW2_PRJ=/path/to/MW2.PRJ` to use a
+different archive. A missing or empty source file stops the build with an error.
+The APK imports its bundled archive automatically on first launch when no private
+archive is already present; existing imported data is preserved. Testers only need
+to install the APK and launch the game, with no file picker or separate data copy.
+
+To build an APK that requires users to supply their own game data:
 
 ```sh
-QUEST_INCLUDE_TEST_DATA=1 scripts/quest.sh share
+QUEST_INCLUDE_TEST_DATA=0 scripts/quest.sh share
 ```
 
-The command includes `local/game-data/MW2.PRJ`, or the file selected with
-`MW2_PRJ=/path/to/MW2.PRJ`, in that APK. Upload an opted-in APK only to the
+The override applies to `build` and `install` as well. Standard Godot export
+presets and the desktop file-selection flow remain unchanged.
+Upload an APK containing the archive only to the
 private Meta Alpha channel for the intended testers. Never commit the archive
 to Git or distribute that APK publicly or through a Production channel. `share`
 only builds the APK; it does not upload it. See [GAME_DATA.md](GAME_DATA.md)
 for compatible editions and licensing notes.
 
-By default, `install` looks for `local/game-data/MW2.PRJ`; set
+When using `QUEST_INCLUDE_TEST_DATA=0`, `install` looks for `local/game-data/MW2.PRJ`; set
 `MW2_PRJ=/path/to/MW2.PRJ` to use a different file. If found, the script copies
 it to `Downloads/MechRewired/MW2.PRJ` on the headset and verifies its SHA-256.
 This only stages the file in Downloads. In the headset, select **IMPORT
@@ -102,9 +108,8 @@ MW2.PRJ**, choose `Downloads/MechRewired/MW2.PRJ` in the Android file picker,
 and confirm the import to copy it into the app's private storage. If the script
 reports that no local file was copied, place your own `MW2.PRJ` in that
 Downloads folder yourself, then import it from the headset. The app starts the
-mission after a successful import. An opted-in private Alpha APK imports its
-bundled archive on startup only when no private archive is already present, so
-an existing imported archive is preserved.
+mission after a successful import. Bundled beta installs skip this separate
+Downloads copy because the archive is already in the APK.
 
 Use `scripts/quest.sh data` to stage or verify the local file without rebuilding
 or reinstalling. Matching staged data is left in place; a changed local file is

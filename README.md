@@ -31,9 +31,10 @@ Bring your own game data from a legitimate DOS installation of *MechWarrior 2: 3
 To run from this checkout, follow the [build and launch guide](docs/DEVELOPMENT.md#build-and-run).
 
 For signed Quest 3 builds, headset installation, and importing your own
-`MW2.PRJ`, see the [Quest VR setup guide](docs/QUEST_VR.md). Quest APKs do not
-include game data by default; private Alpha test builds can opt in, and Meta
-publishing is a separate step.
+`MW2.PRJ`, see the [Quest VR setup guide](docs/QUEST_VR.md). During private beta
+testing, the Quest build script includes your local archive by default for
+automatic first-launch setup. Set `QUEST_INCLUDE_TEST_DATA=0` to omit it;
+Meta publishing is a separate step.
 
 The verified package is **PC / English / MS-DOS v1.1** (`mechwarrior2_dos_win.7z`); use the PC package on macOS and Linux too. For detailed compatibility, storage, and setup help, see [original game setup](docs/GAME_DATA.md).
 

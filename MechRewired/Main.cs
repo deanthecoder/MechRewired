@@ -422,8 +422,8 @@ public partial class Main : Node3D
     /// Imports a deliberately packaged private-test archive on first Android launch.
     /// </summary>
     /// <remarks>
-    /// The normal export contains no archive. The existence gate means this path is only available to a
-    /// private test APK that has explicitly staged <c>TestData/MW2.PRJ</c>, and never overwrites app data.
+    /// The existence gate means this path is only available to a private test APK whose build staged
+    /// <c>TestData/MW2.PRJ</c>, and never overwrites app data. Standard exports contain no archive.
     /// </remarks>
     private static void InstallBundledPrivateTestArchive()
     {

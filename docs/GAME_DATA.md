@@ -1,6 +1,7 @@
 # Original game setup
 
-MechRewired is an independent engine. It does not ship the original MechWarrior 2 data.
+MechRewired is an independent engine. Standard builds do not ship the original MechWarrior 2 data;
+the private Quest beta packaging exception is described below.
 Use a copy you have the right to use.
 
 ## Quick start
@@ -24,7 +25,7 @@ installation instead. A renamed disc image or archive is not a supported convers
 
 The download page is a third-party listing. Its availability does not establish publisher
 permission to redistribute the game. MechRewired links to the page and imports user-supplied
-data; it does not mirror, bundle, or automatically download the commercial files.
+data; standard builds do not bundle or automatically download the commercial files.
 
 ## What is imported
 
@@ -67,9 +68,10 @@ The startup log prints the SHA-256 of each validated private `MW2.PRJ`; this can
 without exposing the archive outside the app. A local Quest install does not upload game data or publish
 an update to other testers.
 
-For this private testing Alpha, the optional `QUEST_INCLUDE_TEST_DATA=1` build includes the
-local archive and imports it automatically on first launch. This preserves any existing private
-archive. Keep data-inclusive builds on the private Alpha channel; see [QUEST_VR.md](QUEST_VR.md).
+During private beta testing, `scripts/quest.sh build`, `install`, and `share` include the
+local archive by default and import it automatically on first launch. This preserves any existing
+private archive. Set `QUEST_INCLUDE_TEST_DATA=0` when building to retain the manual import flow.
+Keep data-inclusive builds on the private Alpha channel; see [QUEST_VR.md](QUEST_VR.md).
 
 To reopen setup, launch the exported application with `-- --setup`, or from the repository:
 

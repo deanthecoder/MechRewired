@@ -84,6 +84,9 @@ connect_quest() {
 project_dir="$repo_dir/MechRewired"
 apk_path="$project_dir/builds/MechRewired-Quest3.apk"
 game_data_path="${MW2_PRJ:-$repo_dir/local/game-data/MW2.PRJ}"
+# Quest builds include the archive during private beta testing. Set to 0 for
+# builds that require players to import their own file.
+include_test_data="${QUEST_INCLUDE_TEST_DATA:-1}"
 package_id="uk.co.deanthecoder.mechrewired"
 
 restore_project_config() {
@@ -169,6 +172,14 @@ fetch_benchmarks() {
 
 build_quest() {
   local output_path="$1" signing_dir signing_key signing_password export_status export_log quest_dotnet_dir
+  if [[ "$include_test_data" != 0 && "$include_test_data" != 1 ]]; then
+    printf 'QUEST_INCLUDE_TEST_DATA must be 0 or 1.\n' >&2
+    exit 1
+  fi
+  if [[ "$include_test_data" == 1 && ! -s "$game_data_path" ]]; then
+    printf 'Quest beta builds require a nonempty MW2.PRJ at %s. Set MW2_PRJ to your archive, or QUEST_INCLUDE_TEST_DATA=0 to build without it.\n' "$game_data_path" >&2
+    exit 1
+  fi
   # IDE shells can force MSBuild from a different SDK than the dotnet executable.
   # Let the selected dotnet SDK resolve its own tools for this build process.
   unset MSBUILD_EXE_PATH MSBuildSDKsPath MSBuildExtensionsPath
@@ -219,7 +230,7 @@ build_quest() {
   project_config_backup="$(mktemp "${TMPDIR:-/tmp}/mechrewired-project.XXXXXX")"
   cp "$project_dir/project.godot" "$project_config_backup"
   trap restore_project_config EXIT
-  if [[ "${QUEST_INCLUDE_TEST_DATA:-0}" == 1 ]]; then
+  if [[ "$include_test_data" == 1 ]]; then
     if [[ ! -f "$game_data_path" || -e "$project_dir/TestData" ]]; then
       printf 'Private test data requires a local MW2.PRJ and no existing project TestData directory.\n' >&2
       exit 1
@@ -253,7 +264,7 @@ build_quest() {
     printf 'Quest Release export failed. See %s and the Godot MSBuild panel for details.\n' "$export_log" >&2
     exit 1
   fi
-  if [[ "${QUEST_INCLUDE_TEST_DATA:-0}" == 1 ]]; then
+  if [[ "$include_test_data" == 1 ]]; then
     python3 "$repo_dir/scripts/validate-quest-apk.py" "$output_path" --require-test-data
   else
     python3 "$repo_dir/scripts/validate-quest-apk.py" "$output_path"
@@ -287,7 +298,11 @@ case "${1:-install}" in
         exit 1
       fi
       printf '%s\n' "$install_result"
-      install_game_data
+      if [[ "$include_test_data" == 0 ]]; then
+        install_game_data
+      else
+        printf 'Bundled MW2.PRJ will be imported automatically on first launch; existing app data is preserved.\n'
+      fi
       printf 'Installed release APK locally. No Meta channel or tester build was changed.\n'
     fi
     ;;

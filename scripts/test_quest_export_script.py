@@ -3,7 +3,6 @@
 import json
 import os
 import platform
-import shutil
 import subprocess
 import tempfile
 import unittest
@@ -56,7 +55,10 @@ class QuestExportScriptTests(unittest.TestCase):
                      self.root / "local" / "game-data"):
             path.mkdir(parents=True, exist_ok=True)
 
-        shutil.copy2(QUEST_SCRIPT, self.scripts_dir / "quest.sh")
+        # Windows checkouts can expose CRLF here; normalize for the bash copy.
+        (self.scripts_dir / "quest.sh").write_bytes(
+            QUEST_SCRIPT.read_bytes().replace(b"\r\n", b"\n")
+        )
         (self.project_dir / "project.godot").write_text("project-original\n", encoding="utf-8")
         (self.project_dir / "MechRewired.sln").write_text("solution\n", encoding="utf-8")
         (self.project_dir / "export_presets.cfg").write_text('include_filter=""\n', encoding="utf-8")
@@ -80,8 +82,14 @@ class QuestExportScriptTests(unittest.TestCase):
         self.godot.write_text(
             "#!/usr/bin/env python3\n"
             "import json, os, sys\n"
+            "from pathlib import Path\n"
+            "project = Path(os.environ['FAKE_PROJECT_DIR'])\n"
+            "staged_data = project / 'TestData' / 'MW2.PRJ'\n"
             "with open(os.environ['FAKE_TRACE'], 'a', encoding='utf-8') as trace:\n"
-            "    trace.write(json.dumps({'args': sys.argv[1:], 'overrides': {\n"
+            "    trace.write(json.dumps({'args': sys.argv[1:],\n"
+            "        'stagedDataHex': staged_data.read_bytes().hex() if staged_data.is_file() else None,\n"
+            "        'includeFilter': (project / 'export_presets.cfg').read_text(encoding='utf-8'),\n"
+            "        'overrides': {\n"
             + ",\n".join(
                 f"        {name!r}: os.environ.get({name!r}, '<unset>')"
                 for name in MSBUILD_OVERRIDES
@@ -114,18 +122,22 @@ class QuestExportScriptTests(unittest.TestCase):
             encoding="utf-8",
         )
 
-    def run_build(self, mode="success", poison_msbuild=True, poison_dotnet=False):
+    def run_build(self, mode="success", poison_msbuild=True, poison_dotnet=False,
+                  include_test_data=None, action="build"):
         env = os.environ.copy()
+        env.pop("QUEST_INCLUDE_TEST_DATA", None)
         env.update({
             "GODOT_BIN": str(self.godot),
+            "FAKE_PROJECT_DIR": str(self.project_dir),
             "QUEST_SIGNING_DIR": str(self.signing_dir),
-            "QUEST_INCLUDE_TEST_DATA": "1",
             "MW2_PRJ": str(self.game_data),
             "FAKE_TRACE": str(self.trace),
             "FAKE_GODOT_MODE": mode,
             "JAVA_HOME": str(self.root / "fake-java"),
             "ANDROID_HOME": str(self.root / "fake-android-sdk"),
         })
+        if include_test_data is not None:
+            env["QUEST_INCLUDE_TEST_DATA"] = include_test_data
         if poison_msbuild:
             env.update({name: f"inherited-bad-{name}" for name in MSBUILD_OVERRIDES})
         else:
@@ -139,7 +151,7 @@ class QuestExportScriptTests(unittest.TestCase):
             env["DOTNET_ROOT_X64"] = private_root
             env["DOTNET_HOST_PATH"] = str(Path(private_root) / "dotnet")
         return subprocess.run(
-            ["bash", str(self.scripts_dir / "quest.sh"), "build"],
+            ["bash", str(self.scripts_dir / "quest.sh"), action],
             cwd=self.root,
             env=env,
             text=True,
@@ -163,7 +175,7 @@ class QuestExportScriptTests(unittest.TestCase):
         export_log = self.build_dir / "MechRewired-Quest3.apk.export.log"
         self.assertIn(content, export_log.read_text(encoding="utf-8"))
 
-    def test_build_clears_inherited_msbuild_overrides_and_restores_temporary_files(self):
+    def test_default_build_bundles_game_data_and_requires_it_during_validation(self):
         result = self.run_build()
 
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
@@ -171,8 +183,51 @@ class QuestExportScriptTests(unittest.TestCase):
         godot_rows = [row for row in rows if "args" in row]
         self.assertEqual(1, len(godot_rows))
         self.assertEqual({name: "<unset>" for name in MSBUILD_OVERRIDES}, godot_rows[0]["overrides"])
-        self.assertEqual(1, len([row for row in rows if "validator" in row]))
+        self.assertEqual(self.game_data.read_bytes().hex(), godot_rows[0]["stagedDataHex"])
+        self.assertIn('include_filter="TestData/MW2.PRJ"', godot_rows[0]["includeFilter"])
+        validator_rows = [row for row in rows if "validator" in row]
+        self.assertEqual(1, len(validator_rows))
+        self.assertIn("--require-test-data", validator_rows[0]["validator"])
         self.assert_persistent_export_log_contains("fake Android export succeeded")
+        self.assert_configs_restored()
+
+    def test_default_share_bundles_game_data_and_requires_it_during_validation(self):
+        result = self.run_build(action="share")
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        godot_rows = [row for row in self.trace_rows() if "args" in row]
+        self.assertEqual(1, len(godot_rows))
+        self.assertEqual(self.game_data.read_bytes().hex(), godot_rows[0]["stagedDataHex"])
+        self.assertIn('include_filter="TestData/MW2.PRJ"', godot_rows[0]["includeFilter"])
+        validator_rows = [row for row in self.trace_rows() if "validator" in row]
+        self.assertEqual(1, len(validator_rows))
+        self.assertIn("--require-test-data", validator_rows[0]["validator"])
+        self.assertTrue((self.build_dir / "MechRewired-Alpha.apk.export.log").exists())
+        self.assertIn("Nothing was uploaded", result.stdout)
+        self.assert_configs_restored()
+
+    def test_explicit_zero_opts_out_of_bundled_game_data(self):
+        result = self.run_build(include_test_data="0")
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        godot_rows = [row for row in self.trace_rows() if "args" in row]
+        self.assertEqual(1, len(godot_rows))
+        self.assertIsNone(godot_rows[0]["stagedDataHex"])
+        self.assertEqual('include_filter=""\n', godot_rows[0]["includeFilter"])
+        validator_rows = [row for row in self.trace_rows() if "validator" in row]
+        self.assertEqual(1, len(validator_rows))
+        self.assertNotIn("--require-test-data", validator_rows[0]["validator"])
+        self.assertNotIn("Including your MW2.PRJ", result.stdout)
+        self.assert_configs_restored()
+
+    def test_default_build_fails_early_when_game_data_is_missing(self):
+        self.game_data.unlink()
+
+        result = self.run_build()
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("MW2.PRJ", result.stderr)
+        self.assertEqual([], self.trace_rows())
         self.assert_configs_restored()
 
     def test_managed_publish_failure_with_zero_godot_exit_stops_before_validator(self):
